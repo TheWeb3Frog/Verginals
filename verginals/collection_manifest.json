@@ -1,0 +1,44 @@
+{
+  "name": "Alpha Verginals",
+  "symbol": "ALPHA",
+  "description": "The first ever Verginals collection on Verge",
+  "supply": 3333,
+  "chain": "verge",
+  "protocol": "verginals",
+  "website": "verginals.com",
+  "creator": "@TheWeb3Frog",
+  "artist": "Gecko",
+  "media_type": "image/webp",
+  "dimensions": "560x560",
+  "royalty_bps": 0,
+  "houses": {
+    "Fire": 1111,
+    "Water": 1111,
+    "Earth": 1111
+  },
+  "attributes": [
+    "Background",
+    "Body",
+    "Collar",
+    "Ears",
+    "Face",
+    "Rune",
+    "House"
+  ],
+  "first_mint_inscription": "1881f1beffd984a4c1bf78166006ab76a80399f91ad853fc734ecd15695c10bci0",
+  "provenance_hash": "bf7d94529ea8865f53cf8a0428dbe8fb425c3d7e921fe929c4a062582b85fda8",
+  "provenance_formula": "sha256(concat of '<number>:<sha256(image_bytes)>\\n' for number=1..supply)",
+  "generation_seed": "15674595378966122524",
+  "membership": {
+    "scheme": "ord-parent-child",
+    "parent_tag": 3,
+    "root": "this-inscription",
+    "note": "Once inscribed, this manifest is the collection root. Every Alpha Verginal minted after the root carries this inscription's id in envelope tag 3, and its reveal spends the root's carrier utxo, so membership is verifiable on-chain.",
+    "genesis": {
+      "note": "The Genesis Alpha Verginal is special: minted before the collection root itself existed, it carries no tag-3 parent. Where every later Verginal proves its membership by descent, spending the root's carrier to seal an unbroken on-chain lineage, the Genesis proves it by provenance alone, its image forever bound into the provenance_hash below. It is the seed from which the collection grew. This list is finalized the moment the root is inscribed.",
+      "inscriptions": [
+        "1881f1beffd984a4c1bf78166006ab76a80399f91ad853fc734ecd15695c10bci0"
+      ]
+    }
+  }
+}

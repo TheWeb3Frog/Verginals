@@ -1,0 +1,32 @@
+node_modules/
+*.log
+.DS_Store
+
+# Secrets & runtime data: NEVER commit
+*.conf
+VERGE.conf
+.env
+.env.*
+!.env.example
+verginals-pay-jobs/
+*.wif
+*.pem
+*.key
+rpc.env
+
+# Persistent runtime state: ephemeral job keys plus the mint fairness SEED and inventory.
+# The seed must stay secret until the reveal, and jobs hold throwaway private keys.
+data/
+mint.secret
+
+# Internal working notes, not for publication.
+HANDOFF.md
+
+# Collection source art is served from the live API, not shipped in the repo.
+# The provenance commitment (collection_manifest.json) is kept; the raw images
+# and per-token design map are excluded to keep clones small.
+verginals/images/
+verginals/designs.json
+
+# Full per-token trait dump: served from the live API, not shipped in the repo.
+verginals/metadata.json

@@ -1,0 +1,20 @@
+{
+  "name": "verginals-pay",
+  "version": "0.0.0",
+  "description": "Verginals inscriptions on Verge (XVG): payment-request web app (pay from any Verge wallet)",
+  "main": "src/envelope.js",
+  "bin": {
+    "verginals": "src/cli.js"
+  },
+  "scripts": {
+    "test": "node test/cbor.test.js && node test/envelope.test.js && node test/builder.test.js && node test/indexer.test.js && node test/rpc.test.js && node test/cli.test.js && node test/mint.test.js",
+    "web": "node src/server.js"
+  },
+  "author": "@TheWeb3Frog (https://x.com/TheWeb3Frog)",
+  "license": "MIT",
+  "dependencies": {
+    "bitcoinjs-lib": "^6.1.5",
+    "ecpair": "^2.1.0",
+    "tiny-secp256k1": "^2.2.3"
+  }
+}

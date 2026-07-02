@@ -1,0 +1,47 @@
+# Reverse proxy: terminate HTTPS and forward to the Verginals app on 127.0.0.1:3400.
+# The app binds loopback only, so this proxy is the single public entry point. Replace
+# <YOUR_DOMAIN> and the cert paths. Get certs with certbot: `sudo certbot --nginx -d <YOUR_DOMAIN>`.
+
+# Redirect all HTTP to HTTPS.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name <YOUR_DOMAIN>;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name <YOUR_DOMAIN>;
+
+    ssl_certificate     /etc/letsencrypt/live/<YOUR_DOMAIN>/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/<YOUR_DOMAIN>/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+
+    # Inscriptions can be up to a few MB (image bodies base64 in JSON); allow headroom.
+    client_max_body_size 12m;
+
+    location / {
+        proxy_pass http://127.0.0.1:3400;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        # The app trusts X-Forwarded-For ONLY when VERGINALS_TRUST_PROXY=1. Set the real client IP here
+        # so rate limiting keys on the visitor, not on the proxy.
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+    }
+}
+
+# --- Caddy alternative (Caddyfile) -----------------------------------------------------------
+# Caddy fetches + renews TLS automatically; the whole config is just:
+#
+#   <YOUR_DOMAIN> {
+#       request_body {
+#           max_size 12MB
+#       }
+#       reverse_proxy 127.0.0.1:3400
+#   }
+#
+# Caddy sets X-Forwarded-For/Proto by default (keep VERGINALS_TRUST_PROXY=1).

@@ -1,0 +1,45 @@
+# systemd unit for the Verginals server. Template — adjust the paths marked <...> and install with:
+#   sudo useradd --system --home /opt/verginals --shell /usr/sbin/nologin verginals
+#   sudo cp deploy/verginals.service /etc/systemd/system/verginals.service
+#   sudo install -d -o verginals -g verginals -m 750 /etc/verginals /var/lib/verginals/data
+#   sudo cp .env.example /etc/verginals/verginals.env   # then fill it in, chmod 640, chown root:verginals
+#   # write the parent key file (secret), owned by and readable only by the service user:
+#   sudo install -o verginals -g verginals -m 600 /dev/null /var/lib/verginals/data/mint/parent.wif
+#   #   ...paste the WIF into that file, then:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now verginals
+#
+# Check it with:  systemctl status verginals   and   journalctl -u verginals -f
+
+[Unit]
+Description=Verginals inscription server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=verginals
+Group=verginals
+WorkingDirectory=<APP_DIR>                 # e.g. /opt/verginals (the repo checkout)
+EnvironmentFile=/etc/verginals/verginals.env
+ExecStart=/usr/bin/node src/server.js
+Restart=on-failure
+RestartSec=3
+
+# --- hardening: least privilege so a compromised process can't roam the box ---
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+# The ONLY writable path the app needs is its data dir (jobs, mint state, parent.wif, parent-tip.json):
+ReadWritePaths=/var/lib/verginals/data
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Verginals: Inscriptions on Verge</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">V</span>
+      <div>
+        <h1>Verginals</h1>
+        <p class="tagline">Inscriptions on the Verge (XVG) blockchain</p>
+      </div>
+    </div>
+    <div class="netinfo" id="netinfo">…</div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="inscribe">Inscribe</button>
+    <button class="tab hidden" data-tab="mint" id="tab-mint">Mint ✦</button>
+    <button class="tab" data-tab="explore">Explore</button>
+    <button class="tab" data-tab="vision">Vision</button>
+    <button class="tab" data-tab="support">Support ♥</button>
+    <button class="tab" data-tab="terms">Terms</button>
+  </nav>
+
+  <main>
+    <!-- ============ INSCRIBE ============ -->
+    <section class="panel active" id="panel-inscribe">
+      <div class="card">
+        <div class="subtabs">
+          <button class="subtab active" data-kind="text">Text</button>
+          <button class="subtab" data-kind="file">File</button>
+        </div>
+
+        <div class="kind-pane active" id="pane-text">
+          <label class="lbl">Text content</label>
+          <textarea id="text-input" rows="6" placeholder="Write whatever you want to inscribe forever…"></textarea>
+          <div class="hint" id="text-stats">0 bytes</div>
+        </div>
+
+        <div class="kind-pane" id="pane-file">
+          <label class="lbl">File</label>
+          <div class="dropzone" id="dropzone">
+            <input type="file" id="file-input" hidden />
+            <div id="drop-empty">
+              <strong>Drop a file here</strong><br /><span class="hint">or click to choose (image, pdf, txt…)</span>
+            </div>
+            <div id="drop-filled" class="hidden">
+              <div id="file-preview"></div>
+              <div class="file-meta" id="file-meta"></div>
+              <button class="link" id="file-clear" type="button">remove</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div>
+            <label class="lbl">Network</label>
+            <select id="network">
+              <option value="mainnet" selected>mainnet</option>
+              <option value="testnet">testnet</option>
+            </select>
+          </div>
+          <div>
+            <label class="lbl">XVG per commit input</label>
+            <input type="number" id="amount" value="1" min="0.001" step="0.1" />
+          </div>
+        </div>
+
+        <label class="lbl">Your Verge address (where the inscription will live)</label>
+        <input type="text" id="to-address" placeholder="paste your Verge address (Vesta, Core, Electrum…)" />
+        <div class="hint">The finished inscription is sent here. This is the only address you control in this flow.</div>
+
+        <button class="btn primary" id="btn-quote">Create payment request →</button>
+        <div class="error" id="quote-error"></div>
+      </div>
+
+      <!-- Payment request -->
+      <div class="card hidden" id="payment">
+        <h2>Pay to inscribe</h2>
+        <p class="hint">Send the exact amount below from <strong>any Verge wallet</strong> (scan the QR with the Vesta mobile app, or copy the address into Verge Core / Electrum). The inscription is created automatically as soon as your payment is seen on the network.</p>
+
+        <div class="pay-grid">
+          <div class="qr-wrap"><div id="qrcode"></div></div>
+          <div class="pay-fields">
+            <div class="summary" id="pay-summary"></div>
+            <label class="lbl">Amount to send</label>
+            <div class="copyline"><code id="pay-amount"></code><button class="link copy" id="copy-amount">copy</button></div>
+            <label class="lbl">Deposit address</label>
+            <div class="copyline"><code id="pay-address"></code><button class="link copy" id="copy-address">copy</button></div>
+            <a class="btn ghost" id="pay-uri" href="#">Open in wallet</a>
+          </div>
+        </div>
+
+        <div class="paystatus" id="paystatus">
+          <span class="spinner"></span> <span id="paystatus-text">Waiting for your payment…</span>
+        </div>
+        <div class="error" id="pay-error"></div>
+        <div class="success hidden" id="pay-success"></div>
+      </div>
+    </section>
+
+    <!-- ============ MINT (Alpha Verginals) ============ -->
+    <section class="panel" id="panel-mint">
+      <div class="card mint-hero">
+        <div class="mint-head">
+          <div>
+            <h2 id="mint-title">Alpha Verginals</h2>
+            <p class="hint">A free, provably-fair random drop. You only ever pay the <strong>Verge network fee</strong>; <strong>we take no service fee at all</strong>. Each mint reveals a random Verginal the instant your payment confirms.</p>
+          </div>
+          <div class="mint-count">
+            <div class="mc-num"><span id="mint-minted">–</span><span class="mc-tot">/<span id="mint-supply">–</span></span></div>
+            <div class="mc-lbl">minted</div>
+          </div>
+        </div>
+        <div class="mint-progress"><div class="mint-bar" id="mint-bar"></div></div>
+        <div class="hint mint-fair" id="mint-fair"></div>
+      </div>
+
+      <!-- showcase: what an Alpha Verginal looks like -->
+      <div class="card showcase">
+        <span class="showcase-tag">★ The first Verginals ever inscribed on Verge</span>
+        <h2>Meet the Alpha Verginals</h2>
+        <p class="lead">This is <span class="em">history</span>: the very first collection of native inscriptions ever created on the Verge (XVG) blockchain. 3,333 hand-crafted pixel cats, each carrying a Verge rune, each written <span class="em">directly onto the chain</span>: no server, no database, no middleman. Once yours is inscribed, it lives on Verge <span class="em">forever</span>.</p>
+        <p class="lead">Every Verginal belongs to one of three Houses: <span class="em">Fire</span>, <span class="em">Water</span> and <span class="em">Earth</span>, with 1,111 in each. You don't choose which one you get: a provably-fair random draw seals your Verginal the instant you start, and reveals it the moment your payment confirms. Here's a taste of what's inside the vault:</p>
+        <div class="showcase-solo">
+          <div class="sc-card sc-featured">
+            <img id="sc-img" src="/api/collection/image/1" alt="Alpha Verginal" width="560" height="560" />
+            <div class="sc-meta"><span class="sc-name" id="sc-name">Verginals #1</span><span class="sc-house fire" id="sc-house">Fire</span></div>
+          </div>
+          <div class="sc-dots" id="sc-dots">
+            <button class="sc-dot active" type="button" data-i="0" aria-label="Show House of Fire"></button>
+            <button class="sc-dot" type="button" data-i="1" aria-label="Show House of Water"></button>
+            <button class="sc-dot" type="button" data-i="2" aria-label="Show House of Earth"></button>
+          </div>
+        </div>
+        <p class="showcase-note">Real Verginals from the collection: yours is randomly assigned and could be any of the 3,333. No two are alike.</p>
+      </div>
+
+      <!-- reserve form -->
+      <div class="card" id="mint-form">
+        <label class="lbl">Your Verge address (where your Verginal will live)</label>
+        <input type="text" id="mint-address" placeholder="paste your Verge address (Vesta, Core, Electrum…)" />
+        <div class="hint">Your randomly-assigned Verginal is inscribed and sent here. The image is reserved for you the moment you start; nobody else can get it.</div>
+        <button class="btn primary" id="btn-mint">Mint a random Verginal →</button>
+        <div class="error" id="mint-error"></div>
+      </div>
+
+      <!-- sold out -->
+      <div class="card hidden" id="mint-soldout">
+        <h2>Sold out 🎉</h2>
+        <p class="hint">Every Alpha Verginal has been minted. The fairness seed is published below: recompute the order and check <code>SHA256(seed) == commitment</code> to verify the whole drop was fair.</p>
+        <div class="reveal-seed" id="mint-seed"></div>
+      </div>
+
+      <!-- assigned verginal + payment -->
+      <div class="card hidden" id="mint-active">
+        <div class="reveal-stage">
+          <div class="reveal-box" id="reveal-box">
+            <div class="reveal-inner">
+              <div class="reveal-face reveal-front">
+                <div class="mystery">?</div>
+                <div class="hint">Your Verginal is reserved &amp; sealed.<br>It reveals the moment your payment confirms.</div>
+              </div>
+              <div class="reveal-face reveal-back" id="reveal-back"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pay-grid">
+          <div class="qr-wrap"><div id="mint-qrcode"></div></div>
+          <div class="pay-fields">
+            <div class="summary" id="mint-summary"></div>
+            <label class="lbl">Amount to send</label>
+            <div class="copyline"><code id="mint-amount"></code><button class="link copy" id="mint-copy-amount">copy</button></div>
+            <label class="lbl">Deposit address</label>
+            <div class="copyline"><code id="mint-pay-address"></code><button class="link copy" id="mint-copy-address">copy</button></div>
+            <a class="btn ghost" id="mint-uri" href="#">Open in wallet</a>
+          </div>
+        </div>
+
+        <div class="paystatus" id="mint-paystatus">
+          <span class="spinner"></span> <span id="mint-paystatus-text">Waiting for your payment…</span>
+        </div>
+        <div class="error" id="mint-pay-error"></div>
+        <button class="link hidden" id="btn-mint-again">← mint another</button>
+      </div>
+    </section>
+
+    <!-- ============ EXPLORE ============ -->
+    <section class="panel" id="panel-explore">
+      <div class="explore-head">
+        <h2>Inscribed Verginals</h2>
+        <div>
+          <span class="hint" id="explore-meta"></span>
+          <button class="btn ghost" id="btn-refresh">Refresh</button>
+        </div>
+      </div>
+      <div class="myfilter">
+        <input type="text" id="owner-input" placeholder="Paste your Verge address to see only your verginals…" />
+        <button class="btn ghost" id="btn-mine">Show mine</button>
+        <button class="link hidden" id="btn-allins">← show all</button>
+      </div>
+      <div class="gallery" id="gallery"></div>
+    </section>
+
+    <!-- ============ VISION ============ -->
+    <section class="panel" id="panel-vision">
+      <div class="card prose">
+        <h2>Our vision</h2>
+        <div class="lead-block">
+          Verginals exists to celebrate what Verge has always stood for: a free, fast, community-owned blockchain that belongs to no one and to everyone. We are builders who love this network, and we wanted to give the community a brand-new way to play, create and express itself on it.
+        </div>
+
+        <h3>Decentralization first</h3>
+        <p>We are deeply attached to decentralization and to Verge's founding vision. Verginals is fully self-service and non-custodial: your inscription is written straight onto the public Verge blockchain and sent to <strong>an address you control</strong>. There is no account, no gatekeeper, and no central party that owns your Verginal. The blockchain is the source of truth, not us.</p>
+
+        <h3>Built by the community, for the community</h3>
+        <p>Verginals was created <strong>independently, outside of the Verge core team</strong>. We are not the Verge Core developers and we do not speak for them. We built this because we believe inscriptions can add fun to Verge and open up new ways for the community to express itself and experiment on-chain.</p>
+        <p>At the same time, we hold Verge and its contributors in the highest respect. We are <strong>open to ongoing, permanent dialogue</strong> with the Verge core team and the wider community, so this project can grow calmly, transparently and in harmony with the network it lives on. If anything we do can be done better for Verge, we want to hear it.</p>
+
+        <h3>Inscriptions are forever: inscribe with intention</h3>
+        <div class="callout">
+          <strong>Please read this carefully.</strong> Everything you inscribe is written <strong>permanently and publicly</strong> onto the Verge blockchain. It cannot be edited, hidden or deleted by anyone, including us. There is no undo. Keep this in mind and never inscribe private, sensitive, personal, confidential or unlawful information. Treat every inscription as public and eternal, because that is exactly what it is.
+        </div>
+
+        <h3>Where we're headed</h3>
+        <p>The Alpha Verginals are only the beginning, the first native inscriptions collection ever created on Verge. Our hope is that this becomes a lasting, community-driven playground on XVG. We'll keep listening, keep it fun, and keep it aligned with the spirit of Verge.</p>
+
+        <div class="footlinks">
+          <a data-goto="terms">Read the Terms of Use →</a>
+          <a href="https://vergecurrency.com" target="_blank" rel="noopener noreferrer">About Verge (XVG) ↗</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ SUPPORT / DONATE ============ -->
+    <section class="panel" id="panel-support">
+      <div class="card prose">
+        <h2>Support Verginals ♥</h2>
+        <div class="lead-block">
+          Verginals is a <strong>free, non-commercial community project</strong>. We charge <strong>no service fee</strong>: you only ever pay the Verge network fee, and that goes to the network, not to us. Keeping the node and servers running does cost a little each month, so if you'd like to help keep Verginals online, a small XVG donation means a lot. It's entirely voluntary.
+        </div>
+        <label class="lbl">Donate XVG to this address</label>
+        <div class="copyline"><code id="donate-address">DLsrj97VqgURBjEx1cbAuXePDgU9rMGDmX</code><button class="link copy" id="copy-donate">copy</button></div>
+        <div class="qr-wrap donate-qr"><div id="donate-qr"></div></div>
+        <p class="hint">Donations are voluntary gifts toward the project's running costs. They buy no product, token, right, share or expectation of return, and are non-refundable. Thank you for helping keep the first Verginals on Verge alive. 🙏</p>
+      </div>
+    </section>
+
+    <!-- ============ TERMS ============ -->
+    <section class="panel" id="panel-terms">
+      <div class="card prose">
+        <h2>Terms of Use</h2>
+        <p class="updated">By accessing or using verginals.com you agree to these Terms. If you do not agree, do not use the service.</p>
+
+        <div class="lead-block">
+          verginals.com ("verginals", "the project", "the service", "we", "us") is a <strong>free, non-commercial, experimental community project</strong> that lets anyone write inscriptions onto the public Verge (XVG) blockchain. It is provided on a purely self-service basis and is used entirely at your own risk and discretion.
+        </div>
+
+        <div class="callout" id="report-abuse">
+          <strong>Reporting illegal content (notice &amp; takedown).</strong> verginals acts only as a technical host of user-generated content. If you believe an inscription served through this site is unlawful (for example child sexual abuse material, terrorist content, incitement to hatred, or content infringing your rights), please notify us at <a class="link" href="mailto:abuse@verginals.com">abuse@verginals.com</a> with the reference (txid or item number) and a short description. We will act <strong>promptly</strong>: while no one can delete data from the Verge blockchain, we will <strong>stop serving the reported content from our infrastructure</strong> and, where required, inform the competent authorities. Seriously illegal content can also be reported directly to the relevant authorities in your jurisdiction.
+        </div>
+
+        <h3>1. Nature of the project: non-commercial &amp; free</h3>
+        <p>Verginals is <strong>not a commercial, for-profit venture</strong>. It is a passion project run for the Verge community. <strong>verginals charges no service fee.</strong> The only cost of using it is the ordinary <strong>Verge network (miner) fee</strong> required to broadcast your transaction; that fee is paid to the Verge network, <strong>not to us</strong>, and we take no margin on it.</p>
+        <p>Any <strong>donation</strong> you choose to make is entirely voluntary. Donations are gifts that help cover the project's running costs (node, servers, bandwidth); they purchase no product, token, right, share or expectation of return, and are non-refundable.</p>
+        <p>The service is <strong>highly experimental</strong> and may contain bugs, may change, may be interrupted, degraded, or discontinued at any time, without notice and without liability. Nothing here is guaranteed to work, to keep working, or to remain available.</p>
+
+        <h3>2. You are 100% responsible</h3>
+        <p>You are solely and fully responsible for how you use verginals, including:</p>
+        <ul>
+          <li>everything you choose to inscribe, mint, upload or broadcast;</li>
+          <li>ensuring you have all rights to the content you inscribe and that it infringes no third-party rights;</li>
+          <li>the accuracy of every Verge address you provide: transactions on the blockchain are <strong>irreversible</strong>, and funds or inscriptions sent to a wrong address cannot be recovered;</li>
+          <li>the safekeeping of your own wallet, keys and funds; and</li>
+          <li>any tax, reporting or other obligations arising from your use.</li>
+        </ul>
+
+        <h3>3. Follow the law &amp; prohibited content</h3>
+        <p>You must comply with all laws and regulations that apply to you, and you must be of legal age (at least 18, or the age of majority where you live) and legally able to enter these Terms. You must <strong>not</strong> use verginals to inscribe, mint, distribute, link to or promote any content that is unlawful or that you are not fully entitled to publish. Prohibited content includes, without limitation:</p>
+        <ul>
+          <li><strong>Child sexual abuse material (CSAM)</strong> or any content that sexually exploits, endangers or depicts minors. We have <strong>zero tolerance</strong> for this. Such misuse may be reported to the relevant authorities and law-enforcement, and we will cooperate with lawful requests to the fullest extent possible;</li>
+          <li><strong>Copyrighted, trademarked or otherwise IP-protected material</strong> that you do not own or have a valid licence to use, and any other content that infringes the intellectual-property rights of others;</li>
+          <li>content that is stolen, fraudulent, defamatory, or that violates the privacy, publicity or personal data of any other person;</li>
+          <li>content that is hateful, harassing, threatening, or that incites or facilitates violence or terrorism;</li>
+          <li>malware, exploits, or anything designed to harm, deceive or defraud; and</li>
+          <li>anything else prohibited by the laws applicable to you.</li>
+        </ul>
+
+        <h3>4. Your representations &amp; attestations</h3>
+        <p>Each time you use verginals, you <strong>represent, warrant and attest</strong> that:</p>
+        <ul>
+          <li>your use, and everything you inscribe or mint, is <strong>lawful in your jurisdiction</strong> and in any jurisdiction your content may reach;</li>
+          <li>you <strong>own, or hold all necessary rights and licences to</strong>, the content you inscribe, and it infringes no copyright, trademark or other right of any third party;</li>
+          <li>your content is not, and does not contain, any of the prohibited material listed above;</li>
+          <li>you are acting on your own behalf, knowingly and voluntarily; and</li>
+          <li>you accept <strong>sole and full responsibility</strong> for what you inscribe and for all consequences of it.</li>
+        </ul>
+        <div class="callout">
+          <strong>We cannot remove inscriptions.</strong> Because the Verge blockchain is decentralized and immutable, no one, including us, can edit, hide, censor or delete anything once it is inscribed. Responsibility therefore rests entirely with the person who inscribes it. Do not inscribe anything you are not fully entitled and prepared to publish permanently and publicly.
+        </div>
+
+        <h3>5. Permanent &amp; public by design</h3>
+        <p>Inscriptions are <strong>permanent and public</strong>. They are visible to anyone, forever, and cannot be undone. This is the opposite of Verge's privacy-first payment design and is inherent to how inscriptions work. Never inscribe private, personal, sensitive or confidential information.</p>
+
+        <h3>6. No data retained: privacy</h3>
+        <p>verginals is designed to be privacy-preserving. <strong>We do not retain personal information about our users.</strong> We do not ask you to create an account, and we do not knowingly collect or store your identity. The only data that persists is what is written to the public blockchain <strong>by you</strong> through your own actions, which is public by nature and outside our control. Do not send us personal information; we neither want nor keep it.</p>
+
+        <h3>7. No custody of your funds or assets</h3>
+        <p>verginals is <strong>non-custodial</strong>. Inscriptions and any change are delivered to the address <strong>you</strong> specify and control. We never take custody of your Verginals and never hold your funds on your behalf. We cannot access, freeze, move or recover your assets.</p>
+
+        <h3>8. No warranty</h3>
+        <p>The service is provided <strong>"as is" and "as available", with no warranties of any kind</strong>, express or implied, including but not limited to merchantability, fitness for a particular purpose, availability, accuracy, or non-infringement. We do not warrant that the service will be uninterrupted, secure, error-free, or that any inscription or mint will succeed, confirm, or be valid.</p>
+
+        <h3>9. Limitation of liability</h3>
+        <p>verginals is a self-service experimental tool that you use knowingly and at your own risk. <strong>To the maximum extent permitted by law, the project and anyone associated with it cannot be held liable</strong> for any loss or damage of any kind, including loss of funds, loss of assets, loss of data, missed or failed transactions, bugs, downtime, or any direct, indirect, incidental, consequential or punitive damages, arising from or connected to your use of, or inability to use, the service. You agree that your sole remedy for dissatisfaction is to stop using verginals.</p>
+
+        <h3>10. Blockchain &amp; third-party risk</h3>
+        <p>verginals relies on the Verge network, third-party wallets and other software we do not control. Blockchain networks can fork, reorganize, congest, change their rules, or fail. Fees can change. We are not responsible for the Verge protocol, for any wallet you use, or for the value, liquidity or future of XVG.</p>
+
+        <h3>11. Not financial advice</h3>
+        <p>Nothing on verginals is financial, investment, legal or tax advice. Verginals are experimental collectibles, are <strong>not securities</strong>, and carry no promise of value, profit, or return. Do not spend more than you are entirely willing to lose.</p>
+
+        <h3>12. No affiliation with Verge Core</h3>
+        <p>verginals is an independent, community project and is <strong>not affiliated with, endorsed by, or operated by the Verge Core team</strong> or the Verge Currency project. "Verge", "XVG" and related marks belong to their respective owners; they are referenced only to describe the network we build on.</p>
+
+        <h3>13. Changes to these Terms</h3>
+        <p>We may update these Terms at any time. Continued use of verginals after changes are posted means you accept the updated Terms. It is your responsibility to review them periodically.</p>
+
+        <h3>14. Severability &amp; acceptance</h3>
+        <p>If any provision of these Terms is found unenforceable, the remaining provisions stay in full effect. By using verginals.com you confirm that you have read, understood and accepted these Terms in full, that you use the service knowingly and voluntarily, and that you accept sole responsibility for your actions.</p>
+
+        <div class="footlinks">
+          <a data-goto="vision">Read our Vision →</a>
+          <a data-goto="inscribe">Back to Inscribe →</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p class="hint">⚠ Inscriptions are <strong>public and permanent</strong>, the opposite of Verge's privacy-first design. Anything you inscribe is visible forever.</p>
+    <p class="hint">verginals.com · a free, non-commercial, experimental community project · not affiliated with the Verge Core team ·
+      <a data-goto="vision" class="link">Vision</a> ·
+      <a data-goto="support" class="link">Support</a> ·
+      <a data-goto="terms" class="link">Terms of Use</a>
+    </p>
+    <p class="hint">Report illegal content: <a class="link" href="mailto:abuse@verginals.com">abuse@verginals.com</a>. verginals is a technical host and acts promptly on valid reports.</p>
+  </footer>
+
+  <!-- Terms-acceptance modal (shown before an inscription or mint) -->
+  <div class="modal-overlay hidden" id="consent-modal">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="consent-title">
+      <h2 id="consent-title">Before you inscribe</h2>
+      <p>Your content will be written <strong>permanently and publicly</strong> onto the Verge blockchain. It cannot be edited, hidden or deleted by anyone, including us. There is no undo. You are solely responsible for what you inscribe, and you must not inscribe unlawful content.</p>
+      <label class="consent-check">
+        <input type="checkbox" id="consent-box" />
+        <span>I have read and accept the <a data-goto="terms" class="link">Terms of Use</a>, and I understand that my inscription will be permanent, public and irreversible.</span>
+      </label>
+      <div class="modal-actions">
+        <button class="btn ghost" id="consent-cancel" type="button">Cancel</button>
+        <button class="btn primary" id="consent-accept" type="button" disabled>Accept &amp; continue</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/vendor/qrcode.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Verginals Wallet: Privacy Policy</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">V</span>
+      <div>
+        <h1>Verginals</h1>
+        <p class="tagline">Inscriptions on the Verge (XVG) blockchain</p>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="card prose">
+      <h2>Verginals Wallet: Privacy Policy</h2>
+      <p class="updated">Last updated: 3 July 2026 &middot; Applies to the Verginals Wallet browser extension.</p>
+
+      <div class="lead-block">
+        Verginals Wallet is a <strong>non-custodial</strong> Verge (XVG) wallet. Your keys are generated and
+        encrypted <strong>on your own device</strong> and never leave your browser. We cannot see, access, move,
+        or recover your funds. This policy explains, plainly, what the extension does and does not do with data.
+      </div>
+
+      <h3>1. The short version</h3>
+      <ul>
+        <li>We do <strong>not</strong> collect, store, or transmit your private keys or recovery phrase.</li>
+        <li>We run <strong>no analytics, no trackers, no advertising, and set no cookies</strong>.</li>
+        <li>We do <strong>not</strong> sell or share any personal data, because we do not collect any.</li>
+        <li>Everything the wallet needs is kept in your browser's local storage until you remove it.</li>
+      </ul>
+
+      <h3>2. What stays on your device</h3>
+      <p>
+        When you create or import a wallet, the extension generates a private key or a BIP-39 recovery phrase
+        <strong>locally</strong>. It is encrypted with a passphrase you choose (PBKDF2 key derivation) and saved in
+        your browser's <code>chrome.storage.local</code>, which is private to the extension on your machine. The
+        unencrypted key exists in memory only while the wallet is unlocked, and is discarded when you lock it or
+        close the popup. This sensitive data is <strong>never transmitted anywhere</strong> and is never sent to us.
+      </p>
+
+      <h3>3. What is sent over the network, and to whom</h3>
+      <p>To show balances and let you broadcast transactions, the extension contacts public infrastructure:</p>
+      <ul>
+        <li>
+          <strong>Verge ElectrumX servers.</strong> The wallet sends a <em>scripthash</em> (a hash of your address)
+          to fetch your balance, unspent outputs, transaction history, and to broadcast a transaction that
+          <em>you</em> have signed on-device. As with any network request, the server can observe the connecting IP
+          address. No key material is ever sent.
+        </li>
+        <li>
+          <strong>verginals.com API.</strong> To label the Verginals you hold with their collection number, the
+          extension may send the relevant transaction outpoints (public on-chain identifiers) to verginals.com.
+          This is display-only enrichment; if it is unavailable, the wallet still works and your funds are
+          unaffected. No key material is ever sent.
+        </li>
+      </ul>
+      <p>
+        These requests are inherent to how any self-custody blockchain wallet reads the chain. We do not attach
+        identifiers to them and we do not build user profiles.
+      </p>
+
+      <h3>4. Permissions the extension requests</h3>
+      <ul>
+        <li><strong><code>storage</code></strong> &mdash; to save your encrypted vault and immutable on-chain caches locally in your browser.</li>
+        <li><strong>Access to <code>verginals.com</code></strong> &mdash; to fetch collection metadata and to let the site request a wallet connection or a Verginal transfer, which you approve explicitly.</li>
+      </ul>
+
+      <h3>5. Data retention and deletion</h3>
+      <p>
+        All wallet data lives only in your browser. You can remove it at any time by uninstalling the extension or
+        clearing its storage. Because we hold nothing on a server, there is nothing on our side to delete. Note that
+        transactions you broadcast are recorded permanently on the public Verge blockchain, which is outside anyone's
+        control, including ours.
+      </p>
+
+      <h3>6. Third parties</h3>
+      <p>
+        We do not use third-party analytics, advertising, or data brokers. The only external systems contacted are
+        the public Verge ElectrumX servers and the verginals.com API described above.
+      </p>
+
+      <h3>7. Children</h3>
+      <p>The extension is not directed to children and is not intended for anyone under the age of majority in their jurisdiction.</p>
+
+      <h3>8. Experimental software</h3>
+      <p>
+        Verginals Wallet is free, non-commercial, open-source, and <strong>experimental</strong>. It may contain
+        bugs and may change at any time. Use it at your own risk, keep your recovery phrase backed up offline, and
+        never hold more than you are willing to lose.
+      </p>
+
+      <h3>9. Changes to this policy</h3>
+      <p>If this policy changes, the updated version will be posted at this URL with a new "Last updated" date.</p>
+
+      <h3>10. Contact</h3>
+      <p>
+        Questions about privacy, or reports of abuse, can be sent to
+        <a class="link" href="mailto:abuse@verginals.com">abuse@verginals.com</a>. The source code is open and
+        auditable at <a class="link" href="https://github.com/TheWeb3Frog/Verginals" target="_blank" rel="noopener noreferrer">github.com/TheWeb3Frog/Verginals</a>.
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    <p class="hint">
+      verginals.com &middot; a free, non-commercial, experimental community project &middot; not affiliated with the Verge Core team &middot;
+      <a class="link" href="/">Home</a>
+    </p>
+  </footer>
+</body>
+</html>

@@ -42,7 +42,7 @@ function parentClaims(reveal) {
     })
     .filter(Boolean);
 }
-const { RpcClient, VergeChain, extractRedeemScript } = require('./rpc');
+const { RpcClient, VergeChain, extractRedeemScript, xvgToUnits } = require('./rpc');
 const { buildPlan, revealFromPlan, inferContentType, pickNetwork } = require('./cli');
 const { ECPair, buildFundingTx } = require('./builder');
 const { MintController } = require('./mint');
@@ -1059,6 +1059,113 @@ async function handleContent(res, txid) {
   res.end(reveal.body);
 }
 
+// --- wallet API (browser-extension backend) ----------------------------------------------
+// This Verge node (v0.17) has no scantxoutset and no address index, so there is no way to ask
+// "what UTXOs does an arbitrary address have" out of the box. Instead we track a wallet's address
+// as watch-only (importaddress with rescan=false = instant for a freshly created address that has
+// no history) and then serve its coins via listunspent. Addresses with pre-existing history would
+// need a one-time rescan; that is a deliberate, separate action, not this fast path.
+
+/** Build "txid:vout" -> {id, contentType, number} from the indexer's confirmed inscriptions. */
+function inscriptionLocationMap() {
+  const map = new Map();
+  for (const i of indexer.list()) {
+    if (i.location && i.location.includes(':')) {
+      map.set(i.location, { id: i.id, contentType: i.contentType, number: i.number });
+    }
+  }
+  return map;
+}
+
+/**
+ * POST /api/inscriptions/at { outpoints: ["txid:vout", ...] } -> for each outpoint that currently
+ * holds a Verginal, return { id, number, contentType }. Read-only overlay used by the light wallet
+ * (which fetches its UTXOs from ElectrumX, not from this node) so it can flag which coins carry an
+ * inscription and must never be auto-spent for fee/change. No node RPC, no address tracking: this
+ * only consults the in-memory indexer by outpoint.
+ */
+async function handleInscriptionsAt(req, res) {
+  if (!allowQuote(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
+  const raw = await readBody(req);
+  let b;
+  try { b = JSON.parse(raw.toString('utf8') || '{}'); } catch { return sendJSON(res, 400, { error: 'invalid JSON' }); }
+  const outpoints = Array.isArray(b.outpoints) ? b.outpoints : [];
+  if (outpoints.length > 500) return sendJSON(res, 400, { error: 'too many outpoints (max 500)' });
+  const locs = inscriptionLocationMap();
+  const found = {};
+  for (const op of outpoints) {
+    if (typeof op !== 'string' || !/^[0-9a-fA-F]{64}:\d+$/.test(op)) continue;
+    const hit = locs.get(op);
+    if (hit) found[op] = hit;
+  }
+  return sendJSON(res, 200, { inscriptions: found });
+}
+
+/** POST /api/wallet/watch {address} -> import the address watch-only (no rescan). */
+async function handleWalletWatch(req, res) {
+  if (!allowQuote(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
+  const raw = await readBody(req);
+  const b = JSON.parse(raw.toString('utf8') || '{}');
+  const address = typeof b.address === 'string' ? b.address.trim() : '';
+  if (!VALID_ADDR.test(address)) return sendJSON(res, 400, { error: 'invalid address' });
+  try {
+    await client.call('importaddress', [address, 'wallet:' + address.slice(0, 8), false]);
+    return sendJSON(res, 200, { watched: true, address });
+  } catch (e) {
+    // Idempotent: an address the node already knows (own key, or already watched) is fine.
+    if (/already (contains|have|imported)|code -4/i.test(e.message)) {
+      return sendJSON(res, 200, { watched: true, address, alreadyKnown: true });
+    }
+    return sendJSON(res, 400, { error: e.message });
+  }
+}
+
+/** GET /api/wallet/utxos?address=... -> spendable coins, each flagged if it carries a Verginal. */
+async function handleWalletUtxos(res, address) {
+  if (!VALID_ADDR.test(address)) return sendJSON(res, 400, { error: 'invalid address' });
+  try {
+    const utxos = await client.call('listunspent', [0, 9999999, [address]]);
+    const locs = inscriptionLocationMap();
+    let total = 0;
+    const out = utxos.map((u) => {
+      const units = xvgToUnits(u.amount);
+      total += units;
+      return {
+        txid: u.txid,
+        vout: u.vout,
+        value: units,
+        confirmations: u.confirmations,
+        // A UTXO that carries a Verginal must NEVER be auto-spent for fee/change by the wallet.
+        inscription: locs.get(`${u.txid}:${u.vout}`) || null,
+      };
+    });
+    return sendJSON(res, 200, { address, total, utxos: out });
+  } catch (e) {
+    return sendJSON(res, 400, { error: e.message });
+  }
+}
+
+/** POST /api/wallet/broadcast {rawtx} -> mempool-accept check, then relay. */
+async function handleWalletBroadcast(req, res) {
+  if (!allowQuote(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
+  const raw = await readBody(req);
+  const b = JSON.parse(raw.toString('utf8') || '{}');
+  const rawtx = typeof b.rawtx === 'string' ? b.rawtx.trim() : '';
+  if (!/^[0-9a-fA-F]{40,}$/.test(rawtx)) return sendJSON(res, 400, { error: 'invalid rawtx hex' });
+  try {
+    const test = await client.call('testmempoolaccept', [[rawtx]]);
+    const r = Array.isArray(test) ? test[0] : null;
+    if (!r || !r.allowed) {
+      const reason = (r && (r['reject-reason'] || r.rejectReason)) || 'not accepted';
+      return sendJSON(res, 400, { error: 'rejected: ' + reason });
+    }
+    const txid = await client.call('sendrawtransaction', [rawtx]);
+    return sendJSON(res, 200, { txid });
+  } catch (e) {
+    return sendJSON(res, 400, { error: e.message });
+  }
+}
+
 // --- router ------------------------------------------------------------------------------
 
 const server = http.createServer(async (req, res) => {
@@ -1066,6 +1173,7 @@ const server = http.createServer(async (req, res) => {
   const p = url.pathname;
   try {
     if (req.method === 'GET' && (p === '/' || p === '/index.html')) return serveStatic(res, 'index.html');
+    if (req.method === 'GET' && (p === '/privacy' || p === '/privacy.html')) return serveStatic(res, 'privacy.html');
     if (req.method === 'GET' && (p === '/app.js' || p === '/style.css')) return serveStatic(res, p.slice(1));
     if (req.method === 'GET' && p === '/vendor/qrcode.js') return serveStatic(res, 'vendor/qrcode.js');
     if (req.method === 'GET' && (p === '/favicon.svg' || p === '/favicon.ico')) return serveStatic(res, 'favicon.svg');
@@ -1077,6 +1185,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p.startsWith('/api/job/')) return await handleJob(res, p.slice('/api/job/'.length));
     if (req.method === 'GET' && p === '/api/inscriptions') return await handleInscriptions(res, url.searchParams.get('owner'));
     if (req.method === 'GET' && p.startsWith('/api/content/')) return await handleContent(res, p.slice('/api/content/'.length));
+    if (req.method === 'POST' && p === '/api/inscriptions/at') return await handleInscriptionsAt(req, res);
+    if (req.method === 'POST' && p === '/api/wallet/watch') return await handleWalletWatch(req, res);
+    if (req.method === 'GET' && p === '/api/wallet/utxos') return await handleWalletUtxos(res, url.searchParams.get('address') || '');
+    if (req.method === 'POST' && p === '/api/wallet/broadcast') return await handleWalletBroadcast(req, res);
     writeHead(res, 404, { 'content-type': 'text/plain' });
     res.end('not found');
   } catch (e) {

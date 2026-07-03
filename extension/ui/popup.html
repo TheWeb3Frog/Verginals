@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Verginals Wallet</title>
+  <link rel="stylesheet" href="wallet.css" />
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">Verginals</span>
+    <div class="topbar-actions">
+      <button id="settingsBtn" class="icon" title="Settings" hidden>&#9881;</button>
+      <button id="lockBtn" class="icon" title="Lock" hidden>&#128274;</button>
+    </div>
+  </header>
+
+  <main id="app">
+    <!-- ===== Setup: no wallet yet ===== -->
+    <section id="setup" hidden>
+      <h2>Set up your wallet</h2>
+      <p class="muted">Your key is generated on this device and encrypted with your passphrase. It never leaves your browser.</p>
+      <div class="tabs">
+        <button class="tab active" data-tab="create">Create new</button>
+        <button class="tab" data-tab="import">Import</button>
+      </div>
+
+      <div id="tab-create" class="tabpane">
+        <label class="field-label">Recovery phrase length</label>
+        <div class="seg">
+          <button type="button" class="segbtn active" data-strength="128">12 words</button>
+          <button type="button" class="segbtn" data-strength="256">24 words</button>
+        </div>
+        <input id="createPass" type="password" placeholder="Choose a passphrase" autocomplete="new-password" />
+        <input id="createPass2" type="password" placeholder="Confirm passphrase" autocomplete="new-password" />
+        <button id="createBtn" class="primary">Create wallet</button>
+      </div>
+
+      <div id="tab-import" class="tabpane" hidden>
+        <div class="seg">
+          <button type="button" class="segbtn active" data-imp="phrase">Recovery phrase</button>
+          <button type="button" class="segbtn" data-imp="wif">Private key</button>
+        </div>
+        <div id="imp-phrase">
+          <textarea id="importPhrase" rows="3" placeholder="Enter your 12 or 24 word recovery phrase" autocomplete="off"></textarea>
+        </div>
+        <div id="imp-wif" hidden>
+          <input id="importWif" type="password" placeholder="Private key (WIF)" autocomplete="off" />
+        </div>
+        <input id="importPass" type="password" placeholder="Choose a passphrase" autocomplete="new-password" />
+        <button id="importBtn" class="primary">Import wallet</button>
+      </div>
+    </section>
+
+    <!-- ===== Backup: show the fresh phrase ONCE ===== -->
+    <section id="backup" hidden>
+      <h2>Back up your recovery phrase</h2>
+      <p class="warn">Write these words down in order and keep them offline. Anyone with this phrase can take your funds. It will not be shown again.</p>
+      <ol id="phraseGrid" class="phrase-grid"></ol>
+      <button id="copyPhraseBtn" class="ghost block">Copy phrase</button>
+      <label class="check"><input id="phraseAck" type="checkbox" /> I have written down my recovery phrase</label>
+      <button id="phraseDoneBtn" class="primary" disabled>Continue</button>
+    </section>
+
+    <!-- ===== Locked ===== -->
+    <section id="locked" hidden>
+      <h2>Unlock</h2>
+      <input id="unlockPass" type="password" placeholder="Passphrase" autocomplete="current-password" />
+      <button id="unlockBtn" class="primary">Unlock</button>
+    </section>
+
+    <!-- ===== Home (unlocked) ===== -->
+    <section id="home" hidden>
+      <div class="wallet-head">
+        <button id="addr" class="addr" title="Copy address"></button>
+        <div class="bal-block">
+          <span id="balance" class="big">-</span><span class="unit">XVG</span>
+          <div id="balSub" class="muted sub"></div>
+        </div>
+      </div>
+
+      <nav class="tabnav">
+        <button class="tabbtn active" data-view="xvg">XVG</button>
+        <button class="tabbtn" data-view="verginals">Verginals <span id="inscCount" class="count"></span></button>
+        <button class="tabbtn" data-view="history">Activity</button>
+      </nav>
+
+      <!-- XVG view -->
+      <div id="view-xvg" class="view">
+        <div class="seg">
+          <button class="segbtn active" data-pane="send">Send</button>
+          <button class="segbtn" data-pane="receive">Receive</button>
+        </div>
+        <div id="pane-send" class="pane">
+          <input id="sendTo" placeholder="Recipient Verge address" autocomplete="off" />
+          <input id="sendAmt" placeholder="Amount (XVG)" inputmode="decimal" autocomplete="off" />
+          <div class="row-between muted small"><span>Spendable</span><span id="spendable">-</span></div>
+          <button id="sendBtn" class="primary">Send XVG</button>
+        </div>
+        <div id="pane-receive" class="pane" hidden>
+          <div id="qrcode" class="qr-wrap"></div>
+          <div id="recvAddr" class="addr-full mono"></div>
+          <button id="copyAddrBtn" class="ghost block">Copy address</button>
+        </div>
+      </div>
+
+      <!-- Verginals view -->
+      <div id="view-verginals" class="view" hidden>
+        <ul id="inscList" class="insc-list"><li class="muted">Loading...</li></ul>
+      </div>
+
+      <!-- Activity view -->
+      <div id="view-history" class="view" hidden>
+        <ul id="histList" class="hist-list"><li class="muted">Loading...</li></ul>
+      </div>
+
+      <button id="refreshBtn" class="ghost block">Refresh</button>
+    </section>
+  </main>
+
+  <!-- ===== Settings sheet ===== -->
+  <div id="settings" class="overlay" hidden>
+    <div class="sheet">
+      <h3>Settings</h3>
+      <div id="settingsMenu">
+        <button id="revealPhraseBtn" class="ghost block">Reveal recovery phrase</button>
+        <button id="exportWifBtn" class="ghost block">Export private key (WIF)</button>
+        <button id="aboutBtn" class="ghost block">About Verginals Wallet</button>
+        <button class="ghost block closeSheet">Close</button>
+      </div>
+      <div id="settingsAbout" hidden>
+        <p class="about-title"><span class="brand">Verginals</span> Wallet <span id="aboutVersion" class="muted small"></span></p>
+        <p class="small">A non-custodial Verge (XVG) wallet. Your keys are generated and encrypted on this device and never leave your browser. The project can never access or move your funds.</p>
+        <p class="warn small">This is experimental software. It may contain bugs and may change at any time. Use it at your own risk, keep your recovery phrase backed up, and never hold more than you are willing to lose.</p>
+        <p class="small">Verginals is a free, non-commercial, open-source community project, not affiliated with the Verge Core team. Contributions are welcome: review the code, open an issue, or send a pull request.</p>
+        <p class="about-links small">
+          <a href="https://github.com/TheWeb3Frog/Verginals" target="_blank" rel="noopener noreferrer">Source on GitHub &#8599;</a>
+        </p>
+        <p class="muted small">Copyright &copy; 2026 the Verginals contributors. Distributed under the <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener noreferrer">MIT license</a>.</p>
+        <button class="ghost block closeSheet">Close</button>
+      </div>
+      <div id="settingsReveal" hidden>
+        <p class="warn" id="revealWarn"></p>
+        <input id="revealPass" type="password" placeholder="Enter passphrase to reveal" autocomplete="current-password" />
+        <button id="revealConfirmBtn" class="primary">Reveal</button>
+        <div id="revealOut" class="reveal-out mono" hidden></div>
+        <button class="ghost block closeSheet">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Transfer Verginal sheet ===== -->
+  <div id="transferSheet" class="overlay" hidden>
+    <div class="sheet">
+      <h3>Transfer Verginal</h3>
+      <p class="muted small" id="transferWhich"></p>
+      <input id="transferTo" placeholder="Recipient Verge address" autocomplete="off" />
+      <p class="warn small">This moves the Verginal off this wallet. The transfer is irreversible.</p>
+      <button id="transferConfirmBtn" class="primary">Send Verginal</button>
+      <button class="ghost block closeSheet">Cancel</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="../vendor/qrcode.js"></script>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

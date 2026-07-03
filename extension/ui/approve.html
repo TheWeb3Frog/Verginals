@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Approve request</title>
+  <link rel="stylesheet" href="wallet.css" />
+</head>
+<body>
+  <header class="topbar"><span class="brand">Verginals Wallet</span></header>
+  <main id="app" class="approve">
+    <p class="origin"><span id="origin"></span> wants to:</p>
+    <h2 id="title">-</h2>
+    <div id="details" class="details"></div>
+
+    <section id="unlockWrap" hidden>
+      <p class="muted">Unlock your wallet to continue.</p>
+      <input id="unlockPass" type="password" placeholder="Passphrase" autocomplete="current-password" />
+      <button id="unlockBtn" class="primary">Unlock</button>
+    </section>
+
+    <div id="actions" class="actions" hidden>
+      <button id="rejectBtn" class="ghost">Reject</button>
+      <button id="approveBtn" class="primary">Approve</button>
+    </div>
+    <div id="err" class="toast err" hidden></div>
+  </main>
+  <script type="module" src="approve.js"></script>
+</body>
+</html>

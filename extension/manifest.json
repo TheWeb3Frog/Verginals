@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "Verginals Wallet",
+  "version": "0.9.5",
+  "description": "A non-custodial Verge (XVG) wallet that signs on-device and lets you safely transfer Verginals inscriptions on verginals.com.",
+  "action": {
+    "default_title": "Verginals Wallet",
+    "default_popup": "ui/popup.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://verginals.com/*", "https://www.verginals.com/*"],
+      "js": ["content-script.js"],
+      "run_at": "document_start",
+      "world": "ISOLATED"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["inject.js"],
+      "matches": ["https://verginals.com/*", "https://www.verginals.com/*"]
+    }
+  ],
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://verginals.com/*"
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "verginals-wallet-extension",
+  "version": "0.9.5",
+  "private": true,
+  "type": "module",
+  "description": "Verginals wallet: a minimal MV3 Chrome extension for Verge (XVG) that signs P2PKH transactions and exposes an inscription-safe transfer to verginals.com.",
+  "scripts": {
+    "test": "node test-verge.mjs"
+  }
+}

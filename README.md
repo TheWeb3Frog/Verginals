@@ -114,8 +114,11 @@ spec in [`spec/`](spec/) for protocol details.
 
 Verginals stands on the shoulders of the inscription movement started by
 [Casey Rodarmor](https://github.com/casey) with Ordinals, and the Doginals work
-that showed how to do it without Taproot. Thanks to the Verge project and
-community for building the chain this runs on.
+that showed how to do it without Taproot. Huge thanks to the
+[Verge team](https://vergecurrency.com/verge-team) and community for building and
+maintaining the chain this runs on, and to Justin
+[Sunerok](https://github.com/justinvforvendetta) in particular for years of work
+keeping Verge alive.
 
 ## Built by
 

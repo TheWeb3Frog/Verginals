@@ -303,6 +303,10 @@ const FEE_RATE_XVG_PER_KB = 0.2;
 const feeForBytes = (bytes) => Math.max(0.2, Math.ceil(bytes / 1000) * FEE_RATE_XVG_PER_KB);
 const suggestRevealFeeXVG = (numInputs) => feeForBytes(numInputs * 600);
 const suggestSplitFeeXVG = (numInputs) => feeForBytes(150 + numInputs * 32 + 12);
+// Minimum value (units) an output must hold to be spendable and safe to relay. The carrier that
+// returns the inscription must clear this, otherwise the reveal can be rejected as dust or the
+// inscription lands on a utxo too small to move later.
+const DUST_UNITS = 100000; // 0.1 XVG
 
 /** Derive the P2PKH address for a bitcoinjs network + ECPair. */
 function p2pkhAddress(signer, network) {
@@ -383,7 +387,7 @@ async function createPaymentJob({ id, body, contentType, filename, to, amountPer
   const commitTotal = amountPerInput * numInputs;
   const total = commitTotal + splitFee + serviceFee; // what the user must pay to the deposit address
   const carrier = commitTotal - revealFee; // returns to the user's destination (the inscription's home)
-  if (carrier <= 0) throw new Error('per-input amount too low to cover the reveal fee; raise it');
+  if (carrier < DUST_UNITS) throw new Error('per-input amount too low: the returned inscription would be dust, raise it');
 
   await client.call('importaddress', [depositAddress, 'verginals:' + crypto.randomBytes(4).toString('hex'), false]);
 

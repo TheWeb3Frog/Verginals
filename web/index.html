@@ -16,13 +16,17 @@
         <p class="tagline">Inscriptions on the Verge (XVG) blockchain</p>
       </div>
     </div>
-    <div class="netinfo" id="netinfo">…</div>
+    <div class="topbar-right">
+      <div class="netinfo" id="netinfo">…</div>
+      <button class="btn ghost wallet-connect" id="wallet-connect">Connect Wallet</button>
+    </div>
   </header>
 
   <nav class="tabs">
     <button class="tab active" data-tab="inscribe">Inscribe</button>
     <button class="tab hidden" data-tab="mint" id="tab-mint">Mint ✦</button>
     <button class="tab" data-tab="explore">Explore</button>
+    <button class="tab" data-tab="wallet">My Wallet</button>
     <button class="tab" data-tab="vision">Vision</button>
     <button class="tab" data-tab="support">Support ♥</button>
     <button class="tab" data-tab="terms">Terms</button>
@@ -93,6 +97,7 @@
             <div class="copyline"><code id="pay-amount"></code><button class="link copy" id="copy-amount">copy</button></div>
             <label class="lbl">Deposit address</label>
             <div class="copyline"><code id="pay-address"></code><button class="link copy" id="copy-address">copy</button></div>
+            <button class="btn primary wallet-pay hidden" id="pay-with-wallet">Pay with Verginals Wallet</button>
             <a class="btn ghost" id="pay-uri" href="#">Open in wallet</a>
           </div>
         </div>
@@ -180,6 +185,7 @@
             <div class="copyline"><code id="mint-amount"></code><button class="link copy" id="mint-copy-amount">copy</button></div>
             <label class="lbl">Deposit address</label>
             <div class="copyline"><code id="mint-pay-address"></code><button class="link copy" id="mint-copy-address">copy</button></div>
+            <button class="btn primary wallet-pay hidden" id="mint-pay-with-wallet">Pay with Verginals Wallet</button>
             <a class="btn ghost" id="mint-uri" href="#">Open in wallet</a>
           </div>
         </div>
@@ -207,6 +213,35 @@
         <button class="link hidden" id="btn-allins">← show all</button>
       </div>
       <div class="gallery" id="gallery"></div>
+    </section>
+
+    <!-- ============ MY WALLET ============ -->
+    <section class="panel" id="panel-wallet">
+      <div class="card" id="wallet-card">
+        <div id="wallet-disconnected">
+          <h2>Your Verginals Wallet</h2>
+          <p class="hint" id="wallet-hint">Connect the Verginals Wallet browser extension to see your Verginals and transfer them straight from here. Everything is signed on your device; this site never sees your keys.</p>
+          <button class="btn primary" id="wallet-connect-2">Connect Wallet</button>
+          <p class="hint hidden" id="wallet-noext">No wallet detected. Install the <a class="link" href="https://chromewebstore.google.com/detail/verginals-wallet" target="_blank" rel="noopener noreferrer">Verginals Wallet</a> extension, then reload this page.</p>
+          <div class="error" id="wallet-error"></div>
+        </div>
+
+        <div id="wallet-connected" class="hidden">
+          <div class="wallet-head">
+            <div class="wallet-id">
+              <span class="lbl">Connected wallet</span>
+              <code id="wallet-address"></code>
+            </div>
+            <div class="wallet-bal" id="wallet-balance"></div>
+            <button class="link" id="wallet-disconnect">disconnect</button>
+          </div>
+          <div class="wallet-insc-head">
+            <h3>Your Verginals</h3>
+            <button class="btn ghost" id="wallet-refresh">Refresh</button>
+          </div>
+          <div class="gallery" id="wallet-gallery"></div>
+        </div>
+      </div>
     </section>
 
     <!-- ============ VISION ============ -->
@@ -370,7 +405,24 @@
     </div>
   </div>
 
+  <!-- Transfer a Verginal from the connected wallet -->
+  <div class="modal-overlay hidden" id="xfer-modal">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="xfer-title">
+      <h2 id="xfer-title">Transfer Verginal</h2>
+      <div class="xfer-preview" id="xfer-preview"></div>
+      <label class="lbl">Destination Verge address</label>
+      <input type="text" id="xfer-to" placeholder="paste the recipient's Verge address" />
+      <p class="hint">The Verginal moves to this address. This is irreversible; double-check it. You will approve the transfer inside your wallet.</p>
+      <div class="error" id="xfer-error"></div>
+      <div class="modal-actions">
+        <button class="btn ghost" id="xfer-cancel" type="button">Cancel</button>
+        <button class="btn primary" id="xfer-confirm" type="button">Transfer</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/vendor/qrcode.js"></script>
   <script src="/app.js"></script>
+  <script src="/wallet.js"></script>
 </body>
 </html>

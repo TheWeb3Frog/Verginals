@@ -7,22 +7,30 @@
   <link rel="stylesheet" href="wallet.css" />
 </head>
 <body>
-  <header class="topbar"><span class="brand">Verginals Wallet</span></header>
   <main id="app" class="approve">
-    <p class="origin"><span id="origin"></span> wants to:</p>
-    <h2 id="title">-</h2>
-    <div id="details" class="details"></div>
+    <header class="approve-top">
+      <span class="brand">Verginals Wallet</span>
+    </header>
 
-    <section id="unlockWrap" hidden>
-      <p class="muted">Unlock your wallet to continue.</p>
-      <input id="unlockPass" type="password" placeholder="Passphrase" autocomplete="current-password" />
-      <button id="unlockBtn" class="primary">Unlock</button>
-    </section>
+    <div class="approve-scroll">
+      <p class="origin"><span id="origin"></span> wants to:</p>
+      <h2 id="title">-</h2>
+      <div id="details" class="details"></div>
 
-    <div id="actions" class="actions" hidden>
-      <button id="rejectBtn" class="ghost">Reject</button>
-      <button id="approveBtn" class="primary">Approve</button>
+      <section id="unlockWrap" hidden>
+        <p class="muted">Unlock your wallet to continue.</p>
+        <input id="unlockPass" type="password" placeholder="Passphrase" autocomplete="current-password" />
+        <button id="unlockBtn" class="primary block">Unlock</button>
+      </section>
     </div>
+
+    <div class="approve-foot">
+      <div id="actions" class="actions" hidden>
+        <button id="rejectBtn" class="ghost">Reject</button>
+        <button id="approveBtn" class="primary">Approve</button>
+      </div>
+    </div>
+
     <div id="err" class="toast err" hidden></div>
   </main>
   <script type="module" src="approve.js"></script>

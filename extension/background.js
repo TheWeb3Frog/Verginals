@@ -36,28 +36,42 @@ async function isConnected(origin) { return (await getConnectedOrigins()).has(or
 
 // --- approval popups -------------------------------------------------------
 // dApp approvals cannot use the toolbar dropdown (chrome.action.openPopup is gesture-restricted and
-// would only open the wallet, not this screen), so we open a compact popup window. We pin it to the
-// top-right of the current browser window, right under the extension icon, so it reads like the
-// wallet popup instead of a page floating in the middle of the screen.
-const APPROVE_W = 360;
-const APPROVE_H = 600;
-function requestApproval(request) {
+// would only open the wallet, not this screen). We deliberately use a separate popup WINDOW rather
+// than an in-page overlay: a top-level chrome-extension:// window is fully isolated from the site, so
+// even a compromised verginals.com cannot read it, cover it, or drive it. We keep it compact and
+// pinned to the top-right so it reads like the wallet popup.
+const APPROVE_W = 520;
+const APPROVE_H = 760;
+function requestApproval(request, sender) {
   return new Promise((resolve, reject) => {
     const rid = `r${Date.now()}-${++ridSeq}`;
-    pending.set(rid, { resolve, reject, request: { ...request, rid } });
+    // Remember the tab/window that asked, so we can hand focus back to the site once the user decides.
+    const siteTabId = sender && sender.tab && sender.tab.id;
+    const siteWindowId = sender && sender.tab && sender.tab.windowId;
+    pending.set(rid, { resolve, reject, request: { ...request, rid }, siteTabId, siteWindowId });
     const url = chrome.runtime.getURL(`ui/approve.html?rid=${encodeURIComponent(rid)}`);
     chrome.windows.getLastFocused({}, (parent) => {
+      // If the parent window is maximized/fullscreen its geometry is the whole screen, so fall back
+      // to a fixed top-right corner instead of borrowing it.
       let top = 78, left = 120;
-      if (parent && typeof parent.left === 'number' && typeof parent.width === 'number') {
+      const parentNormal = parent && parent.state !== 'maximized' && parent.state !== 'fullscreen';
+      if (parentNormal && typeof parent.left === 'number' && typeof parent.width === 'number') {
         left = parent.left + parent.width - APPROVE_W - 16;
         top = parent.top + 72;
       }
+      top = Math.max(0, Math.round(top));
+      left = Math.max(0, Math.round(left));
       chrome.windows.create({
         url, type: 'popup', width: APPROVE_W, height: APPROVE_H,
-        top: Math.max(0, Math.round(top)), left: Math.max(0, Math.round(left)), focused: true,
+        top, left, focused: true, state: 'normal',
       }, (win) => {
         const entry = pending.get(rid);
         if (entry) entry.windowId = win && win.id;
+        // Chrome sometimes reuses a previous popup's maximized state and ignores the requested
+        // bounds; force size + position once the window exists so it never opens full screen.
+        if (win && win.id != null) {
+          chrome.windows.update(win.id, { state: 'normal', top, left, width: APPROVE_W, height: APPROVE_H });
+        }
       });
     });
   });
@@ -73,11 +87,11 @@ chrome.windows.onRemoved.addListener((windowId) => {
 });
 
 // --- dApp RPC handlers -----------------------------------------------------
-async function handleRpc(method, params, origin) {
+async function handleRpc(method, params, origin, sender) {
   const w = getWallet();
   switch (method) {
     case 'connect': {
-      const approval = await requestApproval({ type: 'connect', origin });
+      const approval = await requestApproval({ type: 'connect', origin }, sender);
       // approval carries the (now unlocked) address chosen by the user.
       await setConnected(origin, true);
       broadcastEvent(origin, 'connect', { address: approval.address });
@@ -103,7 +117,7 @@ async function handleRpc(method, params, origin) {
     }
     case 'transferInscription': {
       await requireConnected(origin, w);
-      const approval = await requestApproval({ type: 'transferInscription', origin, params });
+      const approval = await requestApproval({ type: 'transferInscription', origin, params }, sender);
       return w.transferInscription({
         carrierOutpoint: approval.carrierOutpoint,
         toAddress: params.to,
@@ -111,12 +125,12 @@ async function handleRpc(method, params, origin) {
     }
     case 'send': {
       await requireConnected(origin, w);
-      await requestApproval({ type: 'send', origin, params });
+      await requestApproval({ type: 'send', origin, params }, sender);
       return w.send({ toAddress: params.to, amount: params.amount });
     }
     case 'signMessage': {
       await requireConnected(origin, w);
-      await requestApproval({ type: 'signMessage', origin, params });
+      await requestApproval({ type: 'signMessage', origin, params }, sender);
       const sig = await w.signMessage(params.message);
       return { signature: sig, address: w.address };
     }
@@ -200,6 +214,11 @@ async function handleApproval(kind, payload) {
 
   if (kind === 'approval-decision') {
     pending.delete(payload.rid);
+    // Close the approval window and hand focus back to the site tab the request came from, so the
+    // user lands straight back on the page instead of on an empty popup or another window.
+    if (entry.windowId != null) chrome.windows.remove(entry.windowId).catch(() => {});
+    if (entry.siteTabId != null) chrome.tabs.update(entry.siteTabId, { active: true }).catch(() => {});
+    if (entry.siteWindowId != null) chrome.windows.update(entry.siteWindowId, { focused: true }).catch(() => {});
     if (!payload.approved) { entry.reject(new Error('request rejected by user')); return { ok: true }; }
     if (!w.isUnlocked) { entry.reject(new Error('wallet locked')); return { ok: true }; }
     const req = entry.request;
@@ -230,7 +249,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     try {
       if (msg.kind === 'verge-rpc') {
         const origin = (sender && sender.origin) || msg.origin;
-        const result = await handleRpc(msg.method, msg.params || {}, origin);
+        const result = await handleRpc(msg.method, msg.params || {}, origin, sender);
         sendResponse({ result });
       } else if (msg.kind === 'wallet-ui') {
         sendResponse({ result: await handleUi(msg.action, msg.payload || {}) });

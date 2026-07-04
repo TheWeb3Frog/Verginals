@@ -35,14 +35,30 @@ async function setConnected(origin, on) {
 async function isConnected(origin) { return (await getConnectedOrigins()).has(origin); }
 
 // --- approval popups -------------------------------------------------------
+// dApp approvals cannot use the toolbar dropdown (chrome.action.openPopup is gesture-restricted and
+// would only open the wallet, not this screen), so we open a compact popup window. We pin it to the
+// top-right of the current browser window, right under the extension icon, so it reads like the
+// wallet popup instead of a page floating in the middle of the screen.
+const APPROVE_W = 360;
+const APPROVE_H = 600;
 function requestApproval(request) {
   return new Promise((resolve, reject) => {
     const rid = `r${Date.now()}-${++ridSeq}`;
     pending.set(rid, { resolve, reject, request: { ...request, rid } });
     const url = chrome.runtime.getURL(`ui/approve.html?rid=${encodeURIComponent(rid)}`);
-    chrome.windows.create({ url, type: 'popup', width: 380, height: 560, focused: true }, (win) => {
-      const entry = pending.get(rid);
-      if (entry) entry.windowId = win && win.id;
+    chrome.windows.getLastFocused({}, (parent) => {
+      let top = 78, left = 120;
+      if (parent && typeof parent.left === 'number' && typeof parent.width === 'number') {
+        left = parent.left + parent.width - APPROVE_W - 16;
+        top = parent.top + 72;
+      }
+      chrome.windows.create({
+        url, type: 'popup', width: APPROVE_W, height: APPROVE_H,
+        top: Math.max(0, Math.round(top)), left: Math.max(0, Math.round(left)), focused: true,
+      }, (win) => {
+        const entry = pending.get(rid);
+        if (entry) entry.windowId = win && win.id;
+      });
     });
   });
 }

@@ -209,7 +209,7 @@ function cmdMintCommit(flags) {
   const contentType =
     typeof flags['content-type'] === 'string' ? flags['content-type'] : inferContentType(flags.file);
   const networkName = flags.network === 'mainnet' ? 'mainnet' : 'testnet';
-  const amount = Number(flags.amount ?? 1_000_000); // per-input commit funding (units)
+  const amount = Number(flags.amount ?? 300_000); // per-input commit funding (units)
 
   const plan = buildPlan({
     body,

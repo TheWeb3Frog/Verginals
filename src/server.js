@@ -459,7 +459,7 @@ let mintCtl = null; // MintController when a collection is loaded, else null
 
 // Default deposit sizing for a mint (per commit input, XVG). Enough to cover the reveal fee and
 // leave a small carrier that returns to the minter as the inscription-bearing UTXO.
-const MINT_PER_INPUT_XVG = Number(process.env.VERGINALS_MINT_PER_INPUT_XVG || 1);
+const MINT_PER_INPUT_XVG = Number(process.env.VERGINALS_MINT_PER_INPUT_XVG || 0.3);
 // How long a reserved-but-unpaid number is held before the reaper vets it for release.
 const MINT_RESERVE_TTL_MS = Number(process.env.VERGINALS_MINT_RESERVE_TTL_MS || 30 * 60 * 1000);
 

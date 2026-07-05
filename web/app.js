@@ -383,7 +383,7 @@ async function loadMintStatus() {
     if (promoEl) {
       const p = s.promo;
       if (p && p.active) {
-        promoEl.innerHTML = `🎁 Launch gift: the first ${fmt(p.limit)} mints are <b>free</b>, on us. <b>${fmt(p.remaining)}</b> still available.`;
+        promoEl.innerHTML = `🎁 Launch gift: we cover the inscription fees on the first ${fmt(p.limit)} mints, so you can mint with <b>no XVG</b> in your wallet. <b>${fmt(p.remaining)}</b> left.`;
         promoEl.classList.remove('hidden');
       } else {
         promoEl.classList.add('hidden');
@@ -441,7 +441,7 @@ function renderMint(r) {
     $('#mint-paystatus').classList.remove('hidden');
     $('#mint-pay-error').textContent = '';
     $('#btn-mint-again').classList.add('hidden');
-    $('#mint-paystatus-text').textContent = 'This one is on us. Inscribing and broadcasting your free Verginal…';
+    $('#mint-paystatus-text').textContent = 'Inscription fees are on us. Inscribing and broadcasting your Verginal…';
     $('#mint-active').scrollIntoView({ behavior: 'smooth' });
     startMintPolling();
     return;

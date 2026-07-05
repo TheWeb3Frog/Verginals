@@ -352,6 +352,7 @@ $('settingsBtn').addEventListener('click', () => {
   $('settingsAbout').hidden = true;
   $('revealOut').hidden = true;
   $('revealPass').value = '';
+  $('revealPhraseBtn').hidden = !walletsState.hasSeed; // import-only wallets have no shared phrase
   $('settings').hidden = false;
 });
 $('aboutBtn').addEventListener('click', () => {
@@ -376,7 +377,6 @@ function startReveal(mode) {
     : 'Anyone with your private key can take your funds. Make sure no one is watching.';
 }
 $('revealPhraseBtn').addEventListener('click', () => startReveal('phrase'));
-$('exportWifBtn').addEventListener('click', () => startReveal('wif'));
 $('revealConfirmBtn').addEventListener('click', async () => {
   const passphrase = $('revealPass').value;
   if (!passphrase) return toast('Enter your passphrase', 'err');
@@ -394,99 +394,71 @@ $('revealConfirmBtn').addEventListener('click', async () => {
   } catch (e) { toast(e.message, 'err'); }
 });
 
-// ============================ wallets / accounts ============================
-// Non-secret snapshot of the keyring, kept in sync via ui('list'). Drives the selector + switcher.
-let walletsState = { activeWalletId: null, wallets: [] };
+// ============================ accounts (addresses) ============================
+// Non-secret snapshot of the keyring, kept in sync via ui('list'). Each account is one address; a
+// single shared recovery phrase backs the derived ones, plus any imported (standalone key) accounts.
+let walletsState = { activeId: null, hasSeed: false, accounts: [] };
 
 async function refreshWallets() {
   try {
     walletsState = await ui('list');
     renderSelector();
-    if (!$('accounts').hidden) renderWalletList();
+    if (!$('accounts').hidden) renderAccountList();
   } catch { /* selector just shows a placeholder */ }
 }
 
-function activeFromState() {
-  const w = walletsState.wallets.find((x) => x.id === walletsState.activeWalletId);
-  if (!w) return null;
-  const a = w.accounts.find((x) => x.index === w.activeAccount) || w.accounts[0];
-  return { wallet: w, account: a };
+function activeAccount() {
+  return walletsState.accounts.find((a) => a.id === walletsState.activeId) || walletsState.accounts[0] || null;
 }
 
 function renderSelector() {
-  const cur = activeFromState();
-  $('selWallet').textContent = cur ? cur.wallet.label : 'Wallet';
-  $('selAccount').textContent = cur && cur.account && cur.account.label ? ' · ' + cur.account.label : '';
+  const cur = activeAccount();
+  $('selAccount').textContent = cur ? cur.label : 'Address';
 }
 
 function shortAddr(a) { return a ? `${a.slice(0, 10)}…${a.slice(-6)}` : ''; }
 
-function renderWalletList() {
-  const root = $('walletList');
+function renderAccountList() {
+  const root = $('acctList');
   root.innerHTML = '';
-  for (const w of walletsState.wallets) {
-    const box = document.createElement('div');
-    box.className = 'wl-wallet';
+  for (const a of walletsState.accounts) {
+    const li = document.createElement('li');
+    li.className = 'wl-acct';
+    if (a.id === walletsState.activeId) li.classList.add('active');
 
-    const head = document.createElement('div');
-    head.className = 'wl-wallet-head';
-    const name = document.createElement('span');
-    name.className = 'wl-wallet-name';
-    name.textContent = w.label;
-    if (w.type !== 'mnemonic') {
+    const main = document.createElement('button');
+    main.className = 'wl-acct-main';
+    main.onclick = () => switchTo(a.id);
+    const nm = document.createElement('span');
+    nm.className = 'wl-acct-name';
+    nm.textContent = a.label;
+    if (a.kind === 'imported') {
       const tag = document.createElement('span');
       tag.className = 'wl-tag';
       tag.textContent = 'key';
-      name.appendChild(tag);
+      nm.appendChild(tag);
     }
-    const gear = document.createElement('button');
-    gear.className = 'icon wl-gear';
-    gear.innerHTML = '&#9881;';
-    gear.title = 'Wallet settings';
-    gear.onclick = () => openWalletSettings(w.id);
-    head.append(name, gear);
-    box.appendChild(head);
+    const ad = document.createElement('span');
+    ad.className = 'wl-acct-addr mono';
+    ad.textContent = shortAddr(a.address);
+    main.append(nm, ad);
 
-    const ul = document.createElement('ul');
-    ul.className = 'wl-accounts';
-    for (const a of w.accounts) {
-      const li = document.createElement('li');
-      li.className = 'wl-acct';
-      if (w.id === walletsState.activeWalletId && a.index === w.activeAccount) li.classList.add('active');
-      const main = document.createElement('button');
-      main.className = 'wl-acct-main';
-      main.onclick = () => switchTo(w.id, a.index);
-      const nm = document.createElement('span');
-      nm.className = 'wl-acct-name';
-      nm.textContent = a.label;
-      const ad = document.createElement('span');
-      ad.className = 'wl-acct-addr mono';
-      ad.textContent = shortAddr(a.address);
-      main.append(nm, ad);
-      const g = document.createElement('button');
-      g.className = 'icon wl-gear';
-      g.innerHTML = '&#9881;';
-      g.title = 'Address settings';
-      g.onclick = () => openAcctSettings(w.id, a.index);
-      li.append(main, g);
-      ul.appendChild(li);
-    }
-    box.appendChild(ul);
+    const g = document.createElement('button');
+    g.className = 'icon wl-gear';
+    g.innerHTML = '&#9881;';
+    g.title = 'Address settings';
+    g.onclick = () => openAcctSettings(a.id);
 
-    if (w.type === 'mnemonic') {
-      const add = document.createElement('button');
-      add.className = 'ghost wl-add-acct';
-      add.textContent = '+ Add address';
-      add.onclick = () => addAccount(w.id);
-      box.appendChild(add);
-    }
-    root.appendChild(box);
+    li.append(main, g);
+    root.appendChild(li);
   }
+  // "Create address" derives from the shared phrase; hide it for import-only (no-seed) wallets.
+  $('addAccountBtn').hidden = !walletsState.hasSeed;
 }
 
-async function switchTo(walletId, index) {
+async function switchTo(id) {
   try {
-    const r = await ui('selectAccount', { walletId, index });
+    const r = await ui('selectAccount', { id });
     setAddress(r.address);
     $('accounts').hidden = true;
     await refreshWallets();
@@ -494,138 +466,62 @@ async function switchTo(walletId, index) {
   } catch (e) { toast(e.message, 'err'); }
 }
 
-async function addAccount(walletId) {
+$('acctSelector').addEventListener('click', () => { renderAccountList(); $('accounts').hidden = false; });
+
+// ---- create a derived address ----
+$('addAccountBtn').addEventListener('click', async () => {
+  $('addAccountBtn').disabled = true;
   try {
-    const r = await ui('addAccount', { walletId });
+    const r = await ui('addAccount', {});
     setAddress(r.address);
+    $('accounts').hidden = true;
     await refreshWallets();
     refreshHome();
     toast('Address added', 'ok');
-  } catch (e) { toast(e.message, 'err'); }
-}
+  } catch (e) { toast(e.message, 'err'); } finally { $('addAccountBtn').disabled = false; }
+});
 
-$('acctSelector').addEventListener('click', () => { renderWalletList(); $('accounts').hidden = false; });
-
-// ---- add wallet ----
-let addWalletMode = 'create';
-let addWalletStrength = 128;
-function openAddWallet() {
-  addWalletMode = 'create';
-  addWalletStrength = 128;
-  document.querySelectorAll('[data-add]').forEach((b) => b.classList.toggle('active', b.dataset.add === 'create'));
-  document.querySelectorAll('[data-addstrength]').forEach((b) => b.classList.toggle('active', b.dataset.addstrength === '128'));
-  $('add-create').hidden = false; $('add-phrase').hidden = true; $('add-wif').hidden = true;
-  $('addWalletLabel').value = ''; $('addWalletPhrase').value = ''; $('addWalletWif').value = '';
-  $('addWalletSheet').hidden = false;
-}
-$('addWalletBtn').addEventListener('click', openAddWallet);
-document.querySelectorAll('[data-add]').forEach((b) => b.addEventListener('click', () => {
-  addWalletMode = b.dataset.add;
-  document.querySelectorAll('[data-add]').forEach((x) => x.classList.toggle('active', x === b));
-  $('add-create').hidden = addWalletMode !== 'create';
-  $('add-phrase').hidden = addWalletMode !== 'phrase';
-  $('add-wif').hidden = addWalletMode !== 'wif';
-}));
-document.querySelectorAll('[data-addstrength]').forEach((b) => b.addEventListener('click', () => {
-  addWalletStrength = Number(b.dataset.addstrength);
-  document.querySelectorAll('[data-addstrength]').forEach((x) => x.classList.toggle('active', x === b));
-}));
-$('addWalletConfirmBtn').addEventListener('click', async () => {
-  const label = $('addWalletLabel').value.trim();
-  let payload;
-  if (addWalletMode === 'create') payload = { kind: 'create', strength: addWalletStrength, label };
-  else if (addWalletMode === 'phrase') {
-    const mnemonic = $('addWalletPhrase').value.trim().replace(/\s+/g, ' ');
-    if (!mnemonic) return toast('Enter your recovery phrase', 'err');
-    payload = { kind: 'importMnemonic', mnemonic, label };
-  } else {
-    const wif = $('addWalletWif').value.trim();
-    if (!wif) return toast('Enter a private key', 'err');
-    payload = { kind: 'importWIF', wif, label };
-  }
-  $('addWalletConfirmBtn').disabled = true;
+// ---- import a private key as a standalone address ----
+$('importAccountBtn').addEventListener('click', () => {
+  $('importAccountLabel').value = '';
+  $('importAccountWif').value = '';
+  $('importAccountSheet').hidden = false;
+});
+$('importAccountConfirmBtn').addEventListener('click', async () => {
+  const wif = $('importAccountWif').value.trim();
+  if (!wif) return toast('Enter a private key', 'err');
+  const label = $('importAccountLabel').value.trim();
+  $('importAccountConfirmBtn').disabled = true;
   try {
-    const r = await ui('addWallet', payload);
+    const r = await ui('importAccount', { wif, label });
     setAddress(r.address);
-    $('addWalletSheet').hidden = true;
+    $('importAccountSheet').hidden = true;
     $('accounts').hidden = true;
     await refreshWallets();
     refreshHome();
-    if (r.mnemonic) presentBackup(r.mnemonic); // show the fresh phrase once
-    else toast('Wallet added', 'ok');
-  } catch (e) { toast(e.message, 'err'); } finally { $('addWalletConfirmBtn').disabled = false; }
-});
-
-// ---- wallet settings ----
-let settingsWalletId = null;
-function openWalletSettings(walletId) {
-  settingsWalletId = walletId;
-  const w = walletsState.wallets.find((x) => x.id === walletId);
-  $('walletSettingsTitle').textContent = w ? w.label : 'Wallet';
-  $('walletRenameInput').value = w ? w.label : '';
-  $('walletReveal').hidden = true;
-  $('walletRevealOut').hidden = true;
-  $('walletRevealPass').value = '';
-  $('walletRevealBtn').hidden = !(w && w.type === 'mnemonic');
-  $('walletRemoveBtn').disabled = walletsState.wallets.length <= 1;
-  $('walletSettings').hidden = false;
-}
-$('walletRenameBtn').addEventListener('click', async () => {
-  const label = $('walletRenameInput').value.trim();
-  if (!label) return toast('Enter a name', 'err');
-  try {
-    await ui('renameWallet', { walletId: settingsWalletId, label });
-    $('walletSettingsTitle').textContent = label;
-    await refreshWallets();
-    toast('Renamed', 'ok');
-  } catch (e) { toast(e.message, 'err'); }
-});
-$('walletRevealBtn').addEventListener('click', () => {
-  $('walletReveal').hidden = false; $('walletRevealOut').hidden = true; $('walletRevealPass').value = '';
-});
-$('walletRevealConfirmBtn').addEventListener('click', async () => {
-  const passphrase = $('walletRevealPass').value;
-  if (!passphrase) return toast('Enter your passphrase', 'err');
-  try {
-    const r = await ui('revealMnemonic', { passphrase, walletId: settingsWalletId });
-    $('walletRevealOut').textContent = r.mnemonic;
-    $('walletRevealOut').hidden = false;
-    $('walletRevealPass').value = '';
-  } catch (e) { toast(e.message, 'err'); }
-});
-$('walletRemoveBtn').addEventListener('click', async () => {
-  if (!confirm('Remove this wallet from the extension? Make sure its recovery phrase is backed up first, this cannot be undone here.')) return;
-  try {
-    const r = await ui('removeWallet', { walletId: settingsWalletId });
-    setAddress(r.address);
-    $('walletSettings').hidden = true;
-    $('accounts').hidden = true;
-    await refreshWallets();
-    refreshHome();
-    toast('Wallet removed', 'ok');
-  } catch (e) { toast(e.message, 'err'); }
+    toast('Address imported', 'ok');
+  } catch (e) { toast(e.message, 'err'); } finally { $('importAccountConfirmBtn').disabled = false; }
 });
 
 // ---- account (address) settings ----
-let settingsAcct = { walletId: null, index: null };
-function openAcctSettings(walletId, index) {
-  settingsAcct = { walletId, index };
-  const w = walletsState.wallets.find((x) => x.id === walletId);
-  const a = w && w.accounts.find((x) => x.index === index);
+let settingsAcct = null; // account id
+function openAcctSettings(id) {
+  settingsAcct = id;
+  const a = walletsState.accounts.find((x) => x.id === id);
   $('acctSettingsTitle').textContent = a ? a.label : 'Address';
   $('acctAddrLine').textContent = a ? (a.address || '') : '';
   $('acctRenameInput').value = a ? a.label : '';
   $('acctReveal').hidden = true;
   $('acctRevealOut').hidden = true;
   $('acctRevealPass').value = '';
-  $('acctRemoveBtn').disabled = !w || w.accounts.length <= 1;
+  $('acctRemoveBtn').disabled = walletsState.accounts.length <= 1;
   $('acctSettings').hidden = false;
 }
 $('acctRenameBtn').addEventListener('click', async () => {
   const label = $('acctRenameInput').value.trim();
   if (!label) return toast('Enter a name', 'err');
   try {
-    await ui('renameAccount', { walletId: settingsAcct.walletId, index: settingsAcct.index, label });
+    await ui('renameAccount', { id: settingsAcct, label });
     $('acctSettingsTitle').textContent = label;
     await refreshWallets();
     toast('Renamed', 'ok');
@@ -638,7 +534,7 @@ $('acctRevealConfirmBtn').addEventListener('click', async () => {
   const passphrase = $('acctRevealPass').value;
   if (!passphrase) return toast('Enter your passphrase', 'err');
   try {
-    const r = await ui('exportWIF', { passphrase, walletId: settingsAcct.walletId, index: settingsAcct.index });
+    const r = await ui('exportWIF', { passphrase, id: settingsAcct });
     $('acctRevealOut').textContent = r.wif;
     $('acctRevealOut').hidden = false;
     $('acctRevealPass').value = '';
@@ -647,7 +543,7 @@ $('acctRevealConfirmBtn').addEventListener('click', async () => {
 $('acctRemoveBtn').addEventListener('click', async () => {
   if (!confirm('Remove this address from the wallet?')) return;
   try {
-    const r = await ui('removeAccount', { walletId: settingsAcct.walletId, index: settingsAcct.index });
+    const r = await ui('removeAccount', { id: settingsAcct });
     setAddress(r.address);
     $('acctSettings').hidden = true;
     await refreshWallets();

@@ -186,40 +186,35 @@ async function handleUi(action, payload) {
       return { address: r.address, active: w.activeInfo() };
     }
     case 'lock': { w.lock(); return { locked: true }; }
-    // --- multi-wallet / multi-account ---
+    // --- multi-account (flat: each account is one address) ---
     case 'list': { return w.list(); }
-    case 'addWallet': {
-      // kind: 'create' returns the mnemonic ONCE; import kinds return just the address.
-      const r = await w.addWallet(payload);
+    case 'addAccount': {
+      // Derive the next address from the shared recovery phrase and switch to it.
+      const r = await w.addAccount(payload.label);
       await broadcastActiveChanged();
       return { ...r, active: w.activeInfo() };
     }
-    case 'addAccount': {
-      const r = await w.addAccount(payload.walletId);
+    case 'importAccount': {
+      // Add a standalone address from a WIF private key and switch to it.
+      const r = await w.importAccount(payload.wif, payload.label);
       await broadcastActiveChanged();
       return { ...r, active: w.activeInfo() };
     }
     case 'selectAccount': {
-      const r = await w.selectAccount(payload.walletId, payload.index);
+      const r = await w.selectAccount(payload.id);
       await broadcastActiveChanged();
       return { ...r, active: w.activeInfo() };
     }
-    case 'renameWallet': { return w.renameWallet(payload.walletId, payload.label); }
-    case 'renameAccount': { return w.renameAccount(payload.walletId, payload.index, payload.label); }
-    case 'removeWallet': {
-      const r = await w.removeWallet(payload.walletId);
-      await broadcastActiveChanged();
-      return { ...r, active: w.activeInfo() };
-    }
+    case 'renameAccount': { return w.renameAccount(payload.id, payload.label); }
     case 'removeAccount': {
-      const r = await w.removeAccount(payload.walletId, payload.index);
+      const r = await w.removeAccount(payload.id);
       await broadcastActiveChanged();
       return { ...r, active: w.activeInfo() };
     }
     case 'getTotalBalance': { return w.getTotalBalance(); }
     case 'getBalance': { return w.getBalance(); }
-    case 'revealMnemonic': { return { mnemonic: await w.revealMnemonic(payload.passphrase, payload.walletId) }; }
-    case 'exportWIF': { return { wif: await w.exportWIF(payload.passphrase, payload.walletId, payload.index) }; }
+    case 'revealMnemonic': { return { mnemonic: await w.revealMnemonic(payload.passphrase) }; }
+    case 'exportWIF': { return { wif: await w.exportWIF(payload.passphrase, payload.id) }; }
     case 'getInscriptionContent': { return w.getInscriptionContent(payload.id); }
     case 'getHistory': { return { history: await w.getHistory() }; }
     case 'transfer': { return w.transferInscription({ carrierOutpoint: payload.carrierOutpoint, toAddress: payload.to }); }

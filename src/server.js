@@ -46,6 +46,7 @@ const { RpcClient, VergeChain, extractRedeemScript, xvgToUnits } = require('./rp
 const { buildPlan, revealFromPlan, inferContentType, pickNetwork } = require('./cli');
 const { ECPair, buildFundingTx } = require('./builder');
 const { MintController } = require('./mint');
+const { PromoController } = require('./promo');
 
 const PORT = Number(process.env.PORT || 3400);
 // Bind to loopback by default so a public deployment is reachable ONLY through the reverse proxy
@@ -463,6 +464,90 @@ const MINT_PER_INPUT_XVG = Number(process.env.VERGINALS_MINT_PER_INPUT_XVG || 0.
 // How long a reserved-but-unpaid number is held before the reaper vets it for release.
 const MINT_RESERVE_TTL_MS = Number(process.env.VERGINALS_MINT_RESERVE_TTL_MS || 30 * 60 * 1000);
 
+// --- promo campaign: first N mints funded by the operator --------------------------------
+// Disabled by default. When enabled AND a promo key is present, an eligible mint has its deposit
+// funded from the promo wallet, so the minter pays nothing. See promo.js for the eligibility state.
+const PROMO_ENABLED = process.env.VERGINALS_PROMO_ENABLED === '1';
+const PROMO_LIMIT = Number(process.env.VERGINALS_PROMO_LIMIT || 333);
+const PROMO_MAX_PER_ADDR = Number(process.env.VERGINALS_PROMO_MAX_PER_ADDR || 1);
+const PROMO_MAX_PER_IP = Number(process.env.VERGINALS_PROMO_MAX_PER_IP || 2);
+// The promo wallet is normally funded AFTER first boot (the node imports it watch-only with no
+// rescan, then you send it coins). If instead you pre-funded it before this server ever imported
+// the address, set VERGINALS_PROMO_RESCAN=1 once so the node scans history for those UTXOs.
+const PROMO_RESCAN = process.env.VERGINALS_PROMO_RESCAN === '1';
+let promoCtl = null; // PromoController once initialised (may be inactive if no key / disabled)
+let promoKey = null; // ECPair for the promo wallet (funding source), or null
+let promoAddress = null; // P2PKH address of the promo wallet, or null
+
+function initPromo() {
+  let wif = process.env.VERGINALS_PROMO_WIF;
+  if (!wif) {
+    try {
+      wif = fs.readFileSync(path.join(DATA_DIR, 'promo.wif'), 'utf8').trim();
+    } catch (_) {
+      /* no key file; promo stays inactive unless a WIF is provided */
+    }
+  }
+  if (wif) {
+    try {
+      const { network } = pickNetwork(NETWORK);
+      promoKey = ECPair.fromWIF(wif, network);
+      promoAddress = p2pkhAddress(promoKey, network);
+      // Watch the promo address so listunspent can see its UTXOs. Funds sent after this import are
+      // tracked without a rescan; set PROMO_RESCAN=1 only if it was funded before this import.
+      client
+        .call('importaddress', [promoAddress, 'verginals-promo', PROMO_RESCAN])
+        .catch((e) => console.warn('Promo: importaddress failed: ' + e.message));
+    } catch (e) {
+      console.warn('Promo: failed to load promo key: ' + e.message);
+      promoKey = null;
+      promoAddress = null;
+    }
+  }
+  promoCtl = new PromoController({
+    dataDir: DATA_DIR,
+    enabled: PROMO_ENABLED,
+    hasKey: !!promoKey,
+    limit: PROMO_LIMIT,
+    maxPerAddr: PROMO_MAX_PER_ADDR,
+    maxPerIp: PROMO_MAX_PER_IP,
+  }).load();
+}
+
+/**
+ * Send exactly `amountUnits` from the promo wallet to a job's deposit address, so the existing
+ * poll -> commit -> reveal pipeline completes as if the minter had paid. Selects promo UTXOs
+ * largest-first; the implicit input remainder (after the deposit output + optional change) is the
+ * miner fee, matching how buildFundingTx is used everywhere else. Throws if the promo wallet is
+ * unfunded or too low.
+ */
+async function promoFundDeposit(depositAddress, amountUnits) {
+  if (!promoKey || !promoAddress) throw new Error('promo wallet not configured');
+  const { network } = pickNetwork(NETWORK);
+  const utxos = await client.call('listunspent', [0, 9999999, [promoAddress]]);
+  utxos.sort((a, b) => b.amount - a.amount);
+  const selected = [];
+  let sum = 0;
+  for (const u of utxos) {
+    selected.push(u);
+    sum += toUnits(u.amount);
+    const fee = toUnits(feeForBytes(150 * selected.length + 34 * 2 + 12));
+    if (sum >= amountUnits + fee) {
+      const change = sum - amountUnits - fee;
+      const outputs = [{ address: depositAddress, value: amountUnits }];
+      if (change >= DUST_UNITS) outputs.push({ address: promoAddress, value: change });
+      const tx = buildFundingTx({
+        network,
+        inputs: selected.map((s) => ({ txid: s.txid, vout: s.vout, value: toUnits(s.amount) })),
+        outputs,
+        signer: promoKey,
+      });
+      return await chain.sendRawTransaction(tx.hex);
+    }
+  }
+  throw new Error('promo wallet has insufficient funds for this mint');
+}
+
 function initMint() {
   try {
     if (!fs.existsSync(path.join(COLLECTION_DIR, 'designs.json'))) {
@@ -601,7 +686,8 @@ async function handleMintStatus(res) {
   if (!mintCtl) return sendJSON(res, 200, { enabled: false });
   sendJSON(res, 200, Object.assign(
     { enabled: true, parented: !!parentCfg, parentId: parentCfg ? parentCfg.id : null },
-    mintCtl.status()
+    mintCtl.status(),
+    { promo: promoCtl ? promoCtl.status() : { active: false } }
   ));
 }
 
@@ -612,6 +698,7 @@ async function handleMint(req, res) {
   const raw = await readBody(req);
   const b = JSON.parse(raw.toString('utf8') || '{}');
   const to = typeof b.to === 'string' ? b.to.trim() : '';
+  const ip = clientIp(req);
   const { network } = pickNetwork(NETWORK);
   requireDestination(to, network);
 
@@ -627,13 +714,31 @@ async function handleMint(req, res) {
     // Inscribe each Alpha's traits on-chain as ord tag-5 CBOR metadata, so the image and its
     // attributes travel together permanently and generic ordinals explorers can render them.
     const metadata = mintCtl.metadataCbor(assignment.number);
-    const { response } = await createPaymentJob({
+    const { job, response } = await createPaymentJob({
       id: jobId, body, contentType, filename: assignment.filename, to,
       amountPerInput: toUnits(MINT_PER_INPUT_XVG), networkName: NETWORK, network,
       mint: { number: assignment.number, name: assignment.name }, metadata,
       // Bind the mint to the collection root when parenting is enabled (else a genesis item).
       parent: parentCfg ? parentCfg.parentBuf : undefined,
     });
+
+    // Launch campaign: if this mint is eligible, fund its deposit from the promo wallet so the
+    // minter pays nothing. The reserved slot is consumed only once funding is broadcast; on any
+    // failure we release the slot and fall back to a normal (paid) payment request.
+    let promo = { applied: false };
+    if (promoCtl && promoCtl.eligible(ip, to) && promoCtl.hold(job.id, ip, to)) {
+      try {
+        const fundTxid = await promoFundDeposit(job.depositAddress, job.total);
+        job.promo = true;
+        saveJob(job);
+        promo = { applied: true, fundTxid, remaining: promoCtl.remaining() };
+      } catch (e) {
+        promoCtl.release(job.id);
+        console.warn('Promo: funding failed, falling back to paid mint: ' + e.message);
+        promo = { applied: false, reason: 'funding_unavailable' };
+      }
+    }
+
     sendJSON(res, 200, Object.assign(response, {
       verginal: {
         number: assignment.number,
@@ -644,6 +749,7 @@ async function handleMint(req, res) {
       },
       commitment: mintCtl.commitment,
       status: mintCtl.status(),
+      promo,
     }));
   } catch (e) {
     mintCtl.release(assignment.number); // roll the reservation back if the job couldn't be built
@@ -682,7 +788,10 @@ async function reapMintReservations() {
     try {
       const utxos = await client.call('listunspent', [0, 9999999, [job.depositAddress]]);
       const received = utxos.reduce((s, u) => s + toUnits(u.amount), 0);
-      if (received < job.total) mintCtl.release(number); // truly unpaid → free the number
+      if (received < job.total) {
+        mintCtl.release(number); // truly unpaid → free the number
+        if (job.promo && promoCtl) promoCtl.release(job.id); // and return the promo slot
+      }
     } catch (_) {
       /* leave it; retry next cycle */
     }
@@ -782,6 +891,8 @@ async function drivePayout(job, depositUtxos) {
     } catch (_) {
       /* non-fatal: the inscription is already on-chain; state will reconcile from the index */
     }
+    // Lock in a promo-funded mint so its slot stays consumed permanently.
+    if (job.promo && promoCtl) promoCtl.confirm(job.id);
   }
 }
 
@@ -1240,6 +1351,7 @@ function cleanupJobs() {
 initServiceFee();
 initMint();
 initParent();
+initPromo();
 
 server.listen(PORT, HOST, () => {
   console.log(`Verginals web UI  →  http://${HOST}:${PORT}`);
@@ -1256,6 +1368,11 @@ server.listen(PORT, HOST, () => {
     mintCtl
       ? `Mint ${mintCtl.manifest.name}: ${mintCtl.mintedCount()}/${mintCtl.supply} minted · commitment ${mintCtl.commitment.slice(0, 16)}…`
       : 'Mint disabled (no collection loaded)',
+  );
+  console.log(
+    promoCtl && promoCtl.active()
+      ? `Promo: ACTIVE, ${promoCtl.remaining()}/${promoCtl.limit} free mints left, wallet ${promoAddress}`
+      : `Promo: inactive (enabled=${PROMO_ENABLED} key=${!!promoKey})` + (promoAddress ? `, wallet ${promoAddress}` : ''),
   );
   cleanupJobs();
   setInterval(cleanupJobs, 3600 * 1000).unref();

@@ -248,6 +248,12 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 .mint-progress { height: 8px; background: var(--bg2); border-radius: 999px; overflow: hidden; margin: 16px 0 10px; }
 .mint-bar { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent2), var(--accent)); border-radius: 999px; transition: width .6s ease; }
 .mint-fair code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent); }
+.mint-promo {
+  margin-top: 10px; padding: 10px 14px; border-radius: 10px; font-size: 14px;
+  color: var(--txt); border: 1px solid var(--accent2);
+  background: linear-gradient(180deg, #1245661f, transparent);
+}
+.mint-promo b { color: var(--accent); }
 .reveal-seed { background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: 13px; word-break: break-all; }
 .reveal-seed code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent); }
 

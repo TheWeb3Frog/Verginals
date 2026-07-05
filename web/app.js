@@ -377,6 +377,18 @@ async function loadMintStatus() {
       `Provably fair · commitment <code>${short(s.commitment)}</code>` +
       (s.revealed && s.seed ? ` · seed revealed <code>${short(s.seed)}</code>` : '') +
       ` · ${fmt(s.remaining)} left`;
+    // Launch campaign badge. Driven entirely by the server: it shows only while the promo is active
+    // and disappears on its own once the free allocation is used up, with no site change needed.
+    const promoEl = $('#mint-promo');
+    if (promoEl) {
+      const p = s.promo;
+      if (p && p.active) {
+        promoEl.innerHTML = `🎁 Launch gift: the first ${fmt(p.limit)} mints are <b>free</b>, on us. <b>${fmt(p.remaining)}</b> still available.`;
+        promoEl.classList.remove('hidden');
+      } else {
+        promoEl.classList.add('hidden');
+      }
+    }
     if (s.soldOut) showMintSoldOut(s);
     return s;
   } catch (_) {
@@ -420,6 +432,22 @@ function renderMint(r) {
   // reset the reveal to its sealed state
   $('#reveal-box').classList.remove('revealed');
   $('#reveal-back').innerHTML = '';
+
+  // Promo mint: the deposit is already funded on our side, so hide every payment control and just
+  // wait for the inscription to broadcast. Everything else in the reveal flow is identical.
+  if (r.promo && r.promo.applied) {
+    const payblock = $('#mint-payblock');
+    if (payblock) payblock.classList.add('hidden');
+    $('#mint-paystatus').classList.remove('hidden');
+    $('#mint-pay-error').textContent = '';
+    $('#btn-mint-again').classList.add('hidden');
+    $('#mint-paystatus-text').textContent = 'This one is on us. Inscribing and broadcasting your free Verginal…';
+    $('#mint-active').scrollIntoView({ behavior: 'smooth' });
+    startMintPolling();
+    return;
+  }
+  const payblock = $('#mint-payblock');
+  if (payblock) payblock.classList.remove('hidden');
 
   $('#mint-amount').textContent = fmt(r.totalXVG) + ' XVG';
   $('#mint-pay-address').textContent = r.depositAddress;

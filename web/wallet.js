@@ -9,8 +9,18 @@
 
 (function () {
   const COIN = 1_000_000; // atomic units per XVG
+  // Chrome Web Store listing for the Verginals Wallet extension.
+  const STORE_URL = 'https://chromewebstore.google.com/detail/ficjfnjaiopghnpohemapfbilflfflip';
   let provider = null;    // window.verge once it is present
   let address = null;     // connected address, or null
+  // The provider injects at document_start, so if it is installed it is almost always present by the
+  // time this runs. We only conclude the wallet is ABSENT after a short grace window with no provider,
+  // which avoids flashing an "install" prompt at users who already have it.
+  let absent = false;
+  let bannerDismissed = false;
+  let graceTimer = null;
+
+  function openStore() { window.open(STORE_URL, '_blank', 'noopener'); }
 
   // The provider is injected by the content script and may not be ready when this runs. Resolve it
   // now if present, otherwise wait for the one-shot init event the provider fires.
@@ -40,10 +50,19 @@
   // Push the current state into the UI: header button label, pay-with-wallet buttons, address
   // autofill, and the My Wallet tab.
   function reflect() {
+    const installed = hasProvider();
     const btn = $('#wallet-connect');
     if (btn) {
-      btn.textContent = address ? short(address) : 'Connect Wallet';
+      // Three states: connected (address), needs-install (concluded absent), or connectable.
+      if (address) {
+        btn.textContent = short(address);
+      } else if (absent && !installed) {
+        btn.textContent = 'Install Wallet';
+      } else {
+        btn.textContent = 'Connect Wallet';
+      }
       btn.classList.toggle('connected', !!address);
+      btn.classList.toggle('install', !address && absent && !installed);
     }
     // The pay-with-wallet buttons only make sense once a wallet is connected.
     $$('.wallet-pay').forEach((b) => b.classList.toggle('hidden', !address));
@@ -52,6 +71,9 @@
       const t = $('#to-address'); if (t && !t.value.trim()) t.value = address;
       const m = $('#mint-address'); if (m && !m.value.trim()) m.value = address;
     }
+    // Prominent install banner: only once we are sure the wallet is missing, and not dismissed.
+    const banner = $('#install-banner');
+    if (banner) banner.classList.toggle('hidden', !(absent && !installed && !address && !bannerDismissed));
     renderWalletTab();
   }
 
@@ -227,6 +249,9 @@
   // --- wiring ----------------------------------------------------------------------------
   async function tryConnect(btn) {
     const err = $('#wallet-error'); if (err) err.textContent = '';
+    // No provider means the extension is not installed. Send the user to the store instead of
+    // failing with a "not detected" error.
+    if (!hasProvider()) { absent = true; reflect(); openStore(); return; }
     const prev = btn ? btn.textContent : '';
     if (btn) { btn.disabled = true; btn.textContent = 'Connecting…'; }
     try {
@@ -252,6 +277,8 @@
     if (dc) dc.addEventListener('click', disconnect);
     const rf = $('#wallet-refresh');
     if (rf) rf.addEventListener('click', loadInscriptions);
+    const dz = $('#install-dismiss');
+    if (dz) dz.addEventListener('click', () => { bannerDismissed = true; reflect(); });
 
     const cancel = $('#xfer-cancel');
     if (cancel) cancel.addEventListener('click', closeTransfer);
@@ -270,8 +297,14 @@
 
   // --- boot ------------------------------------------------------------------------------
   wire();
-  reflect(); // reflect provider-absent state immediately
+  reflect();
+  // If the provider has not shown up after a short grace window, conclude the wallet is absent and
+  // surface the install prompt. The provider injects at document_start, so a real install is present
+  // well within this window.
+  graceTimer = setTimeout(() => { if (!hasProvider()) { absent = true; reflect(); } }, 800);
   withProvider(async () => {
+    if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
+    absent = false;
     provider.on('connect', (d) => setAddress(d && d.address));
     provider.on('disconnect', () => setAddress(null));
     // Restore an existing session without prompting: getAddress returns null when not connected.

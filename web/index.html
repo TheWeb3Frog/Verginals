@@ -22,6 +22,19 @@
     </div>
   </header>
 
+  <!-- Shown only when no Verginals Wallet extension is detected: a prominent, dismissible install CTA. -->
+  <div id="install-banner" class="install-banner hidden">
+    <div class="install-banner-in">
+      <span class="ib-icon">V</span>
+      <div class="ib-text">
+        <strong>Get the Verginals Wallet</strong>
+        <span>The first Verge (XVG) browser wallet. Inscribe, view and transfer your Verginals safely. Your keys stay on your device.</span>
+      </div>
+      <a class="btn primary ib-cta" href="https://chromewebstore.google.com/detail/ficjfnjaiopghnpohemapfbilflfflip" target="_blank" rel="noopener noreferrer">Add to Chrome</a>
+      <button class="ib-close" id="install-dismiss" title="Dismiss" aria-label="Dismiss">&#10005;</button>
+    </div>
+  </div>
+
   <nav class="tabs">
     <button class="tab active" data-tab="inscribe">Inscribe</button>
     <button class="tab hidden" data-tab="mint" id="tab-mint">Mint ✦</button>
@@ -222,7 +235,10 @@
           <h2>Your Verginals Wallet</h2>
           <p class="hint" id="wallet-hint">Connect the Verginals Wallet browser extension to see your Verginals and transfer them straight from here. Everything is signed on your device; this site never sees your keys.</p>
           <button class="btn primary" id="wallet-connect-2">Connect Wallet</button>
-          <p class="hint hidden" id="wallet-noext">No wallet detected. Install the <a class="link" href="https://chromewebstore.google.com/detail/verginals-wallet" target="_blank" rel="noopener noreferrer">Verginals Wallet</a> extension, then reload this page.</p>
+          <div class="noext-block hidden" id="wallet-noext">
+            <p class="hint">No wallet detected yet. The Verginals Wallet is a free Chrome extension: install it, then reload this page to connect.</p>
+            <a class="btn primary noext-cta" href="https://chromewebstore.google.com/detail/ficjfnjaiopghnpohemapfbilflfflip" target="_blank" rel="noopener noreferrer">Add to Chrome</a>
+          </div>
           <div class="error" id="wallet-error"></div>
         </div>
 

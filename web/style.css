@@ -39,6 +39,30 @@ body {
 .wallet-connect { width: auto; margin: 0; padding: 9px 16px; font-size: 13px; white-space: nowrap; }
 .wallet-connect.connected { border-color: var(--accent2); color: var(--accent); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
+/* Install banner (shown only when no wallet extension is detected) */
+.install-banner { border-bottom: 1px solid var(--line); background: linear-gradient(180deg, #1245661f, transparent); }
+.install-banner-in { max-width: 980px; margin: 0 auto; padding: 12px 24px; display: flex; align-items: center; gap: 14px; }
+.ib-icon {
+  width: 34px; height: 34px; border-radius: 9px; flex: 0 0 auto;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #052436; font-weight: 800; display: grid; place-items: center;
+}
+.ib-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.ib-text strong { font-size: 14px; }
+.ib-text span { font-size: 12px; color: var(--muted); }
+.btn.primary.ib-cta { width: auto; margin: 0; padding: 9px 16px; font-size: 13px; white-space: nowrap; text-decoration: none; flex: 0 0 auto; }
+.ib-close { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 4px 8px; flex: 0 0 auto; line-height: 1; }
+.ib-close:hover { color: var(--txt); }
+@media (max-width: 640px) { .ib-text span { display: none; } }
+
+/* "No extension" block on the My Wallet tab */
+.noext-block { margin-top: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); }
+.noext-block .hint { margin: 0 0 12px; }
+.btn.primary.noext-cta { width: auto; margin: 0; padding: 10px 18px; font-size: 14px; text-decoration: none; display: inline-block; }
+
+/* header connect button in "install" state */
+.wallet-connect.install { border-color: var(--accent2); color: var(--accent); }
+
 /* Wallet integration */
 .wallet-pay { margin-bottom: 8px; }
 .wallet-head {

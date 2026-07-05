@@ -71,6 +71,14 @@
 
     <!-- ===== Home (unlocked) ===== -->
     <section id="home" hidden>
+      <button id="acctSelector" class="acct-selector" title="Switch wallet / address">
+        <span class="acct-sel-text">
+          <span id="selWallet" class="acct-sel-wallet">-</span>
+          <span id="selAccount" class="acct-sel-account"></span>
+        </span>
+        <span class="chev">&#9662;</span>
+      </button>
+
       <div class="wallet-head">
         <button id="addr" class="addr" title="Copy address"></button>
         <div class="bal-block">
@@ -158,6 +166,89 @@
       <p class="warn small">This moves the Verginal off this wallet. The transfer is irreversible.</p>
       <button id="transferConfirmBtn" class="primary">Send Verginal</button>
       <button class="ghost block closeSheet">Cancel</button>
+    </div>
+  </div>
+
+  <!-- ===== Wallets / accounts switcher ===== -->
+  <div id="accounts" class="overlay" hidden>
+    <div class="sheet sheet-tall">
+      <div class="sheet-head">
+        <h3>Wallets</h3>
+        <button class="icon closeSheet" title="Close">&#10005;</button>
+      </div>
+      <div id="walletList" class="wallet-list"></div>
+      <button id="addWalletBtn" class="primary block">Add wallet</button>
+    </div>
+  </div>
+
+  <!-- ===== Add a wallet ===== -->
+  <div id="addWalletSheet" class="overlay" hidden>
+    <div class="sheet">
+      <h3>Add wallet</h3>
+      <div class="seg">
+        <button type="button" class="segbtn active" data-add="create">Create new</button>
+        <button type="button" class="segbtn" data-add="phrase">Import phrase</button>
+        <button type="button" class="segbtn" data-add="wif">Import key</button>
+      </div>
+      <input id="addWalletLabel" placeholder="Wallet name (optional)" autocomplete="off" />
+      <div id="add-create">
+        <label class="field-label">Recovery phrase length</label>
+        <div class="seg">
+          <button type="button" class="segbtn active" data-addstrength="128">12 words</button>
+          <button type="button" class="segbtn" data-addstrength="256">24 words</button>
+        </div>
+      </div>
+      <div id="add-phrase" hidden>
+        <textarea id="addWalletPhrase" rows="3" placeholder="Enter a 12 or 24 word recovery phrase" autocomplete="off"></textarea>
+      </div>
+      <div id="add-wif" hidden>
+        <input id="addWalletWif" type="password" placeholder="Private key (WIF)" autocomplete="off" />
+      </div>
+      <button id="addWalletConfirmBtn" class="primary">Add wallet</button>
+      <button class="ghost block closeSheet">Cancel</button>
+    </div>
+  </div>
+
+  <!-- ===== Wallet settings ===== -->
+  <div id="walletSettings" class="overlay" hidden>
+    <div class="sheet">
+      <h3 id="walletSettingsTitle">Wallet</h3>
+      <label class="field-label">Name</label>
+      <div class="row-inline">
+        <input id="walletRenameInput" autocomplete="off" />
+        <button id="walletRenameBtn" class="ghost">Save</button>
+      </div>
+      <button id="walletRevealBtn" class="ghost block">Reveal recovery phrase</button>
+      <button id="walletRemoveBtn" class="danger block">Remove wallet</button>
+      <div id="walletReveal" class="reveal-block" hidden>
+        <p class="warn" id="walletRevealWarn">Anyone with your recovery phrase can take your funds. Make sure no one is watching.</p>
+        <input id="walletRevealPass" type="password" placeholder="Enter passphrase to reveal" autocomplete="current-password" />
+        <button id="walletRevealConfirmBtn" class="primary">Reveal</button>
+        <div id="walletRevealOut" class="reveal-out mono" hidden></div>
+      </div>
+      <button class="ghost block closeSheet">Close</button>
+    </div>
+  </div>
+
+  <!-- ===== Account (address) settings ===== -->
+  <div id="acctSettings" class="overlay" hidden>
+    <div class="sheet">
+      <h3 id="acctSettingsTitle">Address</h3>
+      <div id="acctAddrLine" class="addr-full mono"></div>
+      <label class="field-label">Name</label>
+      <div class="row-inline">
+        <input id="acctRenameInput" autocomplete="off" />
+        <button id="acctRenameBtn" class="ghost">Save</button>
+      </div>
+      <button id="acctExportBtn" class="ghost block">Export private key (WIF)</button>
+      <button id="acctRemoveBtn" class="danger block">Remove address</button>
+      <div id="acctReveal" class="reveal-block" hidden>
+        <p class="warn">Anyone with your private key can take the funds on this address. Make sure no one is watching.</p>
+        <input id="acctRevealPass" type="password" placeholder="Enter passphrase to reveal" autocomplete="current-password" />
+        <button id="acctRevealConfirmBtn" class="primary">Reveal</button>
+        <div id="acctRevealOut" class="reveal-out mono" hidden></div>
+      </div>
+      <button class="ghost block closeSheet">Close</button>
     </div>
   </div>
 

@@ -12,7 +12,8 @@
 // the private key, or a JSON blob for multi-key wallets). Keeping it dependency-free keeps the
 // trusted crypto surface tiny and independently testable.
 
-const STORAGE_KEY = 'verginals.vault';
+const STORAGE_KEY = 'verginals.vault';       // legacy single-wallet blob (pre-keyring); still read for migration
+const KEYRING_KEY = 'verginals.keyring';     // multi-wallet keyring: many encrypted vaults under one passphrase
 const DEFAULT_ITERATIONS = 310000; // OWASP 2023 floor for PBKDF2-SHA256
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -116,4 +117,31 @@ export async function deleteVault() {
   await chrome.storage.local.remove(STORAGE_KEY);
 }
 
-export { STORAGE_KEY, DEFAULT_ITERATIONS };
+// --- keyring persistence ---------------------------------------------------
+// The keyring is a plain object holding many per-wallet vault blobs plus non-secret labels/pointers.
+// Every wallet's secret stays encrypted (each `wallet.vault` is a standard createVault blob); only
+// labels, addresses and the active pointers are stored in the clear, exactly like the old meta.
+//   { v, activeWalletId, wallets: [{ id, label, type, network, createdAt, activeAccount,
+//                                    vault, accounts: [{ index, label, address }] }] }
+export async function saveKeyring(keyring) {
+  if (!hasChromeStorage()) throw new Error('chrome.storage unavailable');
+  await chrome.storage.local.set({ [KEYRING_KEY]: keyring });
+}
+
+export async function loadKeyring() {
+  if (!hasChromeStorage()) throw new Error('chrome.storage unavailable');
+  const got = await chrome.storage.local.get(KEYRING_KEY);
+  return got[KEYRING_KEY] || null;
+}
+
+export async function hasKeyring() {
+  if (!hasChromeStorage()) return false;
+  return (await loadKeyring()) !== null;
+}
+
+export async function deleteKeyring() {
+  if (!hasChromeStorage()) throw new Error('chrome.storage unavailable');
+  await chrome.storage.local.remove(KEYRING_KEY);
+}
+
+export { STORAGE_KEY, KEYRING_KEY, DEFAULT_ITERATIONS };

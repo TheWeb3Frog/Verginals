@@ -150,35 +150,76 @@ function broadcastEvent(origin, event, data) {
   });
 }
 
+// When the user switches wallet/account in the popup, tell every connected site the active address
+// changed (EIP-1193-style accountsChanged) so it can re-read the balance/inscriptions for the new one.
+async function broadcastActiveChanged() {
+  const address = getWallet().address;
+  const origins = await getConnectedOrigins();
+  for (const origin of origins) broadcastEvent(origin, 'accountsChanged', { address });
+}
+
 // --- popup (wallet UI) handlers --------------------------------------------
 async function handleUi(action, payload) {
   const w = getWallet();
   switch (action) {
     case 'status': {
-      return { exists: await w.exists(), unlocked: w.isUnlocked, address: w.address, hasMnemonic: await w.hasMnemonic() };
+      return {
+        exists: await w.exists(), unlocked: w.isUnlocked, address: w.address,
+        hasMnemonic: await w.hasMnemonic(), active: w.isUnlocked ? w.activeInfo() : null,
+      };
     }
     case 'create': {
       // Returns the mnemonic ONCE so the popup can show the backup screen; never returned again.
       const r = await w.create(payload.passphrase, payload.strength || 128);
-      return { address: r.address, mnemonic: r.mnemonic };
+      return { address: r.address, mnemonic: r.mnemonic, active: w.activeInfo() };
     }
     case 'importMnemonic': {
       const r = await w.importMnemonic(payload.mnemonic, payload.passphrase);
-      return { address: r.address };
+      return { address: r.address, active: w.activeInfo() };
     }
     case 'import': {
       const r = await w.importWIF(payload.wif, payload.passphrase);
-      return { address: r.address };
+      return { address: r.address, active: w.activeInfo() };
     }
     case 'unlock': {
       const r = await w.unlock(payload.passphrase);
-      return { address: r.address };
+      return { address: r.address, active: w.activeInfo() };
     }
     case 'lock': { w.lock(); return { locked: true }; }
+    // --- multi-wallet / multi-account ---
+    case 'list': { return w.list(); }
+    case 'addWallet': {
+      // kind: 'create' returns the mnemonic ONCE; import kinds return just the address.
+      const r = await w.addWallet(payload);
+      await broadcastActiveChanged();
+      return { ...r, active: w.activeInfo() };
+    }
+    case 'addAccount': {
+      const r = await w.addAccount(payload.walletId);
+      await broadcastActiveChanged();
+      return { ...r, active: w.activeInfo() };
+    }
+    case 'selectAccount': {
+      const r = await w.selectAccount(payload.walletId, payload.index);
+      await broadcastActiveChanged();
+      return { ...r, active: w.activeInfo() };
+    }
+    case 'renameWallet': { return w.renameWallet(payload.walletId, payload.label); }
+    case 'renameAccount': { return w.renameAccount(payload.walletId, payload.index, payload.label); }
+    case 'removeWallet': {
+      const r = await w.removeWallet(payload.walletId);
+      await broadcastActiveChanged();
+      return { ...r, active: w.activeInfo() };
+    }
+    case 'removeAccount': {
+      const r = await w.removeAccount(payload.walletId, payload.index);
+      await broadcastActiveChanged();
+      return { ...r, active: w.activeInfo() };
+    }
     case 'getTotalBalance': { return w.getTotalBalance(); }
     case 'getBalance': { return w.getBalance(); }
-    case 'revealMnemonic': { return { mnemonic: await w.revealMnemonic(payload.passphrase) }; }
-    case 'exportWIF': { return { wif: await w.exportWIF(payload.passphrase) }; }
+    case 'revealMnemonic': { return { mnemonic: await w.revealMnemonic(payload.passphrase, payload.walletId) }; }
+    case 'exportWIF': { return { wif: await w.exportWIF(payload.passphrase, payload.walletId, payload.index) }; }
     case 'getInscriptionContent': { return w.getInscriptionContent(payload.id); }
     case 'getHistory': { return { history: await w.getHistory() }; }
     case 'transfer': { return w.transferInscription({ carrierOutpoint: payload.carrierOutpoint, toAddress: payload.to }); }

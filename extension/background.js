@@ -5,8 +5,12 @@
 //   - 'approval-*'        from the approval popup window                    -> approve/deny a request
 //
 // Security model:
-//   - The key is decrypted into memory only while unlocked; if Chrome suspends this worker the key
-//     is gone and the user must re-unlock. Nothing secret is ever persisted except the AES-GCM vault.
+//   - Keys are decrypted into memory only while unlocked. To survive Chrome recycling this worker
+//     (it is suspended after ~30s idle, which would otherwise drop the keys mid-use), the passphrase
+//     is kept in chrome.storage.session: memory-only, never written to disk, unreadable by web pages
+//     or content scripts, and cleared when the browser closes. On wake the worker re-unlocks from it,
+//     so the wallet stays unlocked while in use but still locks on browser restart or explicit lock.
+//     Nothing secret is ever persisted to disk except the AES-GCM vault.
 //   - Every state-changing dApp method (connect/transfer/send/signMessage) opens an approval popup
 //     and blocks on the user's explicit decision. Read methods require the origin to be connected.
 //   - `connectedOrigins` lives in chrome.storage.session (cleared when the browser restarts).
@@ -17,8 +21,39 @@ let wallet = null;            // Wallet instance (holds key while unlocked)
 const pending = new Map();    // rid -> { resolve, reject, request }
 let ridSeq = 0;
 
+// Memory-only session key holding the passphrase so the worker can re-unlock itself after Chrome
+// suspends it. chrome.storage.session defaults to TRUSTED_CONTEXTS, so content scripts cannot read it.
+const SESSION_PASS_KEY = 'verginals.session.pass';
+let rehydrating = null; // de-dupes concurrent wake-up unlocks
+
+async function rememberSession(pass) {
+  try { await chrome.storage.session.set({ [SESSION_PASS_KEY]: pass }); } catch { /* best effort */ }
+}
+async function forgetSession() {
+  try { await chrome.storage.session.remove(SESSION_PASS_KEY); } catch { /* best effort */ }
+}
+
 function getWallet() {
   if (!wallet) wallet = new Wallet();
+  return wallet;
+}
+
+// Return the wallet, transparently re-unlocking it from the session passphrase if Chrome suspended
+// the worker and wiped the in-memory keys. Concurrent callers share a single re-unlock.
+async function ensureWallet() {
+  if (!wallet) wallet = new Wallet();
+  if (wallet.isUnlocked) return wallet;
+  if (!rehydrating) {
+    rehydrating = (async () => {
+      try {
+        const r = await chrome.storage.session.get(SESSION_PASS_KEY);
+        const pass = r[SESSION_PASS_KEY];
+        if (pass && (await wallet.exists()) && !wallet.isUnlocked) await wallet.unlock(pass);
+      } catch { /* stay locked; the user can re-unlock from the popup */ }
+      finally { rehydrating = null; }
+    })();
+  }
+  await rehydrating;
   return wallet;
 }
 
@@ -88,7 +123,7 @@ chrome.windows.onRemoved.addListener((windowId) => {
 
 // --- dApp RPC handlers -----------------------------------------------------
 async function handleRpc(method, params, origin, sender) {
-  const w = getWallet();
+  const w = await ensureWallet();
   switch (method) {
     case 'connect': {
       const approval = await requestApproval({ type: 'connect', origin }, sender);
@@ -160,7 +195,7 @@ async function broadcastActiveChanged() {
 
 // --- popup (wallet UI) handlers --------------------------------------------
 async function handleUi(action, payload) {
-  const w = getWallet();
+  const w = await ensureWallet();
   switch (action) {
     case 'status': {
       return {
@@ -171,21 +206,25 @@ async function handleUi(action, payload) {
     case 'create': {
       // Returns the mnemonic ONCE so the popup can show the backup screen; never returned again.
       const r = await w.create(payload.passphrase, payload.strength || 128);
+      await rememberSession(payload.passphrase);
       return { address: r.address, mnemonic: r.mnemonic, active: w.activeInfo() };
     }
     case 'importMnemonic': {
       const r = await w.importMnemonic(payload.mnemonic, payload.passphrase);
+      await rememberSession(payload.passphrase);
       return { address: r.address, active: w.activeInfo() };
     }
     case 'import': {
       const r = await w.importWIF(payload.wif, payload.passphrase);
+      await rememberSession(payload.passphrase);
       return { address: r.address, active: w.activeInfo() };
     }
     case 'unlock': {
       const r = await w.unlock(payload.passphrase);
+      await rememberSession(payload.passphrase);
       return { address: r.address, active: w.activeInfo() };
     }
-    case 'lock': { w.lock(); return { locked: true }; }
+    case 'lock': { w.lock(); await forgetSession(); return { locked: true }; }
     // --- multi-account (flat: each account is one address) ---
     case 'list': { return w.list(); }
     case 'addSeedAccount': {
@@ -233,7 +272,7 @@ async function handleUi(action, payload) {
 async function handleApproval(kind, payload) {
   const entry = pending.get(payload.rid);
   if (!entry) throw new Error('no such pending request');
-  const w = getWallet();
+  const w = await ensureWallet();
 
   if (kind === 'approval-get') {
     // Give the popup what it needs to render, including unlock state + (for transfer) the resolved
@@ -251,6 +290,7 @@ async function handleApproval(kind, payload) {
 
   if (kind === 'approval-unlock') {
     await w.unlock(payload.passphrase);
+    await rememberSession(payload.passphrase);
     return { unlocked: true, address: w.address };
   }
 

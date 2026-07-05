@@ -452,8 +452,6 @@ function renderAccountList() {
     li.append(main, g);
     root.appendChild(li);
   }
-  // "Create address" derives from the shared phrase; hide it for import-only (no-seed) wallets.
-  $('addAccountBtn').hidden = !walletsState.hasSeed;
 }
 
 async function switchTo(id) {
@@ -468,39 +466,49 @@ async function switchTo(id) {
 
 $('acctSelector').addEventListener('click', () => { renderAccountList(); $('accounts').hidden = false; });
 
-// ---- create a derived address ----
-$('addAccountBtn').addEventListener('click', async () => {
-  $('addAccountBtn').disabled = true;
+// ---- add an address (new derived / import phrase / import private key) ----
+let addMode = 'new';
+function setAddMode(mode) {
+  addMode = mode;
+  document.querySelectorAll('[data-addmode]').forEach((b) => b.classList.toggle('active', b.dataset.addmode === mode));
+  $('addmode-new').hidden = mode !== 'new';
+  $('addmode-phrase').hidden = mode !== 'phrase';
+  $('addmode-wif').hidden = mode !== 'wif';
+}
+$('addAddressBtn').addEventListener('click', () => {
+  $('addAddressLabel').value = '';
+  $('addAddressPhrase').value = '';
+  $('addAddressWif').value = '';
+  // "New" derives from the shared phrase; hide it for import-only (no-seed) wallets.
+  const newSeg = document.querySelector('[data-addmode="new"]');
+  newSeg.hidden = !walletsState.hasSeed;
+  setAddMode(walletsState.hasSeed ? 'new' : 'phrase');
+  $('addAddressSheet').hidden = false;
+});
+document.querySelectorAll('[data-addmode]').forEach((b) => b.addEventListener('click', () => setAddMode(b.dataset.addmode)));
+$('addAddressConfirmBtn').addEventListener('click', async () => {
+  const label = $('addAddressLabel').value.trim();
+  let action, payload;
+  if (addMode === 'new') { action = 'addAccount'; payload = { label }; }
+  else if (addMode === 'phrase') {
+    const mnemonic = $('addAddressPhrase').value.trim().replace(/\s+/g, ' ');
+    if (!mnemonic) return toast('Enter a recovery phrase', 'err');
+    action = 'importMnemonicAccount'; payload = { mnemonic, label };
+  } else {
+    const wif = $('addAddressWif').value.trim();
+    if (!wif) return toast('Enter a private key', 'err');
+    action = 'importAccount'; payload = { wif, label };
+  }
+  $('addAddressConfirmBtn').disabled = true;
   try {
-    const r = await ui('addAccount', {});
+    const r = await ui(action, payload);
     setAddress(r.address);
+    $('addAddressSheet').hidden = true;
     $('accounts').hidden = true;
     await refreshWallets();
     refreshHome();
     toast('Address added', 'ok');
-  } catch (e) { toast(e.message, 'err'); } finally { $('addAccountBtn').disabled = false; }
-});
-
-// ---- import a private key as a standalone address ----
-$('importAccountBtn').addEventListener('click', () => {
-  $('importAccountLabel').value = '';
-  $('importAccountWif').value = '';
-  $('importAccountSheet').hidden = false;
-});
-$('importAccountConfirmBtn').addEventListener('click', async () => {
-  const wif = $('importAccountWif').value.trim();
-  if (!wif) return toast('Enter a private key', 'err');
-  const label = $('importAccountLabel').value.trim();
-  $('importAccountConfirmBtn').disabled = true;
-  try {
-    const r = await ui('importAccount', { wif, label });
-    setAddress(r.address);
-    $('importAccountSheet').hidden = true;
-    $('accounts').hidden = true;
-    await refreshWallets();
-    refreshHome();
-    toast('Address imported', 'ok');
-  } catch (e) { toast(e.message, 'err'); } finally { $('importAccountConfirmBtn').disabled = false; }
+  } catch (e) { toast(e.message, 'err'); } finally { $('addAddressConfirmBtn').disabled = false; }
 });
 
 // ---- account (address) settings ----

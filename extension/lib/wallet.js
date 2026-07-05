@@ -242,6 +242,23 @@ export class Wallet {
     return { id, address };
   }
 
+  /**
+   * Import an external recovery phrase's FIRST address (index 0) as a standalone account. Only the
+   * derived private key is kept, never the phrase itself (data minimization: the wallet uses a single
+   * address, so it does not need, and must not hold, a secret that unlocks the whole phrase). This is
+   * therefore equivalent to importing that address's WIF, and shows as an imported key account.
+   */
+  async importMnemonicAccount(mnemonic, label) {
+    this._requireKeyringUnlocked();
+    const clean = String(mnemonic || '').trim().replace(/\s+/g, ' ');
+    if (!clean) throw new Error('recovery phrase required');
+    if (!(await bip39.validateMnemonic(clean))) throw new Error('invalid recovery phrase');
+    const seed = await bip39.mnemonicToSeed(clean, '');
+    const priv = await bip32.derivePrivateKey(seed, accountPath(0));
+    const wif = await verge.privateKeyToWIF(priv, this.network);
+    return this.importAccount(wif, label);
+  }
+
   /** Switch the active account (one-click switch). */
   async selectAccount(id) {
     this._requireKeyringUnlocked();

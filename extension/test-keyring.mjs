@@ -50,14 +50,21 @@ chrome.storage.local.get = async (k) => { const key = typeof k === 'string' ? k 
 chrome.storage.local.set = async (o) => { for (const k of Object.keys(o)) tmpStore.set(k, o[k]); };
 chrome.storage.local.remove = async (k) => { tmpStore.delete(k); };
 const tmp = new Wallet();
-await tmp.create('another pass phrase');
+const tmpCreate = await tmp.create('another pass phrase');
 const freshWif = await tmp.exportWIF('another pass phrase', 'a1');
+const freshMnemonic = tmpCreate.mnemonic;
 chrome.storage.local.get = savedGet; chrome.storage.local.set = savedSet; chrome.storage.local.remove = savedRem;
 
-const imp = await w.importAccount(freshWif, 'Imported');
-ok(isAddr(imp.address), `importAccount -> standalone address ${imp.address}`);
+// Import that phrase's FIRST address; only its key is stored (kind 'imported'), so it should match
+// the WIF we exported above for the same phrase's index 0.
+const imp = await w.importMnemonicAccount(freshMnemonic, 'Imported');
+ok(isAddr(imp.address), `importMnemonicAccount -> standalone address ${imp.address}`);
 ok(w.address === imp.address, 'switched to the imported account');
 const impId = imp.id;
+ok((await w.list()).accounts.find((a) => a.id === impId).kind === 'imported', 'imported phrase stored as a key, not a phrase');
+ok((await w.exportWIF(PW, impId)) === freshWif, 'imported phrase account exports its index-0 WIF');
+let mdup = false; try { await w.importAccount(freshWif, 'Dup2'); } catch { mdup = true; }
+ok(mdup, 'importing the same phrase key again is rejected as a duplicate');
 
 // Switch back to the first account (one-click), rederiving its key from the shared seed.
 await w.selectAccount('a1');

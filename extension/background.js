@@ -200,6 +200,12 @@ async function handleUi(action, payload) {
       await broadcastActiveChanged();
       return { ...r, active: w.activeInfo() };
     }
+    case 'importMnemonicAccount': {
+      // Add the first address of an external recovery phrase (stored as its key) and switch to it.
+      const r = await w.importMnemonicAccount(payload.mnemonic, payload.label);
+      await broadcastActiveChanged();
+      return { ...r, active: w.activeInfo() };
+    }
     case 'selectAccount': {
       const r = await w.selectAccount(payload.id);
       await broadcastActiveChanged();

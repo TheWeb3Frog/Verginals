@@ -175,19 +175,32 @@
         <button class="icon closeSheet" title="Close">&#10005;</button>
       </div>
       <div id="acctList" class="wallet-list"></div>
-      <button id="addAccountBtn" class="primary block">Create address</button>
-      <button id="importAccountBtn" class="ghost block">Import private key</button>
+      <button id="addAddressBtn" class="primary block">Add address</button>
     </div>
   </div>
 
-  <!-- ===== Import a private key as an address ===== -->
-  <div id="importAccountSheet" class="overlay" hidden>
+  <!-- ===== Add an address (new / recovery phrase / private key) ===== -->
+  <div id="addAddressSheet" class="overlay" hidden>
     <div class="sheet">
-      <h3>Import private key</h3>
-      <p class="muted small">Add a standalone address from a private key (WIF). It is not covered by your recovery phrase.</p>
-      <input id="importAccountLabel" placeholder="Name (optional)" autocomplete="off" />
-      <input id="importAccountWif" type="password" placeholder="Private key (WIF)" autocomplete="off" />
-      <button id="importAccountConfirmBtn" class="primary">Import</button>
+      <h3>Add address</h3>
+      <div class="seg">
+        <button type="button" class="segbtn active" data-addmode="new">New</button>
+        <button type="button" class="segbtn" data-addmode="phrase">Recovery phrase</button>
+        <button type="button" class="segbtn" data-addmode="wif">Private key</button>
+      </div>
+      <input id="addAddressLabel" placeholder="Name (optional)" autocomplete="off" />
+      <div id="addmode-new">
+        <p class="muted small">Create a fresh address derived from your recovery phrase.</p>
+      </div>
+      <div id="addmode-phrase" hidden>
+        <textarea id="addAddressPhrase" rows="3" placeholder="Enter a 12 or 24 word recovery phrase" autocomplete="off"></textarea>
+        <p class="muted small">Adds only the first address of this phrase. For safety, just its private key is stored, not the phrase.</p>
+      </div>
+      <div id="addmode-wif" hidden>
+        <input id="addAddressWif" type="password" placeholder="Private key (WIF)" autocomplete="off" />
+        <p class="muted small">A standalone address, not covered by your recovery phrase.</p>
+      </div>
+      <button id="addAddressConfirmBtn" class="primary">Add address</button>
       <button class="ghost block closeSheet">Cancel</button>
     </div>
   </div>

@@ -236,3 +236,28 @@ button.block { width: 100%; margin-top: 8px; }
 button.danger { background: transparent; color: #ffb3b3; border: 1px solid var(--danger); }
 button.danger:hover { background: rgba(255, 90, 90, .08); }
 button.danger:disabled { opacity: .4; cursor: default; }
+
+/* ===== remove-address confirmation (centered card, stays inside the wallet) ===== */
+.overlay-center { align-items: center; justify-content: center; padding: 20px; }
+.sheet-card {
+  position: relative; width: 100%; max-width: 320px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+  padding: 22px 18px 18px; text-align: center;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, .55);
+}
+.sheet-x { position: absolute; top: 10px; right: 12px; }
+.rc-icon {
+  width: 46px; height: 46px; margin: 2px auto 14px; border-radius: 50%;
+  background: var(--danger); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+}
+.rc-target { background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; }
+.rc-name { font-weight: 700; font-size: 14px; }
+.rc-addr { font-size: 12px; color: var(--muted); margin-top: 3px; word-break: break-all; }
+.rc-note { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; }
+.rc-warn { color: var(--danger); font-size: 12.5px; font-weight: 600; margin: 0 0 16px; }
+.rc-actions { display: flex; gap: 10px; }
+.rc-actions button { flex: 1; padding: 12px; }
+.danger-solid { background: var(--danger); color: #fff; }
+.danger-solid:hover { filter: brightness(1.05); }
+.danger-solid:disabled { opacity: .5; cursor: default; filter: none; }

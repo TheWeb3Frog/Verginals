@@ -578,16 +578,26 @@ $('acctRevealConfirmBtn').addEventListener('click', async () => {
     $('acctRevealPass').value = '';
   } catch (e) { toast(e.message, 'err'); }
 });
-$('acctRemoveBtn').addEventListener('click', async () => {
-  if (!confirm('Remove this address from the wallet?')) return;
+// Removal is confirmed in an in-wallet modal (UniSat-style) rather than a native confirm() dialog,
+// so the flow stays inside the popup and can carry the backup warning + the target address.
+$('acctRemoveBtn').addEventListener('click', () => {
+  const a = walletsState.accounts.find((x) => x.id === settingsAcct);
+  if (!a) return;
+  $('rcName').textContent = a.label;
+  $('rcAddr').textContent = shortAddr(a.address);
+  $('removeConfirm').hidden = false;
+});
+$('removeConfirmBtn').addEventListener('click', async () => {
+  $('removeConfirmBtn').disabled = true;
   try {
     const r = await ui('removeAccount', { id: settingsAcct });
     setAddress(r.address);
+    $('removeConfirm').hidden = true;
     $('acctSettings').hidden = true;
     await refreshWallets();
     refreshHome();
     toast('Address removed', 'ok');
-  } catch (e) { toast(e.message, 'err'); }
+  } catch (e) { toast(e.message, 'err'); } finally { $('removeConfirmBtn').disabled = false; }
 });
 
 // Live-update the active address if the background switches it (e.g. from a dApp-driven flow).

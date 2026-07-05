@@ -352,7 +352,8 @@ $('settingsBtn').addEventListener('click', () => {
   $('settingsAbout').hidden = true;
   $('revealOut').hidden = true;
   $('revealPass').value = '';
-  $('revealPhraseBtn').hidden = !walletsState.hasSeed; // import-only wallets have no shared phrase
+  const act = activeAccount();
+  $('revealPhraseBtn').hidden = !(act && act.kind === 'seed'); // key-only addresses have no phrase
   $('settings').hidden = false;
 });
 $('aboutBtn').addEventListener('click', () => {
@@ -395,9 +396,9 @@ $('revealConfirmBtn').addEventListener('click', async () => {
 });
 
 // ============================ accounts (addresses) ============================
-// Non-secret snapshot of the keyring, kept in sync via ui('list'). Each account is one address; a
-// single shared recovery phrase backs the derived ones, plus any imported (standalone key) accounts.
-let walletsState = { activeId: null, hasSeed: false, accounts: [] };
+// Non-secret snapshot of the keyring, kept in sync via ui('list'). Each account is one independent
+// address: either its own recovery phrase ('seed') or a standalone private key ('key').
+let walletsState = { activeId: null, accounts: [] };
 
 async function refreshWallets() {
   try {
@@ -432,7 +433,7 @@ function renderAccountList() {
     const nm = document.createElement('span');
     nm.className = 'wl-acct-name';
     nm.textContent = a.label;
-    if (a.kind === 'imported') {
+    if (a.kind === 'key') {
       const tag = document.createElement('span');
       tag.className = 'wl-tag';
       tag.textContent = 'key';
@@ -466,8 +467,11 @@ async function switchTo(id) {
 
 $('acctSelector').addEventListener('click', () => { renderAccountList(); $('accounts').hidden = false; });
 
-// ---- add an address (new derived / import phrase / import private key) ----
+// ---- add an address (new own-phrase / import phrase / import private key) ----
+// "New" mints a fully independent address with its own fresh recovery phrase (shown once, exactly
+// like the wallet's very first address). "Recovery phrase" / "Private key" import an existing address.
 let addMode = 'new';
+let addStrength = 128;
 function setAddMode(mode) {
   addMode = mode;
   document.querySelectorAll('[data-addmode]').forEach((b) => b.classList.toggle('active', b.dataset.addmode === mode));
@@ -479,17 +483,20 @@ $('addAddressBtn').addEventListener('click', () => {
   $('addAddressLabel').value = '';
   $('addAddressPhrase').value = '';
   $('addAddressWif').value = '';
-  // "New" derives from the shared phrase; hide it for import-only (no-seed) wallets.
-  const newSeg = document.querySelector('[data-addmode="new"]');
-  newSeg.hidden = !walletsState.hasSeed;
-  setAddMode(walletsState.hasSeed ? 'new' : 'phrase');
+  addStrength = 128;
+  document.querySelectorAll('[data-addstrength]').forEach((x) => x.classList.toggle('active', Number(x.dataset.addstrength) === 128));
+  setAddMode('new');
   $('addAddressSheet').hidden = false;
 });
 document.querySelectorAll('[data-addmode]').forEach((b) => b.addEventListener('click', () => setAddMode(b.dataset.addmode)));
+document.querySelectorAll('[data-addstrength]').forEach((b) => b.addEventListener('click', () => {
+  addStrength = Number(b.dataset.addstrength);
+  document.querySelectorAll('[data-addstrength]').forEach((x) => x.classList.toggle('active', x === b));
+}));
 $('addAddressConfirmBtn').addEventListener('click', async () => {
   const label = $('addAddressLabel').value.trim();
   let action, payload;
-  if (addMode === 'new') { action = 'addAccount'; payload = { label }; }
+  if (addMode === 'new') { action = 'addSeedAccount'; payload = { label, strength: addStrength }; }
   else if (addMode === 'phrase') {
     const mnemonic = $('addAddressPhrase').value.trim().replace(/\s+/g, ' ');
     if (!mnemonic) return toast('Enter a recovery phrase', 'err');
@@ -502,10 +509,16 @@ $('addAddressConfirmBtn').addEventListener('click', async () => {
   $('addAddressConfirmBtn').disabled = true;
   try {
     const r = await ui(action, payload);
-    setAddress(r.address);
     $('addAddressSheet').hidden = true;
     $('accounts').hidden = true;
     await refreshWallets();
+    // A brand new own-phrase address shows its recovery phrase once for backup, then lands home on it.
+    if (addMode === 'new' && r.mnemonic) {
+      $('addr').textContent = r.address;
+      presentBackup(r.mnemonic);
+      return;
+    }
+    setAddress(r.address);
     refreshHome();
     toast('Address added', 'ok');
   } catch (e) { toast(e.message, 'err'); } finally { $('addAddressConfirmBtn').disabled = false; }
@@ -513,17 +526,30 @@ $('addAddressConfirmBtn').addEventListener('click', async () => {
 
 // ---- account (address) settings ----
 let settingsAcct = null; // account id
+let acctRevealMode = null; // 'phrase' | 'wif'
 function openAcctSettings(id) {
   settingsAcct = id;
   const a = walletsState.accounts.find((x) => x.id === id);
   $('acctSettingsTitle').textContent = a ? a.label : 'Address';
   $('acctAddrLine').textContent = a ? (a.address || '') : '';
   $('acctRenameInput').value = a ? a.label : '';
+  // Only own-phrase ('seed') addresses can reveal a recovery phrase; key-only imports cannot.
+  $('acctRevealPhraseBtn').hidden = !(a && a.kind === 'seed');
   $('acctReveal').hidden = true;
   $('acctRevealOut').hidden = true;
   $('acctRevealPass').value = '';
+  acctRevealMode = null;
   $('acctRemoveBtn').disabled = walletsState.accounts.length <= 1;
   $('acctSettings').hidden = false;
+}
+function startAcctReveal(mode) {
+  acctRevealMode = mode;
+  $('acctReveal').hidden = false;
+  $('acctRevealOut').hidden = true;
+  $('acctRevealPass').value = '';
+  $('acctRevealWarn').textContent = mode === 'phrase'
+    ? 'Anyone with your recovery phrase can take the funds on this address. Make sure no one is watching.'
+    : 'Anyone with your private key can take the funds on this address. Make sure no one is watching.';
 }
 $('acctRenameBtn').addEventListener('click', async () => {
   const label = $('acctRenameInput').value.trim();
@@ -535,15 +561,19 @@ $('acctRenameBtn').addEventListener('click', async () => {
     toast('Renamed', 'ok');
   } catch (e) { toast(e.message, 'err'); }
 });
-$('acctExportBtn').addEventListener('click', () => {
-  $('acctReveal').hidden = false; $('acctRevealOut').hidden = true; $('acctRevealPass').value = '';
-});
+$('acctRevealPhraseBtn').addEventListener('click', () => startAcctReveal('phrase'));
+$('acctExportBtn').addEventListener('click', () => startAcctReveal('wif'));
 $('acctRevealConfirmBtn').addEventListener('click', async () => {
   const passphrase = $('acctRevealPass').value;
   if (!passphrase) return toast('Enter your passphrase', 'err');
   try {
-    const r = await ui('exportWIF', { passphrase, id: settingsAcct });
-    $('acctRevealOut').textContent = r.wif;
+    if (acctRevealMode === 'phrase') {
+      const r = await ui('revealMnemonic', { passphrase, id: settingsAcct });
+      $('acctRevealOut').textContent = r.mnemonic;
+    } else {
+      const r = await ui('exportWIF', { passphrase, id: settingsAcct });
+      $('acctRevealOut').textContent = r.wif;
+    }
     $('acctRevealOut').hidden = false;
     $('acctRevealPass').value = '';
   } catch (e) { toast(e.message, 'err'); }

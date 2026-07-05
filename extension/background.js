@@ -188,20 +188,20 @@ async function handleUi(action, payload) {
     case 'lock': { w.lock(); return { locked: true }; }
     // --- multi-account (flat: each account is one address) ---
     case 'list': { return w.list(); }
-    case 'addAccount': {
-      // Derive the next address from the shared recovery phrase and switch to it.
-      const r = await w.addAccount(payload.label);
+    case 'addSeedAccount': {
+      // Mint a brand new address with its OWN fresh recovery phrase; returns the phrase ONCE.
+      const r = await w.addSeedAccount(payload.label, payload.strength || 128);
       await broadcastActiveChanged();
-      return { ...r, active: w.activeInfo() };
+      return { address: r.address, mnemonic: r.mnemonic, active: w.activeInfo() };
     }
     case 'importAccount': {
-      // Add a standalone address from a WIF private key and switch to it.
+      // Import an existing address from a WIF private key and switch to it.
       const r = await w.importAccount(payload.wif, payload.label);
       await broadcastActiveChanged();
       return { ...r, active: w.activeInfo() };
     }
     case 'importMnemonicAccount': {
-      // Add the first address of an external recovery phrase (stored as its key) and switch to it.
+      // Import an existing address from a recovery phrase (phrase kept, revealable) and switch to it.
       const r = await w.importMnemonicAccount(payload.mnemonic, payload.label);
       await broadcastActiveChanged();
       return { ...r, active: w.activeInfo() };
@@ -219,7 +219,7 @@ async function handleUi(action, payload) {
     }
     case 'getTotalBalance': { return w.getTotalBalance(); }
     case 'getBalance': { return w.getBalance(); }
-    case 'revealMnemonic': { return { mnemonic: await w.revealMnemonic(payload.passphrase) }; }
+    case 'revealMnemonic': { return { mnemonic: await w.revealMnemonic(payload.passphrase, payload.id) }; }
     case 'exportWIF': { return { wif: await w.exportWIF(payload.passphrase, payload.id) }; }
     case 'getInscriptionContent': { return w.getInscriptionContent(payload.id); }
     case 'getHistory': { return { history: await w.getHistory() }; }

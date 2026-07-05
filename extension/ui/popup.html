@@ -190,15 +190,20 @@
       </div>
       <input id="addAddressLabel" placeholder="Name (optional)" autocomplete="off" />
       <div id="addmode-new">
-        <p class="muted small">Create a fresh address derived from your recovery phrase.</p>
+        <label class="field-label">Recovery phrase length</label>
+        <div class="seg">
+          <button type="button" class="segbtn active" data-addstrength="128">12 words</button>
+          <button type="button" class="segbtn" data-addstrength="256">24 words</button>
+        </div>
+        <p class="muted small">Creates a brand new address with its own recovery phrase, shown once for backup.</p>
       </div>
       <div id="addmode-phrase" hidden>
         <textarea id="addAddressPhrase" rows="3" placeholder="Enter a 12 or 24 word recovery phrase" autocomplete="off"></textarea>
-        <p class="muted small">Adds only the first address of this phrase. For safety, just its private key is stored, not the phrase.</p>
+        <p class="muted small">Imports the first address of this phrase. The phrase is kept for this address and stays revealable.</p>
       </div>
       <div id="addmode-wif" hidden>
         <input id="addAddressWif" type="password" placeholder="Private key (WIF)" autocomplete="off" />
-        <p class="muted small">A standalone address, not covered by your recovery phrase.</p>
+        <p class="muted small">Imports a single address from its private key.</p>
       </div>
       <button id="addAddressConfirmBtn" class="primary">Add address</button>
       <button class="ghost block closeSheet">Cancel</button>
@@ -215,10 +220,11 @@
         <input id="acctRenameInput" autocomplete="off" />
         <button id="acctRenameBtn" class="ghost">Save</button>
       </div>
+      <button id="acctRevealPhraseBtn" class="ghost block" hidden>Reveal recovery phrase</button>
       <button id="acctExportBtn" class="ghost block">Export private key (WIF)</button>
       <button id="acctRemoveBtn" class="danger block">Remove address</button>
       <div id="acctReveal" class="reveal-block" hidden>
-        <p class="warn">Anyone with your private key can take the funds on this address. Make sure no one is watching.</p>
+        <p class="warn" id="acctRevealWarn">Anyone with your private key can take the funds on this address. Make sure no one is watching.</p>
         <input id="acctRevealPass" type="password" placeholder="Enter passphrase to reveal" autocomplete="current-password" />
         <button id="acctRevealConfirmBtn" class="primary">Reveal</button>
         <div id="acctRevealOut" class="reveal-out mono" hidden></div>

@@ -40,12 +40,14 @@ export class Wallet {
     this._priv = null;      // Uint8Array(32) of the ACTIVE account while unlocked, else null
     this._address = null;   // cached P2PKH address of the active account
 
-    // Keyring state (MetaMask-style: one shared recovery phrase, a flat list of accounts where each
-    // account is a single address). Held only while unlocked:
-    this._keyring = null;    // { v:2, activeId, seedVault, accounts:[...] } (vaults stay encrypted at rest)
+    // Keyring state: a flat list of fully independent accounts. Each account is one address that is
+    // EITHER its own recovery phrase ('seed', created fresh or imported, revealable) OR a standalone
+    // private key ('key'). There is no shared seed: adding an address mints a brand new phrase, just
+    // like creating the first one. Held only while unlocked:
+    this._keyring = null;    // { v:3, activeId, accounts:[...] } (vaults stay encrypted at rest)
     this._pass = null;       // passphrase kept in memory so new accounts encrypt under the same key
-    this._seed = null;       // decrypted shared mnemonic (null if the wallet has no seed, e.g. WIF-only)
-    this._imported = new Map(); // accountId -> decrypted WIF, for imported (standalone) accounts
+    this._seeds = new Map(); // accountId -> decrypted mnemonic, for 'seed' accounts
+    this._keys = new Map();  // accountId -> decrypted WIF, for 'key' accounts
   }
 
   get isUnlocked() { return this._priv !== null; }
@@ -53,7 +55,7 @@ export class Wallet {
 
   // --- keyring helpers -----------------------------------------------------
   _requireKeyringUnlocked() {
-    if (!this._pass || !this._keyring || this._keyring.v !== 2) throw new Error('wallet is locked');
+    if (!this._pass || !this._keyring || this._keyring.v !== 3) throw new Error('wallet is locked');
   }
 
   _account(id, kr = this._keyring) {
@@ -72,9 +74,9 @@ export class Wallet {
   async _save() { await vault.saveKeyring(this._keyring); }
 
   // Load the keyring into memory. A legacy single vault is converted to the flat model here (no
-  // decryption needed: only the encrypted blob and the public address move). An interim two-level
-  // keyring (v1, never publicly released) is left as-is and folded into v2 at unlock, where the
-  // passphrase is available to re-encrypt the extra keys as imported accounts.
+  // decryption needed: only the encrypted blob and the public address move). Older keyrings (v1 two-
+  // level, v2 shared-seed) are left as-is and folded into v3 at unlock, where the passphrase is
+  // available to re-encrypt keys.
   async _loadKeyring() {
     if (this._keyring) return this._keyring;
     let kr = await vault.loadKeyring();
@@ -84,13 +86,13 @@ export class Wallet {
         const type = legacy.meta?.type || 'wif';
         if (type === 'mnemonic') {
           kr = {
-            v: 2, activeId: 'a1', seedVault: legacy,
-            accounts: [{ id: 'a1', label: 'Account 1', kind: 'derived', index: 0, address: legacy.meta?.address || null }],
+            v: 3, activeId: 'a1',
+            accounts: [{ id: 'a1', label: 'Account 1', kind: 'seed', seedVault: legacy, index: 0, address: legacy.meta?.address || null }],
           };
         } else {
           kr = {
-            v: 2, activeId: 'a1', seedVault: null,
-            accounts: [{ id: 'a1', label: 'Account 1', kind: 'imported', vault: legacy, address: legacy.meta?.address || null }],
+            v: 3, activeId: 'a1',
+            accounts: [{ id: 'a1', label: 'Account 1', kind: 'key', vault: legacy, address: legacy.meta?.address || null }],
           };
         }
         await vault.saveKeyring(kr);
@@ -100,10 +102,9 @@ export class Wallet {
     return kr;
   }
 
-  // Derive the { priv, address } for a derived account index from the in-memory shared seed.
-  async _deriveIndex(index) {
-    if (this._seed == null) throw new Error('wallet has no recovery phrase');
-    const seed = await bip39.mnemonicToSeed(this._seed, '');
+  // Derive the { priv, address } at `index` from a mnemonic string.
+  async _deriveFromMnemonic(mnemonic, index = 0) {
+    const seed = await bip39.mnemonicToSeed(mnemonic, '');
     const priv = await bip32.derivePrivateKey(seed, accountPath(index));
     const address = await verge.addressFromPrivate(priv, this.network);
     return { priv, address };
@@ -111,8 +112,12 @@ export class Wallet {
 
   // Resolve an account object to { priv, address } using in-memory secrets (requires unlocked).
   async _accountKey(acct) {
-    if (acct.kind === 'derived') return this._deriveIndex(acct.index);
-    const wif = this._imported.get(acct.id);
+    if (acct.kind === 'seed') {
+      const mnemonic = this._seeds.get(acct.id);
+      if (mnemonic == null) throw new Error('wallet is locked');
+      return this._deriveFromMnemonic(mnemonic, acct.index || 0);
+    }
+    const wif = this._keys.get(acct.id);
     if (wif == null) throw new Error('wallet is locked');
     const { privateKey } = await verge.wifToPrivateKey(wif);
     const address = await verge.addressFromPrivate(privateKey, this.network);
@@ -132,131 +137,128 @@ export class Wallet {
     if (acct.address !== address) { acct.address = address; await this._save(); } // backfill legacy nulls
   }
 
-  // Decrypt the shared seed + every imported account's key into memory. Throws on wrong passphrase.
+  // Decrypt every account's secret (phrase or key) into memory. Throws on wrong passphrase.
   async _loadSecrets(passphrase) {
-    this._seed = null;
-    this._imported.clear();
-    if (this._keyring.seedVault) this._seed = await vault.openVault(this._keyring.seedVault, passphrase);
+    this._seeds.clear();
+    this._keys.clear();
     for (const a of this._keyring.accounts) {
-      if (a.kind === 'imported') this._imported.set(a.id, await vault.openVault(a.vault, passphrase));
+      if (a.kind === 'seed') this._seeds.set(a.id, await vault.openVault(a.seedVault, passphrase));
+      else this._keys.set(a.id, await vault.openVault(a.vault, passphrase));
     }
   }
 
   // --- lifecycle -----------------------------------------------------------
   async exists() { return (await vault.hasKeyring()) || (await vault.hasVault()); }
 
+  // Add a fresh phrase-backed ('seed') account and switch to it. Shared by first-time create() and
+  // by addSeedAccount(); pass a mnemonic to import one, or omit to mint a new phrase of `strength`.
+  async _addSeedAccount(label, { mnemonic, strength = 128, requireLocked = false } = {}) {
+    const phrase = mnemonic
+      ? String(mnemonic).trim().replace(/\s+/g, ' ')
+      : await bip39.generateMnemonic(strength);
+    if (mnemonic && !(await bip39.validateMnemonic(phrase))) throw new Error('invalid recovery phrase');
+    const { address } = await this._deriveFromMnemonic(phrase, 0);
+    if (this._keyring && this._keyring.accounts.some((a) => a.address === address)) {
+      throw new Error('that address is already in the wallet');
+    }
+    const seedVault = await vault.createVault(phrase, this._pass, { type: 'mnemonic', createdAt: Date.now() });
+    const id = this._keyring ? this._nextAccountId() : 'a1';
+    const name = String(label || '').trim() || `Account ${(this._keyring?.accounts.length || 0) + 1}`;
+    const acct = { id, label: name, kind: 'seed', seedVault, index: 0, address };
+    if (this._keyring) this._keyring.accounts.push(acct);
+    else this._keyring = { v: 3, activeId: id, accounts: [acct] };
+    this._keyring.activeId = id;
+    this._seeds.set(id, phrase);
+    await this._save();
+    await this._activate();
+    return { id, address, mnemonic: phrase };
+  }
+
+  // Add a key-only ('key') account from a WIF and switch to it.
+  async _addKeyAccount(wif, label) {
+    const clean = String(wif || '').trim();
+    if (!clean) throw new Error('private key required');
+    const { privateKey } = await verge.wifToPrivateKey(clean);
+    const address = await verge.addressFromPrivate(privateKey, this.network);
+    if (this._keyring && this._keyring.accounts.some((a) => a.address === address)) {
+      throw new Error('that address is already in the wallet');
+    }
+    const v = await vault.createVault(clean, this._pass, { type: 'wif', createdAt: Date.now() });
+    const id = this._keyring ? this._nextAccountId() : 'a1';
+    const name = String(label || '').trim() || `Account ${(this._keyring?.accounts.length || 0) + 1}`;
+    const acct = { id, label: name, kind: 'key', vault: v, address };
+    if (this._keyring) this._keyring.accounts.push(acct);
+    else this._keyring = { v: 3, activeId: id, accounts: [acct] };
+    this._keyring.activeId = id;
+    this._keys.set(id, clean);
+    await this._save();
+    await this._activate();
+    return { id, address };
+  }
+
   /**
-   * Create the wallet from a fresh BIP-39 recovery phrase. Establishes the shared phrase + passphrase
-   * and the first (derived) account. Returns the address AND the mnemonic so the UI can show it ONCE;
-   * it is never returned again (recover it only via revealMnemonic with the passphrase). Use
-   * addAccount()/importAccount() once unlocked to add more addresses.
+   * Create the wallet's FIRST address from a fresh BIP-39 recovery phrase. Returns the address AND the
+   * mnemonic so the UI can show it ONCE (recover it later only via revealMnemonic + passphrase).
    * @param {string} passphrase
    * @param {number} [strength=128]  128 -> 12 words, 256 -> 24 words
    */
   async create(passphrase, strength = 128) {
     if (await this.exists()) throw new Error('wallet already exists; unlock first');
     if (!passphrase) throw new Error('passphrase required');
-    const mnemonic = await bip39.generateMnemonic(strength);
     this._pass = passphrase;
-    this._seed = mnemonic;
-    this._imported.clear();
-    const seedVault = await vault.createVault(mnemonic, passphrase, { type: 'mnemonic', createdAt: Date.now() });
-    const { address } = await this._deriveIndex(0);
-    this._keyring = { v: 2, activeId: 'a1', seedVault, accounts: [{ id: 'a1', label: 'Account 1', kind: 'derived', index: 0, address }] };
-    await this._save();
-    await this._activate();
-    return { address, mnemonic };
+    this._seeds.clear();
+    this._keys.clear();
+    return this._addSeedAccount(null, { strength });
   }
 
-  /** Set up the wallet from an existing BIP-39 recovery phrase (12/24 words) as the shared seed. */
+  /** Set up the wallet's first address from an existing BIP-39 recovery phrase (12/24 words). */
   async importMnemonic(mnemonic, passphrase) {
     if (await this.exists()) throw new Error('wallet already exists; unlock first');
     if (!passphrase) throw new Error('passphrase required');
-    const clean = mnemonic.trim().replace(/\s+/g, ' ');
-    if (!(await bip39.validateMnemonic(clean))) throw new Error('invalid recovery phrase');
     this._pass = passphrase;
-    this._seed = clean;
-    this._imported.clear();
-    const seedVault = await vault.createVault(clean, passphrase, { type: 'mnemonic', createdAt: Date.now() });
-    const { address } = await this._deriveIndex(0);
-    this._keyring = { v: 2, activeId: 'a1', seedVault, accounts: [{ id: 'a1', label: 'Account 1', kind: 'derived', index: 0, address }] };
-    await this._save();
-    await this._activate();
+    this._seeds.clear();
+    this._keys.clear();
+    const { address } = await this._addSeedAccount(null, { mnemonic });
     return { address };
   }
 
-  /** Set up the wallet from a WIF private key. The wallet has NO shared phrase (import-only). */
+  /** Set up the wallet's first address from a WIF private key (key-only account). */
   async importWIF(wif, passphrase) {
     if (await this.exists()) throw new Error('wallet already exists; unlock first');
     if (!passphrase) throw new Error('passphrase required');
-    const clean = String(wif).trim();
-    const { privateKey } = await verge.wifToPrivateKey(clean);
-    const address = await verge.addressFromPrivate(privateKey, this.network);
     this._pass = passphrase;
-    this._seed = null;
-    this._imported.clear();
-    const v = await vault.createVault(clean, passphrase, { type: 'wif', createdAt: Date.now() });
-    this._imported.set('a1', clean);
-    this._keyring = { v: 2, activeId: 'a1', seedVault: null, accounts: [{ id: 'a1', label: 'Account 1', kind: 'imported', vault: v, address }] };
-    await this._save();
-    await this._activate();
+    this._seeds.clear();
+    this._keys.clear();
+    const { address } = await this._addKeyAccount(wif, null);
     return { address };
   }
 
   /**
-   * Derive and add the next account (address) from the shared recovery phrase, then switch to it.
+   * Create a brand new address backed by its OWN fresh recovery phrase, then switch to it. Returns the
+   * mnemonic so the UI can show the backup screen once, exactly like the first address.
    * @param {string} [label]
+   * @param {number} [strength=128]  128 -> 12 words, 256 -> 24 words
    */
-  async addAccount(label) {
+  async addSeedAccount(label, strength = 128) {
     this._requireKeyringUnlocked();
-    if (this._seed == null) throw new Error('this wallet has no recovery phrase; import a private key instead');
-    const usedIdx = new Set(this._keyring.accounts.filter((a) => a.kind === 'derived').map((a) => a.index));
-    let index = 0;
-    while (usedIdx.has(index)) index++;
-    const { address } = await this._deriveIndex(index);
-    const id = this._nextAccountId();
-    const clean = String(label || '').trim() || `Account ${this._keyring.accounts.length + 1}`;
-    this._keyring.accounts.push({ id, label: clean, kind: 'derived', index, address });
-    this._keyring.activeId = id;
-    await this._save();
-    await this._activate();
-    return { id, address };
+    return this._addSeedAccount(label, { strength });
   }
 
-  /** Add a standalone account from a WIF private key (not covered by the phrase), then switch to it. */
+  /** Import an existing address from a WIF private key (key-only account), then switch to it. */
   async importAccount(wif, label) {
     this._requireKeyringUnlocked();
-    const clean = String(wif || '').trim();
-    if (!clean) throw new Error('private key required');
-    const { privateKey } = await verge.wifToPrivateKey(clean);
-    const address = await verge.addressFromPrivate(privateKey, this.network);
-    if (this._keyring.accounts.some((a) => a.address === address)) throw new Error('that account is already in the wallet');
-    const v = await vault.createVault(clean, this._pass, { type: 'wif', createdAt: Date.now() });
-    const id = this._nextAccountId();
-    const name = String(label || '').trim() || `Account ${this._keyring.accounts.length + 1}`;
-    this._keyring.accounts.push({ id, label: name, kind: 'imported', vault: v, address });
-    this._imported.set(id, clean);
-    this._keyring.activeId = id;
-    await this._save();
-    await this._activate();
-    return { id, address };
+    return this._addKeyAccount(wif, label);
   }
 
   /**
-   * Import an external recovery phrase's FIRST address (index 0) as a standalone account. Only the
-   * derived private key is kept, never the phrase itself (data minimization: the wallet uses a single
-   * address, so it does not need, and must not hold, a secret that unlocks the whole phrase). This is
-   * therefore equivalent to importing that address's WIF, and shows as an imported key account.
+   * Import an existing address from an external recovery phrase. Stores that phrase (revealable) and
+   * uses its FIRST address (index 0). The phrase belongs to this address alone, so it is kept just
+   * like a natively created one.
    */
   async importMnemonicAccount(mnemonic, label) {
     this._requireKeyringUnlocked();
-    const clean = String(mnemonic || '').trim().replace(/\s+/g, ' ');
-    if (!clean) throw new Error('recovery phrase required');
-    if (!(await bip39.validateMnemonic(clean))) throw new Error('invalid recovery phrase');
-    const seed = await bip39.mnemonicToSeed(clean, '');
-    const priv = await bip32.derivePrivateKey(seed, accountPath(0));
-    const wif = await verge.privateKeyToWIF(priv, this.network);
-    return this.importAccount(wif, label);
+    if (!String(mnemonic || '').trim()) throw new Error('recovery phrase required');
+    return this._addSeedAccount(label, { mnemonic });
   }
 
   /** Switch the active account (one-click switch). */
@@ -284,56 +286,87 @@ export class Wallet {
     if (this._keyring.accounts.length <= 1) throw new Error('cannot remove your only account');
     this._account(id); // existence check
     this._keyring.accounts = this._keyring.accounts.filter((a) => a.id !== id);
-    this._imported.delete(id);
+    this._seeds.delete(id);
+    this._keys.delete(id);
     if (this._keyring.activeId === id) this._keyring.activeId = this._keyring.accounts[0].id;
     await this._save();
     await this._activate();
     return { address: this._address };
   }
 
-  // Fold an interim two-level keyring (v1) into the flat v2 model. The first mnemonic wallet becomes
-  // the shared seed and its addresses become derived accounts; every other key (extra phrases, WIFs)
-  // is re-encrypted as a standalone imported account so no key is ever lost. Requires the passphrase.
-  async _migrateV1(krV1, passphrase) {
+  // Fold an interim two-level keyring (v1) into the flat v3 model. Each wallet's first address keeps
+  // its phrase as a 'seed' account (revealable); every other derived address and every WIF becomes a
+  // key-only account so no key is ever lost. Requires the passphrase.
+  async _migrateV1ToV3(krV1, passphrase) {
     let counter = 0;
     const nextId = () => 'a' + (++counter);
     const accounts = [];
-    let seedVault = null;
-    const firstMnemonic = (krV1.wallets || []).find((w) => w.type === 'mnemonic');
-    if (firstMnemonic) {
-      const phrase = await vault.openVault(firstMnemonic.vault, passphrase); // verifies passphrase
-      seedVault = await vault.createVault(phrase, passphrase, { type: 'mnemonic', createdAt: Date.now() });
-      for (const a of firstMnemonic.accounts) {
-        accounts.push({ id: nextId(), label: a.label || `Account ${counter}`, kind: 'derived', index: a.index, address: a.address || null });
-      }
-    }
     for (const w of (krV1.wallets || [])) {
-      if (w === firstMnemonic) continue;
-      const secret = await vault.openVault(w.vault, passphrase);
+      const secret = await vault.openVault(w.vault, passphrase); // verifies passphrase
+      let first = true;
       for (const a of w.accounts) {
-        let wif;
         if (w.type === 'mnemonic') {
-          const seed = await bip39.mnemonicToSeed(secret, '');
-          const priv = await bip32.derivePrivateKey(seed, accountPath(a.index));
-          wif = await verge.privateKeyToWIF(priv, this.network);
+          const { address } = await this._deriveFromMnemonic(secret, a.index);
+          if (first) {
+            const seedVault = await vault.createVault(secret, passphrase, { type: 'mnemonic', createdAt: Date.now() });
+            accounts.push({ id: nextId(), label: a.label || w.label || `Account ${counter}`, kind: 'seed', seedVault, index: a.index, address });
+          } else {
+            const seed = await bip39.mnemonicToSeed(secret, '');
+            const priv = await bip32.derivePrivateKey(seed, accountPath(a.index));
+            const wif = await verge.privateKeyToWIF(priv, this.network);
+            const v = await vault.createVault(wif, passphrase, { type: 'wif', createdAt: Date.now() });
+            accounts.push({ id: nextId(), label: a.label || `Account ${counter}`, kind: 'key', vault: v, address });
+          }
         } else {
-          wif = secret;
+          const v = await vault.createVault(secret, passphrase, { type: 'wif', createdAt: Date.now() });
+          accounts.push({ id: nextId(), label: a.label || w.label || `Account ${counter}`, kind: 'key', vault: v, address: a.address || null });
         }
-        const v = await vault.createVault(wif, passphrase, { type: 'wif', createdAt: Date.now() });
-        accounts.push({ id: nextId(), label: a.label || `Account ${counter}`, kind: 'imported', vault: v, address: a.address || null });
+        first = false;
       }
     }
-    this._keyring = { v: 2, activeId: accounts[0].id, seedVault, accounts };
+    if (!accounts.length) throw new Error('no wallet: create or import first');
+    this._keyring = { v: 3, activeId: accounts[0].id, accounts };
     await this._save();
   }
 
-  /** Unlock the keyring: decrypt the shared seed + imported keys with `passphrase`, then activate. */
+  // Fold a shared-seed keyring (v2) into the flat v3 model. The first derived address keeps the shared
+  // phrase as a 'seed' account (so it stays revealable); the other derived addresses and every
+  // imported key become key-only accounts. Ids and the active pointer are preserved. Requires pass.
+  async _migrateV2ToV3(krV2, passphrase) {
+    const mnemonic = krV2.seedVault ? await vault.openVault(krV2.seedVault, passphrase) : null; // verifies pass
+    const accounts = [];
+    let seedTaken = false;
+    for (const a of krV2.accounts) {
+      if (a.kind === 'derived') {
+        const { address } = await this._deriveFromMnemonic(mnemonic, a.index);
+        if (!seedTaken) {
+          const seedVault = await vault.createVault(mnemonic, passphrase, { type: 'mnemonic', createdAt: Date.now() });
+          accounts.push({ id: a.id, label: a.label, kind: 'seed', seedVault, index: a.index, address });
+          seedTaken = true;
+        } else {
+          const seed = await bip39.mnemonicToSeed(mnemonic, '');
+          const priv = await bip32.derivePrivateKey(seed, accountPath(a.index));
+          const wif = await verge.privateKeyToWIF(priv, this.network);
+          const v = await vault.createVault(wif, passphrase, { type: 'wif', createdAt: Date.now() });
+          accounts.push({ id: a.id, label: a.label, kind: 'key', vault: v, address });
+        }
+      } else {
+        // imported: already a WIF vault under this passphrase; keep it as a key account.
+        accounts.push({ id: a.id, label: a.label, kind: 'key', vault: a.vault, address: a.address || null });
+      }
+    }
+    this._keyring = { v: 3, activeId: krV2.activeId || accounts[0].id, accounts };
+    await this._save();
+  }
+
+  /** Unlock the keyring: decrypt every account's secret with `passphrase`, migrating if needed. */
   async unlock(passphrase) {
     const raw = await this._loadKeyring();
     if (!raw) throw new Error('no wallet: create or import first');
     if (raw.v === 1) {
-      if (!(raw.wallets || []).length) throw new Error('no wallet: create or import first');
-      await this._migrateV1(raw, passphrase); // throws on wrong passphrase; sets this._keyring to v2
+      await this._migrateV1ToV3(raw, passphrase); // throws on wrong passphrase; sets this._keyring to v3
+    } else if (raw.v === 2) {
+      await this._migrateV2ToV3(raw, passphrase); // throws on wrong passphrase; sets this._keyring to v3
     } else {
       if (!(raw.accounts || []).length) throw new Error('no wallet: create or import first');
       this._keyring = raw;
@@ -350,63 +383,61 @@ export class Wallet {
     this._priv = null;
     this._address = null;
     this._pass = null;
-    this._seed = null;
-    this._imported.clear();
+    this._seeds.clear();
+    this._keys.clear();
   }
 
   /**
-   * Reveal the shared recovery phrase for backup. Requires passphrase re-entry (never uses the
-   * in-memory copy silently). Throws for import-only wallets that have no phrase.
+   * Reveal an account's recovery phrase for backup (requires passphrase re-entry). Defaults to the
+   * active account. Throws for key-only accounts, which have no phrase.
    */
-  async revealMnemonic(passphrase) {
+  async revealMnemonic(passphrase, id) {
     const kr = await this._loadKeyring();
-    if (!kr || kr.v !== 2) throw new Error('unlock your wallet first');
-    if (!kr.seedVault) throw new Error('this wallet has no recovery phrase');
-    return vault.openVault(kr.seedVault, passphrase); // returns the mnemonic
+    if (!kr || kr.v !== 3) throw new Error('unlock your wallet first');
+    const acct = this._account(id || kr.activeId, kr);
+    if (acct.kind !== 'seed') throw new Error('this address has no recovery phrase');
+    return vault.openVault(acct.seedVault, passphrase); // returns the mnemonic
   }
 
   /**
    * Export an account's private key as WIF (requires passphrase re-entry). Defaults to the active
-   * account. Derived accounts are derived at their index; imported accounts return their stored WIF.
+   * account. Seed accounts derive at their index; key accounts return their stored WIF.
    */
   async exportWIF(passphrase, id) {
     const kr = await this._loadKeyring();
-    if (!kr || kr.v !== 2) throw new Error('unlock your wallet first');
+    if (!kr || kr.v !== 3) throw new Error('unlock your wallet first');
     const acct = this._account(id || kr.activeId, kr);
-    if (acct.kind === 'derived') {
-      if (!kr.seedVault) throw new Error('this wallet has no recovery phrase');
-      const mnemonic = await vault.openVault(kr.seedVault, passphrase);
+    if (acct.kind === 'seed') {
+      const mnemonic = await vault.openVault(acct.seedVault, passphrase);
       const seed = await bip39.mnemonicToSeed(mnemonic, '');
-      const priv = await bip32.derivePrivateKey(seed, accountPath(acct.index));
+      const priv = await bip32.derivePrivateKey(seed, accountPath(acct.index || 0));
       return verge.privateKeyToWIF(priv, this.network);
     }
-    return vault.openVault(acct.vault, passphrase); // imported: the stored WIF
+    return vault.openVault(acct.vault, passphrase); // key account: the stored WIF
   }
 
-  /** Whether the wallet has a shared recovery phrase (false for import-only wallets). */
+  /** Whether the ACTIVE account is phrase-backed (has a recovery phrase to reveal). */
   async hasMnemonic() {
     const kr = await this._loadKeyring();
-    if (!kr) return false;
-    if (kr.v === 1) return (kr.wallets || []).some((w) => w.type === 'mnemonic');
-    return kr.seedVault != null;
+    if (!kr || kr.v !== 3 || !kr.accounts.length) return false;
+    const acct = kr.accounts.find((a) => a.id === kr.activeId) || kr.accounts[0];
+    return acct.kind === 'seed';
   }
 
-  /** Non-secret snapshot for the UI: the flat account list + the active pointer + whether a seed exists. */
+  /** Non-secret snapshot for the UI: the flat account list + the active pointer. */
   async list() {
     const kr = await this._loadKeyring();
-    if (!kr) return { activeId: null, hasSeed: false, accounts: [] };
-    if (kr.v === 1) return { activeId: null, hasSeed: (kr.wallets || []).some((w) => w.type === 'mnemonic'), accounts: [] };
+    if (!kr || kr.v !== 3) return { activeId: null, accounts: [] };
     return {
       activeId: kr.activeId,
-      hasSeed: kr.seedVault != null,
-      accounts: kr.accounts.map((a) => ({ id: a.id, label: a.label, kind: a.kind, index: a.index, address: a.address })),
+      accounts: kr.accounts.map((a) => ({ id: a.id, label: a.label, kind: a.kind, address: a.address })),
     };
   }
 
   /** Non-secret description of the currently active account (or {} when locked). */
   activeInfo() {
     const kr = this._keyring;
-    if (!kr || kr.v !== 2) return {};
+    if (!kr || kr.v !== 3) return {};
     const acct = kr.accounts.find((a) => a.id === kr.activeId) || kr.accounts[0];
     if (!acct) return {};
     return { id: acct.id, label: acct.label, kind: acct.kind, address: this._address || acct.address };

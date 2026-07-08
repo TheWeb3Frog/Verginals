@@ -1289,6 +1289,11 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && (p === '/' || p === '/index.html')) return serveStatic(res, 'index.html');
     if (req.method === 'GET' && (p === '/privacy' || p === '/privacy.html')) return serveStatic(res, 'privacy.html');
+    // Short share link for the Chrome extension, so a tweet can point at verginals.com/verginalswallet.
+    if (req.method === 'GET' && (p === '/verginalswallet' || p === '/verginalswallet/')) {
+      writeHead(res, 302, { location: 'https://chromewebstore.google.com/detail/verginals-wallet/ficjfnjaiopghnpohemapfbilflfflip', 'cache-control': 'no-store' });
+      return res.end();
+    }
     if (req.method === 'GET' && (p === '/app.js' || p === '/wallet.js' || p === '/style.css')) return serveStatic(res, p.slice(1));
     if (req.method === 'GET' && p === '/vendor/qrcode.js') return serveStatic(res, 'vendor/qrcode.js');
     if (req.method === 'GET' && (p === '/favicon.svg' || p === '/favicon.ico')) return serveStatic(res, 'favicon.svg');

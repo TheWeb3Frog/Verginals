@@ -47,6 +47,8 @@ const { buildPlan, revealFromPlan, inferContentType, pickNetwork } = require('./
 const { ECPair, buildFundingTx } = require('./builder');
 const { MintController } = require('./mint');
 const { PromoController } = require('./promo');
+const { computeRarity } = require('./rarity');
+const cbor = require('./cbor');
 
 const PORT = Number(process.env.PORT || 3400);
 // Bind to loopback by default so a public deployment is reachable ONLY through the reverse proxy
@@ -430,6 +432,36 @@ async function createPaymentJob({ id, body, contentType, filename, to, amountPer
   return { job, response };
 }
 
+/**
+ * Optional user metadata for a free-form inscription (ord tag 5, same shape the Alpha mints
+ * use so explorers render one format). Untrusted input: enforce shape, trim, cap every field
+ * and the final CBOR size, and silently drop empties. Returns a CBOR Buffer or undefined.
+ */
+function encodeQuoteMetadata(m) {
+  if (m == null) return undefined;
+  if (typeof m !== 'object' || Array.isArray(m)) throw new Error('metadata must be an object');
+  const out = {};
+  const str = (v, max) => String(v).trim().slice(0, max);
+  if (m.name != null && String(m.name).trim()) out.name = str(m.name, 120);
+  if (m.description != null && String(m.description).trim()) out.description = str(m.description, 1000);
+  if (m.attributes != null) {
+    if (!Array.isArray(m.attributes)) throw new Error('metadata.attributes must be an array');
+    if (m.attributes.length > 24) throw new Error('too many traits (max 24)');
+    const attrs = [];
+    for (const a of m.attributes) {
+      if (!a || typeof a !== 'object') continue;
+      const t = a.trait_type != null ? str(a.trait_type, 48) : '';
+      const v = a.value != null ? str(a.value, 120) : '';
+      if (t && v) attrs.push({ trait_type: t, value: v });
+    }
+    if (attrs.length) out.attributes = attrs;
+  }
+  if (!Object.keys(out).length) return undefined;
+  const encoded = cbor.encode(out);
+  if (encoded.length > 3072) throw new Error('metadata too large (max 3 KB encoded)');
+  return encoded;
+}
+
 async function handleQuote(req, res) {
   if (!allowQuote(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
   const raw = await readBody(req);
@@ -449,7 +481,8 @@ async function handleQuote(req, res) {
   requireDestination(to, network);
 
   const { body, contentType, filename } = decodeContent(b);
-  const { response } = await createPaymentJob({ body, contentType, filename, to, amountPerInput, networkName, network });
+  const metadata = encodeQuoteMetadata(b.metadata);
+  const { response } = await createPaymentJob({ body, contentType, filename, to, amountPerInput, networkName, network, metadata });
   sendJSON(res, 200, response);
 }
 
@@ -769,6 +802,46 @@ function handleCollectionImage(res, nStr) {
     'cache-control': 'public, max-age=31536000',
   });
   fs.createReadStream(file).pipe(res);
+}
+
+// --- collection rarity -------------------------------------------------------------------
+// Computed once from the full design set (traits are fixed at design time), then cached for
+// the life of the process. Rarity is deliberately based on the WHOLE collection, not the
+// minted pool: percentages stay stable for everyone and can never drift as the drop sells.
+// The committed-random mint order (mint.js) means publishing the distribution up front gives
+// nobody a way to target a rare number.
+let rarityCache = null;
+function getRarity() {
+  if (!mintCtl) return null;
+  if (!rarityCache) rarityCache = computeRarity([...mintCtl.byNumber.values()], mintCtl.supply);
+  return rarityCache;
+}
+
+/** GET /api/collection/rarity: the full trait distribution (counts + percentages). */
+function handleRarity(res) {
+  const r = getRarity();
+  if (!r) return sendJSON(res, 404, { error: 'minting is not enabled on this server' });
+  sendJSON(res, 200, { supply: r.supply, traits: r.traits });
+}
+
+/** GET /api/collection/rarity/<number>: one item's traits with rarity, score and rank. */
+function handleRarityItem(res, nStr) {
+  const r = getRarity();
+  if (!r) return sendJSON(res, 404, { error: 'minting is not enabled on this server' });
+  const n = Number(nStr);
+  const item = Number.isInteger(n) ? r.byNumber.get(n) : null;
+  if (!item) return sendJSON(res, 404, { error: 'no such verginal' });
+  sendJSON(res, 200, Object.assign({ supply: r.supply }, item));
+}
+
+/** GET /api/collection/leaderboard: rarest items first; minted flags reflect live state. */
+function handleLeaderboard(res, limitStr) {
+  const r = getRarity();
+  if (!r) return sendJSON(res, 404, { error: 'minting is not enabled on this server' });
+  const limit = Math.max(1, Math.min(100, Number(limitStr) || 50));
+  const top = r.leaderboard.slice(0, limit).map((e) =>
+    Object.assign({}, e, { minted: !!mintCtl.state.minted[e.number] }));
+  sendJSON(res, 200, { supply: r.supply, top });
 }
 
 /**
@@ -1294,6 +1367,11 @@ const server = http.createServer(async (req, res) => {
       writeHead(res, 302, { location: 'https://chromewebstore.google.com/detail/verginals-wallet/ficjfnjaiopghnpohemapfbilflfflip', 'cache-control': 'no-store' });
       return res.end();
     }
+    // Shareable deep links (a Verginal's detail view, a holder's gallery): same app shell, the
+    // frontend reads the path on boot and opens the right view.
+    if (req.method === 'GET' && (/^\/v\/[A-Za-z0-9]{1,64}$/.test(p) || /^\/gallery\/[a-km-zA-HJ-NP-Z1-9]{25,40}$/.test(p))) {
+      return serveStatic(res, 'index.html');
+    }
     if (req.method === 'GET' && (p === '/app.js' || p === '/wallet.js' || p === '/style.css')) return serveStatic(res, p.slice(1));
     if (req.method === 'GET' && p === '/vendor/qrcode.js') return serveStatic(res, 'vendor/qrcode.js');
     if (req.method === 'GET' && (p === '/favicon.svg' || p === '/favicon.ico')) return serveStatic(res, 'favicon.svg');
@@ -1301,6 +1379,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && p === '/api/quote') return await handleQuote(req, res);
     if (req.method === 'POST' && p === '/api/mint') return await handleMint(req, res);
     if (req.method === 'GET' && p === '/api/mint/status') return await handleMintStatus(res);
+    if (req.method === 'GET' && p === '/api/collection/rarity') return handleRarity(res);
+    if (req.method === 'GET' && p.startsWith('/api/collection/rarity/')) return handleRarityItem(res, p.slice('/api/collection/rarity/'.length));
+    if (req.method === 'GET' && p === '/api/collection/leaderboard') return handleLeaderboard(res, url.searchParams.get('limit'));
     if (req.method === 'GET' && p.startsWith('/api/collection/image/')) return handleCollectionImage(res, p.slice('/api/collection/image/'.length));
     if (req.method === 'GET' && p.startsWith('/api/job/')) return await handleJob(res, p.slice('/api/job/'.length));
     if (req.method === 'GET' && p === '/api/inscriptions') return await handleInscriptions(res, url.searchParams.get('owner'));

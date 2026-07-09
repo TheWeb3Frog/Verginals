@@ -39,6 +39,7 @@
     <button class="tab active" data-tab="inscribe">Inscribe</button>
     <button class="tab hidden" data-tab="mint" id="tab-mint">Mint ✦</button>
     <button class="tab" data-tab="explore">Explore</button>
+    <button class="tab hidden" data-tab="stats" id="tab-stats">Stats</button>
     <button class="tab" data-tab="wallet">My Wallet</button>
     <button class="tab" data-tab="vision">Vision</button>
     <button class="tab" data-tab="support">Support ♥</button>
@@ -89,6 +90,30 @@
           </div>
         </div>
 
+        <div class="meta-editor">
+          <div class="meta-head">
+            <label class="lbl">Metadata (optional)</label>
+            <button class="link" id="meta-toggle" type="button">add metadata +</button>
+          </div>
+          <div class="hidden" id="meta-fields">
+            <p class="hint">Give your inscription a name, a description and traits. They are written on-chain next to the content (same format as the Alpha Verginals), so any explorer can show them. Like the content itself, metadata is public and permanent.</p>
+            <div class="grid2">
+              <div>
+                <label class="lbl">Name</label>
+                <input type="text" id="meta-name" maxlength="120" placeholder="My masterpiece" />
+              </div>
+              <div>
+                <label class="lbl">Description</label>
+                <input type="text" id="meta-desc" maxlength="1000" placeholder="a few words about it" />
+              </div>
+            </div>
+            <label class="lbl">Traits</label>
+            <div id="meta-traits"></div>
+            <button class="link" id="meta-add-trait" type="button">+ add a trait</button>
+            <div class="hint" id="meta-size"></div>
+          </div>
+        </div>
+
         <label class="lbl">Your Verge address (where the inscription will live)</label>
         <input type="text" id="to-address" placeholder="paste your Verge address (Vesta, Core, Electrum…)" />
         <div class="hint">The finished inscription is sent here. This is the only address you control in this flow.</div>
@@ -120,6 +145,12 @@
         </div>
         <div class="error" id="pay-error"></div>
         <div class="success hidden" id="pay-success"></div>
+      </div>
+
+      <!-- live pulse: the most recent inscriptions, straight from the chain -->
+      <div class="card latest-strip hidden" id="latest-strip">
+        <span class="latest-lbl">Latest on-chain</span>
+        <div class="latest-items" id="latest-items"></div>
       </div>
     </section>
 
@@ -225,8 +256,28 @@
         <input type="text" id="owner-input" placeholder="Paste your Verge address to see only your verginals…" />
         <button class="btn ghost" id="btn-mine">Show mine</button>
         <button class="link hidden" id="btn-allins">← show all</button>
+        <a class="link hidden" id="btn-share-gallery" target="_blank" rel="noopener noreferrer">share this gallery ↗</a>
       </div>
+      <div class="filterbar hidden" id="filterbar"></div>
       <div class="gallery" id="gallery"></div>
+    </section>
+
+    <!-- ============ STATS ============ -->
+    <section class="panel" id="panel-stats">
+      <div class="card">
+        <h2>Collection stats</h2>
+        <div class="summary" id="stats-summary"><div class="empty">Loading…</div></div>
+      </div>
+      <div class="card">
+        <h2>Rarity leaderboard</h2>
+        <p class="hint">The rarest Alpha Verginals, ranked over the whole collection (3,333). Percentages never change: rarity is fixed by design, and the committed-random draw means nobody can target a rare one. Unminted ranks stay sealed until someone mints them.</p>
+        <div id="stats-leaderboard"><div class="empty">Loading…</div></div>
+      </div>
+      <div class="card">
+        <h2>Trait distribution</h2>
+        <p class="hint">How many Verginals carry each trait, across the full collection. Click a trait anywhere on the site to see every Verginal that shares it.</p>
+        <div id="stats-traits"><div class="empty">Loading…</div></div>
+      </div>
     </section>
 
     <!-- ============ MY WALLET ============ -->
@@ -418,6 +469,27 @@
       <div class="modal-actions">
         <button class="btn ghost" id="consent-cancel" type="button">Cancel</button>
         <button class="btn primary" id="consent-accept" type="button" disabled>Accept &amp; continue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Verginal detail view (opened from any gallery card; deep-linkable as /v/<number|txid>) -->
+  <div class="modal-overlay hidden" id="detail-modal">
+    <div class="modal-card detail-card" role="dialog" aria-modal="true" aria-labelledby="detail-title">
+      <button class="detail-close" id="detail-close" title="Close" aria-label="Close">&#10005;</button>
+      <div class="detail-grid">
+        <div class="detail-media" id="detail-media"></div>
+        <div class="detail-body">
+          <div class="detail-title" id="detail-title"></div>
+          <div class="detail-rank hidden" id="detail-rank"></div>
+          <div class="traits detail-traits" id="detail-traits"></div>
+          <div class="detail-desc hidden" id="detail-desc"></div>
+          <div class="meta detail-meta" id="detail-meta"></div>
+          <div class="detail-actions">
+            <a class="btn ghost" id="detail-content" target="_blank" rel="noopener noreferrer">view content ↗</a>
+            <a class="btn primary" id="detail-share" target="_blank" rel="noopener noreferrer">Share on X</a>
+          </div>
+        </div>
       </div>
     </div>
   </div>

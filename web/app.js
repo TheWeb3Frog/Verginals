@@ -39,6 +39,7 @@ $$('.tab').forEach((t) => t.addEventListener('click', () => {
   if (t.dataset.tab === 'explore') { loadInscriptions(); startExploreAutoRefresh(); }
   else stopExploreAutoRefresh();
   if (t.dataset.tab === 'mint') loadMintStatus();
+  if (t.dataset.tab === 'stats') loadStats();
   if (t.dataset.tab === 'support') renderDonateQR();
 }));
 
@@ -138,6 +139,59 @@ function readFile(file) {
   reader.readAsDataURL(file);
 }
 
+// --- optional metadata editor (name / description / traits, inscribed on-chain as tag 5) ---
+const metaFields = $('#meta-fields');
+$('#meta-toggle').addEventListener('click', () => {
+  const open = metaFields.classList.toggle('hidden');
+  $('#meta-toggle').textContent = open ? 'add metadata +' : 'remove metadata ✕';
+  if (!open && !$('#meta-traits').children.length) addTraitRow();
+  updateMetaSize();
+});
+
+function addTraitRow(type = '', value = '') {
+  const row = document.createElement('div');
+  row.className = 'trait-row';
+  row.innerHTML = `
+    <input type="text" class="trait-type" maxlength="48" placeholder="trait (e.g. Background)" />
+    <input type="text" class="trait-value" maxlength="120" placeholder="value (e.g. Cool Green)" />
+    <button class="link trait-del" type="button" title="remove">✕</button>`;
+  row.querySelector('.trait-type').value = type;
+  row.querySelector('.trait-value').value = value;
+  row.querySelector('.trait-del').addEventListener('click', () => { row.remove(); updateMetaSize(); });
+  row.querySelectorAll('input').forEach((i) => i.addEventListener('input', updateMetaSize));
+  $('#meta-traits').appendChild(row);
+}
+$('#meta-add-trait').addEventListener('click', () => addTraitRow());
+$('#meta-name').addEventListener('input', updateMetaSize);
+$('#meta-desc').addEventListener('input', updateMetaSize);
+
+/** The metadata object exactly as sent to the server, or null when everything is empty. */
+function collectMetadata() {
+  if (metaFields.classList.contains('hidden')) return null;
+  const md = {};
+  const name = $('#meta-name').value.trim();
+  const desc = $('#meta-desc').value.trim();
+  if (name) md.name = name;
+  if (desc) md.description = desc;
+  const attributes = [];
+  $$('#meta-traits .trait-row').forEach((row) => {
+    const t = row.querySelector('.trait-type').value.trim();
+    const v = row.querySelector('.trait-value').value.trim();
+    if (t && v) attributes.push({ trait_type: t, value: v });
+  });
+  if (attributes.length) md.attributes = attributes;
+  return Object.keys(md).length ? md : null;
+}
+
+function updateMetaSize() {
+  const md = collectMetadata();
+  const el = $('#meta-size');
+  if (!md) { el.textContent = ''; return; }
+  // CBOR is a touch more compact than JSON; the JSON size is an honest upper bound.
+  const bytes = new TextEncoder().encode(JSON.stringify(md)).length;
+  el.textContent = `~${bytes} bytes of metadata will be inscribed on-chain (max 3 KB)`;
+}
+
 // --- step 1: create payment request ------------------------------------------------------
 let pollTimer = null;
 let currentJob = null;
@@ -162,6 +216,8 @@ $('#btn-quote').addEventListener('click', async () => {
       body.contentType = fileState.type || undefined;
       body.dataBase64 = fileState.dataBase64;
     }
+    const md = collectMetadata();
+    if (md) body.metadata = md;
     const quote = await api('/api/quote', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     renderPayment(quote);
   } catch (e) {
@@ -253,13 +309,53 @@ function paymentDone(j) {
 // --- explore -----------------------------------------------------------------------------
 let exploreTimer = null;
 let ownerFilter = null; // when set, Explore shows only verginals held by this address
+let traitFilter = null; // { type, value } client-side filter, set by clicking a trait chip
+let lastList = []; // inscriptions from the last load, display order (used by filter + detail)
+
+function hasTrait(ins, type, value) {
+  const md = Array.isArray(ins.metadata) ? ins.metadata.find((m) => m && Array.isArray(m.attributes)) : null;
+  return !!(md && md.attributes.some((a) => a && a.trait_type === type && String(a.value) === value));
+}
+
+function setTraitFilter(type, value) {
+  traitFilter = type ? { type, value } : null;
+  closeDetail();
+  activateTab('explore');
+  renderGallery();
+}
+
+function renderGallery() {
+  const g = $('#gallery');
+  const bar = $('#filterbar');
+  const list = traitFilter ? lastList.filter((i) => hasTrait(i, traitFilter.type, traitFilter.value)) : lastList;
+  if (traitFilter) {
+    bar.classList.remove('hidden');
+    bar.innerHTML = `<span class="trait"><b>${esc(traitFilter.type)}</b>${esc(traitFilter.value)}</span>
+      <span>${list.length} result${list.length === 1 ? '' : 's'}</span>
+      <button class="link" id="filter-clear" type="button">clear ✕</button>`;
+    $('#filter-clear').addEventListener('click', () => setTraitFilter(null));
+  } else {
+    bar.classList.add('hidden');
+    bar.innerHTML = '';
+  }
+  g.innerHTML = '';
+  if (!list.length) {
+    g.innerHTML = traitFilter
+      ? '<div class="empty">No inscribed Verginal carries this trait yet.</div>'
+      : (ownerFilter
+        ? '<div class="empty">No verginals found at this address yet.</div>'
+        : '<div class="empty">No inscriptions in the indexed range yet.</div>');
+    return;
+  }
+  list.forEach((ins) => g.appendChild(card(ins)));
+}
 
 async function loadInscriptions() {
   const g = $('#gallery');
   if (!g.children.length || g.querySelector('.empty')) g.innerHTML = '<div class="empty">Indexing…</div>';
   try {
     const data = await api('/api/inscriptions' + (ownerFilter ? '?owner=' + encodeURIComponent(ownerFilter) : ''));
-    const scope = ownerFilter ? `your verginals (${short(ownerFilter)})` : 'all verginals';
+    const scope = ownerFilter ? `verginals held by ${short(ownerFilter)}` : 'all verginals';
     const meta = `${scope} · ${data.count} inscription(s) · blocks ${data.indexFrom}–${data.indexedThrough}`;
     $('#explore-meta').textContent = data.pendingCount
       ? `${meta} · ${data.pendingCount} unconfirmed`
@@ -267,19 +363,15 @@ async function loadInscriptions() {
     if (data.indexReady === false && !ownerFilter) {
       $('#explore-meta').textContent += ' · (full index still building…)';
     }
-    if (!data.inscriptions.length) {
-      g.innerHTML = ownerFilter
-        ? `<div class="empty">No verginals found at this address yet.${data.indexReady === false ? '<br><span class="hint">The full index is still building; recently confirmed ones may not appear until it catches up.</span>' : ''}</div>`
-        : '<div class="empty">No inscriptions in the indexed range yet.</div>';
-      return;
-    }
     // Show unconfirmed (mempool) first, then confirmed newest-first.
     const pending = data.inscriptions.filter((i) => i.status === 'pending');
     const confirmed = data.inscriptions.filter((i) => i.status !== 'pending').reverse();
-    g.innerHTML = '';
-    pending.concat(confirmed).forEach((ins) => g.appendChild(card(ins)));
+    lastList = pending.concat(confirmed);
+    renderGallery();
+    return lastList;
   } catch (e) {
     g.innerHTML = `<div class="empty">Error: ${e.message}</div>`;
+    return [];
   }
 }
 
@@ -297,7 +389,7 @@ function stopExploreAutoRefresh() {
 
 function card(ins) {
   const c = document.createElement('div');
-  c.className = 'ins-card';
+  c.className = 'ins-card clickable';
   const media = document.createElement('div');
   media.className = 'ins-media';
   const ct = ins.contentType || '';
@@ -327,25 +419,151 @@ function card(ins) {
   if (md && md.attributes.length) {
     const traits = document.createElement('div');
     traits.className = 'traits card-traits';
-    traits.innerHTML = md.attributes
-      .map((a) => `<span class="trait"><b>${esc(a.trait_type)}</b>${esc(a.value)}</span>`)
-      .join('');
+    md.attributes.forEach((a) => {
+      const chip = document.createElement('span');
+      chip.className = 'trait trait-click';
+      chip.innerHTML = `<b>${esc(a.trait_type)}</b>${esc(a.value)}`;
+      chip.title = 'show every Verginal with this trait';
+      chip.addEventListener('click', (e) => { e.stopPropagation(); setTraitFilter(a.trait_type, String(a.value)); });
+      traits.appendChild(chip);
+    });
     body.appendChild(traits);
   }
   const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.textContent = 'view content ↗';
+  a.addEventListener('click', (e) => e.stopPropagation());
   body.appendChild(a);
   c.appendChild(media); c.appendChild(body);
+  c.addEventListener('click', () => openDetail(ins));
   return c;
 }
 $('#btn-refresh').addEventListener('click', loadInscriptions);
 
-// --- "show mine" owner filter -----------------------------------------------------------
+// --- detail view (modal, deep-linkable as /v/<number|txid>) --------------------------------
+const detailModal = $('#detail-modal');
+
+function detailKey(ins) { return ins.number != null ? String(ins.number) : ins.txid; }
+
+function openDetail(ins, push = true) {
+  const url = '/api/content/' + ins.txid;
+  const media = $('#detail-media');
+  media.innerHTML = '';
+  const ct = ins.contentType || '';
+  if (ct.startsWith('image/')) {
+    const img = document.createElement('img'); img.src = url; media.appendChild(img);
+  } else if (ct.startsWith('text/')) {
+    const pre = document.createElement('div'); pre.className = 'txtprev'; pre.textContent = '…';
+    fetch(url).then((r) => r.text()).then((t) => (pre.textContent = t.slice(0, 1200))).catch(() => (pre.textContent = '(text)'));
+    media.appendChild(pre);
+  } else {
+    const blob = document.createElement('div'); blob.className = 'blob'; blob.textContent = '📦'; media.appendChild(blob);
+  }
+
+  const mdEntry = Array.isArray(ins.metadata) ? ins.metadata.find((m) => m && typeof m === 'object' && !Array.isArray(m)) : null;
+  const name = mdEntry && mdEntry.name ? String(mdEntry.name) : (ins.number != null ? `Verginals #${ins.number}` : 'Inscription');
+  const pending = ins.status === 'pending';
+  const badge = pending
+    ? '<span class="badge pending">⏳ unconfirmed</span>'
+    : `<span class="badge ok">✓ ${fmt(ins.confirmations)} conf</span>`;
+  $('#detail-title').innerHTML = `${esc(name)} ${badge}`;
+
+  const desc = $('#detail-desc');
+  if (mdEntry && mdEntry.description) {
+    desc.textContent = String(mdEntry.description);
+    desc.classList.remove('hidden');
+  } else {
+    desc.classList.add('hidden');
+  }
+
+  // Traits first from the on-chain metadata; rarity percentages overlay once fetched.
+  const traitsEl = $('#detail-traits');
+  traitsEl.innerHTML = '';
+  const attrs = (mdEntry && Array.isArray(mdEntry.attributes)) ? mdEntry.attributes : [];
+  const chipFor = (a, pct) => {
+    const chip = document.createElement('span');
+    chip.className = 'trait trait-click';
+    chip.innerHTML = `<b>${esc(a.trait_type)}</b>${esc(a.value)}${pct != null ? `<i class="pct">${pct}%</i>` : ''}`;
+    chip.title = 'show every Verginal with this trait';
+    chip.addEventListener('click', () => setTraitFilter(a.trait_type, String(a.value)));
+    return chip;
+  };
+  attrs.forEach((a) => traitsEl.appendChild(chipFor(a)));
+
+  const rankEl = $('#detail-rank');
+  rankEl.classList.add('hidden');
+  if (ins.number != null) {
+    api('/api/collection/rarity/' + ins.number).then((r) => {
+      rankEl.innerHTML = `Rarity rank <b>#${fmt(r.rank)}</b> of ${fmt(r.supply)} · score ${fmt(r.score)}`;
+      rankEl.classList.remove('hidden');
+      traitsEl.innerHTML = '';
+      r.traits.forEach((t) => traitsEl.appendChild(chipFor(t, t.pct)));
+    }).catch(() => { /* not a collection item or rarity unavailable: keep plain chips */ });
+  }
+
+  const where = pending ? 'in the mempool' : `block ${fmt(ins.genesisHeight)}`;
+  const ownerBit = ins.ownerAddress
+    ? ` · held by <a class="link" id="detail-owner">${esc(short(ins.ownerAddress))}</a>`
+    : '';
+  $('#detail-meta').innerHTML =
+    `${esc(ins.contentType) || 'n/a'} · ${fmt(ins.bodySize)} bytes · ${where}${ownerBit}<br>` +
+    `tx <a class="link" href="https://verge-blockchain.info/tx/${esc(ins.txid)}" target="_blank" rel="noopener noreferrer">${esc(short(ins.txid))}</a>`;
+  const ownerLink = $('#detail-owner');
+  if (ownerLink) ownerLink.addEventListener('click', () => {
+    closeDetail();
+    showOwnerGallery(ins.ownerAddress);
+  });
+
+  $('#detail-content').href = url;
+  const shareUrl = 'https://verginals.com/v/' + detailKey(ins);
+  const shareText = ins.number != null
+    ? `${name}, inscribed forever on the Verge blockchain ⚡`
+    : 'Inscribed forever on the Verge blockchain ⚡';
+  $('#detail-share').href = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(shareText) + '&url=' + encodeURIComponent(shareUrl);
+
+  detailModal.classList.remove('hidden');
+  if (push) history.pushState({ v: detailKey(ins) }, '', '/v/' + detailKey(ins));
+}
+
+function closeDetail(push = true) {
+  if (detailModal.classList.contains('hidden')) return;
+  detailModal.classList.add('hidden');
+  if (push && /^\/v\//.test(location.pathname)) history.pushState({}, '', '/');
+}
+
+$('#detail-close').addEventListener('click', () => closeDetail());
+detailModal.addEventListener('click', (e) => { if (e.target === detailModal) closeDetail(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDetail(); });
+window.addEventListener('popstate', () => {
+  const m = location.pathname.match(/^\/v\/([A-Za-z0-9]+)$/);
+  if (m) openDetailByKey(m[1]);
+  else closeDetail(false);
+});
+
+/** Open the detail view from a /v/<number|txid> deep link, loading the list if needed. */
+async function openDetailByKey(key) {
+  const list = lastList.length ? lastList : await loadInscriptions();
+  const ins = list.find((i) => String(i.number) === key || i.txid === key);
+  if (ins) openDetail(ins, false);
+}
+
+// --- "show mine" owner filter (a shareable holder gallery: /gallery/<address>) ------------
+function showOwnerGallery(addr, push = true) {
+  ownerFilter = addr;
+  traitFilter = null;
+  $('#owner-input').value = addr;
+  $('#btn-allins').classList.remove('hidden');
+  const shareBtn = $('#btn-share-gallery');
+  shareBtn.classList.remove('hidden');
+  const shareUrl = 'https://verginals.com/gallery/' + addr;
+  shareBtn.href = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent('My Verginals, inscribed forever on the Verge blockchain ⚡') + '&url=' + encodeURIComponent(shareUrl);
+  if (push) history.pushState({ gallery: addr }, '', '/gallery/' + addr);
+  activateTab('explore');
+  loadInscriptions();
+}
+
 function applyOwnerFilter() {
   const addr = $('#owner-input').value.trim();
   if (!addr) return;
-  ownerFilter = addr;
-  $('#btn-allins').classList.remove('hidden');
-  loadInscriptions();
+  showOwnerGallery(addr);
 }
 $('#btn-mine').addEventListener('click', applyOwnerFilter);
 $('#owner-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') applyOwnerFilter(); });
@@ -353,6 +571,8 @@ $('#btn-allins').addEventListener('click', () => {
   ownerFilter = null;
   $('#owner-input').value = '';
   $('#btn-allins').classList.add('hidden');
+  $('#btn-share-gallery').classList.add('hidden');
+  if (/^\/gallery\//.test(location.pathname)) history.pushState({}, '', '/');
   loadInscriptions();
 });
 
@@ -368,6 +588,7 @@ async function loadMintStatus() {
     if (!s.enabled) { mintEnabled = false; return null; }
     mintEnabled = true;
     $('#tab-mint').classList.remove('hidden');
+    $('#tab-stats').classList.remove('hidden'); // stats need the collection endpoints
     $('#mint-title').textContent = 'Alpha ' + (s.name || 'Verginals');
     $('#mint-minted').textContent = fmt(s.minted);
     $('#mint-supply').textContent = fmt(s.supply);
@@ -538,6 +759,90 @@ $('#btn-mint-again').addEventListener('click', () => {
   $('#mint-address').focus();
 });
 
+// --- stats tab (collection stats, rarity leaderboard, trait distribution) -----------------
+let statsLoaded = false;
+async function loadStats() {
+  if (statsLoaded) return;
+  try {
+    const [status, board, rarity, inscriptions] = await Promise.all([
+      api('/api/mint/status'),
+      api('/api/collection/leaderboard?limit=20'),
+      api('/api/collection/rarity'),
+      api('/api/inscriptions'),
+    ]);
+    statsLoaded = true;
+
+    // headline numbers
+    const holders = new Set(inscriptions.inscriptions.filter((i) => i.number != null && i.ownerAddress).map((i) => i.ownerAddress)).size;
+    const cells = [
+      [fmt(status.minted), 'minted'],
+      [fmt(status.remaining), 'left to mint'],
+      [fmt(holders), 'holder' + (holders === 1 ? '' : 's')],
+    ];
+    if (status.promo && status.promo.active) cells.push([fmt(status.promo.remaining), 'free mints left 🎁']);
+    $('#stats-summary').innerHTML = cells.map(([v, k]) => `<div class="kv"><b>${v}</b><span>${k}</span></div>`).join('');
+
+    // leaderboard: minted entries reveal themselves, unminted stay sealed
+    $('#stats-leaderboard').innerHTML = board.top.map((e) => {
+      const img = e.minted
+        ? `<img src="/api/collection/image/${e.number}" alt="${esc(e.name)}" loading="lazy" />`
+        : '<span class="lb-mystery">?</span>';
+      const label = e.minted ? esc(e.name) : 'Not yet minted';
+      const link = e.minted ? ` data-open="${e.number}"` : '';
+      return `<div class="lb-row${e.minted ? ' lb-minted clickable' : ''}"${link}>
+        <span class="lb-rank">#${e.rank}</span>
+        <span class="lb-thumb">${img}</span>
+        <span class="lb-name">${label}</span>
+        <span class="lb-score">${fmt(e.score)}</span>
+      </div>`;
+    }).join('');
+    $$('#stats-leaderboard [data-open]').forEach((row) => row.addEventListener('click', async () => {
+      const list = lastList.length ? lastList : await loadInscriptions();
+      const ins = list.find((i) => String(i.number) === row.dataset.open);
+      if (ins) openDetail(ins);
+    }));
+
+    // trait distribution, one collapsible block per trait type
+    $('#stats-traits').innerHTML = rarity.traits.map((t) => `
+      <details class="tdist">
+        <summary>${esc(t.trait_type)} <span class="hint">(${t.values.length} values)</span></summary>
+        ${t.values.map((v) => `
+          <div class="tdist-row" data-type="${esc(t.trait_type)}" data-value="${esc(v.value)}">
+            <span class="tdist-name">${esc(v.value)}</span>
+            <span class="tdist-bar"><i style="width:${Math.max(1, v.pct)}%"></i></span>
+            <span class="tdist-pct">${v.pct}% · ${fmt(v.count)}</span>
+          </div>`).join('')}
+      </details>`).join('');
+    $$('#stats-traits .tdist-row').forEach((row) => row.addEventListener('click', () =>
+      setTraitFilter(row.dataset.type, row.dataset.value)));
+  } catch (e) {
+    $('#stats-summary').innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+// --- latest inscriptions strip (inscribe panel) --------------------------------------------
+async function loadLatestStrip() {
+  try {
+    const data = await api('/api/inscriptions');
+    const latest = data.inscriptions.filter((i) => i.status !== 'pending').slice(-4).reverse();
+    if (!latest.length) return;
+    const holder = $('#latest-items');
+    holder.innerHTML = '';
+    latest.forEach((ins) => {
+      const b = document.createElement('button');
+      b.className = 'latest-item';
+      b.type = 'button';
+      const label = ins.number != null ? `#${ins.number}` : (ins.contentType || '').split(';')[0] || 'inscription';
+      b.innerHTML = (ins.contentType || '').startsWith('image/')
+        ? `<img src="/api/content/${esc(ins.txid)}" alt="" loading="lazy" /><span>${esc(label)}</span>`
+        : `<span class="latest-ico">✍️</span><span>${esc(label)}</span>`;
+      b.addEventListener('click', () => { lastList.length ? openDetail(ins) : openDetailByKey(detailKey(ins)); });
+      holder.appendChild(b);
+    });
+    $('#latest-strip').classList.remove('hidden');
+  } catch (_) { /* cosmetic: no strip if the API is unavailable */ }
+}
+
 // --- copy buttons ------------------------------------------------------------------------
 wireCopy('#copy-amount', () => String($('#pay-amount').textContent).replace(/[^\d.]/g, ''));
 wireCopy('#copy-address', () => $('#pay-address').textContent);
@@ -639,4 +944,15 @@ function renderDonateQR() {
     $('#netinfo').textContent = 'node unreachable';
   }
   loadMintStatus(); // reveals the Mint tab only when the server has a collection loaded
+  loadLatestStrip();
+
+  // Shareable deep links: /v/<number|txid> opens one Verginal, /gallery/<address> a holder page.
+  const v = location.pathname.match(/^\/v\/([A-Za-z0-9]+)$/);
+  const gal = location.pathname.match(/^\/gallery\/([a-km-zA-HJ-NP-Z1-9]{25,40})$/);
+  if (v) {
+    activateTab('explore');
+    openDetailByKey(v[1]);
+  } else if (gal) {
+    showOwnerGallery(gal[1], false);
+  }
 })();

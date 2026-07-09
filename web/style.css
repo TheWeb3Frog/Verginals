@@ -335,9 +335,71 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 .footlinks a { color: var(--accent); text-decoration: none; font-size: 12px; cursor: pointer; }
 .footlinks a:hover { text-decoration: underline; }
 
+/* --- metadata editor (inscribe form) ------------------------------------------------------ */
+.meta-editor { margin: 14px 0 4px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 10px; }
+.meta-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.meta-head .lbl { margin: 0; }
+.trait-row { display: grid; grid-template-columns: 1fr 1.4fr 28px; gap: 8px; align-items: center; margin-bottom: 8px; }
+.trait-del { justify-self: center; }
+
+/* --- clickable cards + trait chips --------------------------------------------------------- */
+.ins-card.clickable { cursor: pointer; transition: border-color .15s, transform .15s; }
+.ins-card.clickable:hover { border-color: var(--accent2); transform: translateY(-2px); }
+.trait-click { cursor: pointer; }
+.trait-click:hover { border-color: var(--accent); }
+.trait .pct { font-style: normal; color: var(--accent); margin-left: 6px; }
+.filterbar { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; font-size: 13px; color: var(--muted); }
+
+/* --- detail modal --------------------------------------------------------------------------- */
+.detail-card { max-width: 720px; width: min(720px, 94vw); position: relative; }
+.detail-close { position: absolute; top: 10px; right: 12px; background: none; border: none; color: var(--muted); font-size: 16px; cursor: pointer; }
+.detail-close:hover { color: var(--txt); }
+.detail-grid { display: grid; grid-template-columns: 280px 1fr; gap: 18px; align-items: start; }
+.detail-media { aspect-ratio: 1 / 1; background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; display: grid; place-items: center; overflow: hidden; }
+.detail-media img { width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
+.detail-media .txtprev { padding: 14px; font-size: 13px; white-space: pre-wrap; word-break: break-word; overflow: hidden; max-height: 100%; }
+.detail-media .blob { font-size: 48px; color: var(--muted); }
+.detail-title { font-weight: 700; font-size: 18px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.detail-rank { margin-top: 6px; font-size: 13px; color: var(--muted); }
+.detail-rank b { color: var(--accent); }
+.detail-traits { margin-top: 10px; }
+.detail-desc { margin-top: 10px; font-size: 13px; color: var(--txt); line-height: 1.5; }
+.detail-meta { margin-top: 12px; font-size: 12px; color: var(--muted); word-break: break-all; line-height: 1.7; }
+.detail-actions { margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* --- stats: leaderboard + trait distribution ------------------------------------------------ */
+.lb-row { display: grid; grid-template-columns: 52px 44px 1fr auto; gap: 10px; align-items: center; padding: 6px 8px; border-radius: 8px; }
+.lb-row.lb-minted:hover { background: var(--bg2); }
+.lb-rank { color: var(--accent); font-weight: 700; }
+.lb-thumb { width: 44px; height: 44px; border-radius: 6px; overflow: hidden; background: var(--bg2); display: grid; place-items: center; }
+.lb-thumb img { width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
+.lb-mystery { color: var(--muted); font-weight: 700; font-size: 18px; }
+.lb-name { font-size: 13.5px; }
+.lb-row:not(.lb-minted) .lb-name { color: var(--muted); font-style: italic; }
+.lb-score { font-size: 12px; color: var(--muted); }
+.tdist { border-top: 1px solid var(--line); padding: 8px 0; }
+.tdist summary { cursor: pointer; font-weight: 600; font-size: 14px; padding: 4px 0; }
+.tdist-row { display: grid; grid-template-columns: 1fr 2fr auto; gap: 10px; align-items: center; padding: 4px 6px; border-radius: 6px; cursor: pointer; font-size: 12.5px; }
+.tdist-row:hover { background: var(--bg2); }
+.tdist-bar { height: 6px; border-radius: 3px; background: var(--bg2); overflow: hidden; }
+.tdist-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent2), var(--accent)); border-radius: 3px; }
+.tdist-pct { color: var(--muted); white-space: nowrap; }
+
+/* --- latest inscriptions strip --------------------------------------------------------------- */
+.latest-strip { display: flex; align-items: center; gap: 14px; padding: 12px 16px; }
+.latest-lbl { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.latest-items { display: flex; gap: 10px; flex-wrap: wrap; }
+.latest-item { display: flex; align-items: center; gap: 7px; background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px 5px 5px; cursor: pointer; color: var(--txt); font-size: 12.5px; }
+.latest-item:hover { border-color: var(--accent2); }
+.latest-item img { width: 26px; height: 26px; border-radius: 5px; object-fit: contain; image-rendering: pixelated; background: var(--bg); }
+.latest-ico { font-size: 15px; padding-left: 4px; }
+
 @media (max-width: 640px) {
   .grid2 { grid-template-columns: 1fr; }
   .fund-row { grid-template-columns: 1fr; }
   .pay-grid { grid-template-columns: 1fr; }
   .qr-wrap { max-width: 240px; margin: 0 auto; }
+  .detail-grid { grid-template-columns: 1fr; }
+  .detail-media { width: 100%; max-width: 340px; margin: 0 auto; }
+  .trait-row { grid-template-columns: 1fr 1fr 28px; }
 }

@@ -48,6 +48,7 @@ const { ECPair, buildFundingTx } = require('./builder');
 const { MintController } = require('./mint');
 const { PromoController } = require('./promo');
 const { computeRarity } = require('./rarity');
+const { Launchpad } = require('./launchpad');
 const cbor = require('./cbor');
 
 const PORT = Number(process.env.PORT || 3400);
@@ -844,29 +845,174 @@ function handleLeaderboard(res, limitStr) {
   sendJSON(res, 200, { supply: r.supply, top });
 }
 
+// --- launchpad: curated community collections, open-edition mints ---------------------------
+// Submissions arrive over HTTP but go NOWHERE until the operator reviews them on the server
+// (node src/launchpad.js list / approve / reject). Approved collections mint through the same
+// payment pipeline as Alpha, each with its own committed-random order and persisted state.
+let launchpad = null;
+const lpRarityCache = new Map(); // slug -> computeRarity result (traits are fixed at approval)
+
+function initLaunchpad() {
+  launchpad = new Launchpad({ dataDir: DATA_DIR });
+  launchpad.refresh();
+}
+
+/** The mint controller a job belongs to: a launchpad collection when tagged, else Alpha. */
+function mintCtlForJob(job) {
+  if (!job || !job.mint) return null;
+  if (job.mint.collection) {
+    const c = launchpad ? launchpad.get(job.mint.collection) : null;
+    return c ? c.ctl : null;
+  }
+  return mintCtl;
+}
+
+function handleLaunchpadList(res) {
+  sendJSON(res, 200, { collections: launchpad ? launchpad.list() : [] });
+}
+
+function handleLaunchpadStatus(res, slug) {
+  const c = launchpad && launchpad.get(slug);
+  if (!c) return sendJSON(res, 404, { error: 'no such collection' });
+  sendJSON(res, 200, Object.assign({
+    slug,
+    description: c.manifest.description || '',
+    creator: c.manifest.creator || '',
+    mediaType: c.manifest.media_type,
+  }, c.ctl.status()));
+}
+
+/**
+ * Launchpad images stay sealed until minted (the committed-random reveal is the fun), with one
+ * exception: item 1 is the collection's public cover, shown on the browse page.
+ */
+function handleLaunchpadImage(res, slug, nStr) {
+  const c = launchpad && launchpad.get(slug);
+  if (!c) return (writeHead(res, 404, { 'content-type': 'text/plain' }), res.end('no such collection'));
+  const n = Number(nStr);
+  const minted = Number.isInteger(n) && !!c.ctl.state.minted[n];
+  if (!(n === 1 || minted)) return (writeHead(res, 404, { 'content-type': 'text/plain' }), res.end('not minted yet'));
+  const file = Number.isInteger(n) ? c.ctl.imagePath(n) : null;
+  if (!file || !fs.existsSync(file)) return (writeHead(res, 404, { 'content-type': 'text/plain' }), res.end('no such item'));
+  writeHead(res, 200, {
+    'content-type': c.manifest.media_type || 'image/webp',
+    'cache-control': 'public, max-age=31536000',
+  });
+  fs.createReadStream(file).pipe(res);
+}
+
+function handleLaunchpadRarity(res, slug) {
+  const c = launchpad && launchpad.get(slug);
+  if (!c) return sendJSON(res, 404, { error: 'no such collection' });
+  if (!lpRarityCache.has(slug)) lpRarityCache.set(slug, computeRarity([...c.ctl.byNumber.values()], c.ctl.supply));
+  const r = lpRarityCache.get(slug);
+  sendJSON(res, 200, { supply: r.supply, traits: r.traits });
+}
+
+/** POST /api/launchpad/<slug>/mint {to}: open-edition mint, same pipeline as Alpha minus promo. */
+async function handleLaunchpadMint(req, res, slug) {
+  const c = launchpad && launchpad.get(slug);
+  if (!c) return sendJSON(res, 404, { error: 'no such collection' });
+  if (!allowQuote(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
+  const raw = await readBody(req);
+  const b = JSON.parse(raw.toString('utf8') || '{}');
+  const to = typeof b.to === 'string' ? b.to.trim() : '';
+  const { network } = pickNetwork(NETWORK);
+  requireDestination(to, network);
+
+  const jobId = crypto.randomBytes(16).toString('hex');
+  const assignment = c.ctl.reserve(jobId);
+  if (!assignment) return sendJSON(res, 200, Object.assign({ soldOut: true }, c.ctl.status()));
+
+  try {
+    const body = fs.readFileSync(c.ctl.imagePath(assignment.number));
+    const contentType = c.manifest.media_type || 'image/webp';
+    const metadata = c.ctl.metadataCbor(assignment.number);
+    const { response } = await createPaymentJob({
+      id: jobId, body, contentType, filename: assignment.filename, to,
+      amountPerInput: toUnits(MINT_PER_INPUT_XVG), networkName: NETWORK, network,
+      mint: { number: assignment.number, name: assignment.name, collection: slug }, metadata,
+    });
+    sendJSON(res, 200, Object.assign(response, {
+      verginal: {
+        number: assignment.number,
+        name: assignment.name,
+        attributes: assignment.attributes,
+        imageUrl: `/api/launchpad/${slug}/image/${assignment.number}`,
+      },
+      collection: slug,
+      commitment: c.ctl.commitment,
+      status: c.ctl.status(),
+    }));
+  } catch (e) {
+    c.ctl.release(assignment.number); // roll the reservation back if the job couldn't be built
+    throw e;
+  }
+}
+
+// --- launchpad submissions (public, curated before anything goes live) -----------------------
+async function handleLaunchpadSubmit(req, res) {
+  if (!allowQuote(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
+  if (!launchpad) return sendJSON(res, 404, { error: 'launchpad disabled' });
+  const raw = await readBody(req);
+  const b = JSON.parse(raw.toString('utf8') || '{}');
+  sendJSON(res, 200, launchpad.createDraft({
+    name: b.name, symbol: b.symbol, description: b.description, creator: b.creator,
+  }));
+}
+
+/** Items arrive in batches (up to 25 per call) so a full collection fits the rate limit. */
+async function handleLaunchpadSubmitItems(req, res, id) {
+  if (!allowQuote(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
+  if (!launchpad) return sendJSON(res, 404, { error: 'launchpad disabled' });
+  const raw = await readBody(req);
+  const b = JSON.parse(raw.toString('utf8') || '{}');
+  const items = Array.isArray(b.items) ? b.items : [];
+  if (!items.length) return sendJSON(res, 400, { error: 'items[] is required' });
+  if (items.length > 25) return sendJSON(res, 400, { error: 'max 25 items per request' });
+  let count = 0;
+  for (const it of items) {
+    count = launchpad.addItem(id, {
+      filename: it && it.filename, dataBase64: it && it.dataBase64,
+      name: it && it.name, attributes: it && it.attributes,
+    }).count;
+  }
+  sendJSON(res, 200, { count });
+}
+
+async function handleLaunchpadSubmitFinalize(res, id) {
+  if (!launchpad) return sendJSON(res, 404, { error: 'launchpad disabled' });
+  sendJSON(res, 200, launchpad.finalize(id));
+}
+
 /**
  * Release reservations that have gone stale AND whose deposit never received the payment. Only the
  * server can check funding, so the pure controller defers to this. Funded-but-not-yet-driven jobs
  * are left alone (they'll complete); genuinely abandoned ones return their number to the pool.
  */
 async function reapMintReservations() {
-  if (!mintCtl) return;
-  for (const { number, jobId } of mintCtl.staleReservations(MINT_RESERVE_TTL_MS)) {
-    const job = loadJob(jobId);
-    if (!job) {
-      mintCtl.release(number);
-      continue;
-    }
-    if (job.status === 'done') continue; // already minted (confirmMinted should have cleared it)
-    try {
-      const utxos = await client.call('listunspent', [0, 9999999, [job.depositAddress]]);
-      const received = utxos.reduce((s, u) => s + toUnits(u.amount), 0);
-      if (received < job.total) {
-        mintCtl.release(number); // truly unpaid → free the number
-        if (job.promo && promoCtl) promoCtl.release(job.id); // and return the promo slot
+  // Alpha plus every live launchpad collection: each controller reaps its own reservations.
+  const ctls = [];
+  if (mintCtl) ctls.push(mintCtl);
+  if (launchpad) for (const { ctl } of launchpad.live.values()) ctls.push(ctl);
+  for (const ctl of ctls) {
+    for (const { number, jobId } of ctl.staleReservations(MINT_RESERVE_TTL_MS)) {
+      const job = loadJob(jobId);
+      if (!job) {
+        ctl.release(number);
+        continue;
       }
-    } catch (_) {
-      /* leave it; retry next cycle */
+      if (job.status === 'done') continue; // already minted (confirmMinted should have cleared it)
+      try {
+        const utxos = await client.call('listunspent', [0, 9999999, [job.depositAddress]]);
+        const received = utxos.reduce((s, u) => s + toUnits(u.amount), 0);
+        if (received < job.total) {
+          ctl.release(number); // truly unpaid → free the number
+          if (job.promo && promoCtl) promoCtl.release(job.id); // and return the promo slot
+        }
+      } catch (_) {
+        /* leave it; retry next cycle */
+      }
     }
   }
 }
@@ -956,11 +1102,12 @@ async function drivePayout(job, depositUtxos) {
   job.status = 'done';
   saveJob(job);
 
-  // If this was an Alpha Verginals mint, lock the number in as permanently minted now that the
-  // reveal is broadcast (moves it out of the reserved pool so it can never be assigned again).
-  if (job.mint && mintCtl) {
+  // If this was a collection mint (Alpha or a launchpad collection), lock the number in as
+  // permanently minted now that the reveal is broadcast (it can never be assigned again).
+  const ctl = mintCtlForJob(job);
+  if (job.mint && ctl) {
     try {
-      mintCtl.confirmMinted(job.mint.number, { revealTxid: job.revealTxid, owner: job.to });
+      ctl.confirmMinted(job.mint.number, { revealTxid: job.revealTxid, owner: job.to });
     } catch (_) {
       /* non-fatal: the inscription is already on-chain; state will reconcile from the index */
     }
@@ -1367,9 +1514,9 @@ const server = http.createServer(async (req, res) => {
       writeHead(res, 302, { location: 'https://chromewebstore.google.com/detail/verginals-wallet/ficjfnjaiopghnpohemapfbilflfflip', 'cache-control': 'no-store' });
       return res.end();
     }
-    // Shareable deep links (a Verginal's detail view, a holder's gallery): same app shell, the
-    // frontend reads the path on boot and opens the right view.
-    if (req.method === 'GET' && (/^\/v\/[A-Za-z0-9]{1,64}$/.test(p) || /^\/gallery\/[a-km-zA-HJ-NP-Z1-9]{25,40}$/.test(p))) {
+    // Shareable deep links (a Verginal's detail view, a holder's gallery, a launchpad
+    // collection): same app shell, the frontend reads the path on boot and opens the right view.
+    if (req.method === 'GET' && (/^\/v\/[A-Za-z0-9]{1,64}$/.test(p) || /^\/gallery\/[a-km-zA-HJ-NP-Z1-9]{25,40}$/.test(p) || /^\/launchpad(\/[a-z0-9-]{3,32})?$/.test(p))) {
       return serveStatic(res, 'index.html');
     }
     if (req.method === 'GET' && (p === '/app.js' || p === '/wallet.js' || p === '/style.css')) return serveStatic(res, p.slice(1));
@@ -1383,6 +1530,17 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p.startsWith('/api/collection/rarity/')) return handleRarityItem(res, p.slice('/api/collection/rarity/'.length));
     if (req.method === 'GET' && p === '/api/collection/leaderboard') return handleLeaderboard(res, url.searchParams.get('limit'));
     if (req.method === 'GET' && p.startsWith('/api/collection/image/')) return handleCollectionImage(res, p.slice('/api/collection/image/'.length));
+    if (p === '/api/launchpad' && req.method === 'GET') return handleLaunchpadList(res);
+    if (p === '/api/launchpad/submit' && req.method === 'POST') return await handleLaunchpadSubmit(req, res);
+    {
+      let m;
+      if ((m = p.match(/^\/api\/launchpad\/submit\/([a-f0-9]{16})\/items$/)) && req.method === 'POST') return await handleLaunchpadSubmitItems(req, res, m[1]);
+      if ((m = p.match(/^\/api\/launchpad\/submit\/([a-f0-9]{16})\/finalize$/)) && req.method === 'POST') return await handleLaunchpadSubmitFinalize(res, m[1]);
+      if ((m = p.match(/^\/api\/launchpad\/([a-z0-9-]{3,32})\/status$/)) && req.method === 'GET') return handleLaunchpadStatus(res, m[1]);
+      if ((m = p.match(/^\/api\/launchpad\/([a-z0-9-]{3,32})\/image\/(\d{1,5})$/)) && req.method === 'GET') return handleLaunchpadImage(res, m[1], m[2]);
+      if ((m = p.match(/^\/api\/launchpad\/([a-z0-9-]{3,32})\/rarity$/)) && req.method === 'GET') return handleLaunchpadRarity(res, m[1]);
+      if ((m = p.match(/^\/api\/launchpad\/([a-z0-9-]{3,32})\/mint$/)) && req.method === 'POST') return await handleLaunchpadMint(req, res, m[1]);
+    }
     if (req.method === 'GET' && p.startsWith('/api/job/')) return await handleJob(res, p.slice('/api/job/'.length));
     if (req.method === 'GET' && p === '/api/inscriptions') return await handleInscriptions(res, url.searchParams.get('owner'));
     if (req.method === 'GET' && p.startsWith('/api/content/')) return await handleContent(res, p.slice('/api/content/'.length));
@@ -1438,6 +1596,7 @@ initServiceFee();
 initMint();
 initParent();
 initPromo();
+initLaunchpad();
 
 server.listen(PORT, HOST, () => {
   console.log(`Verginals web UI  →  http://${HOST}:${PORT}`);
@@ -1460,6 +1619,7 @@ server.listen(PORT, HOST, () => {
       ? `Promo: ACTIVE, ${promoCtl.remaining()}/${promoCtl.limit} free mints left, wallet ${promoAddress}`
       : `Promo: inactive (enabled=${PROMO_ENABLED} key=${!!promoKey})` + (promoAddress ? `, wallet ${promoAddress}` : ''),
   );
+  console.log(`Launchpad: ${launchpad.live.size} live collection(s), ${launchpad.pendingCount()} pending review (node src/launchpad.js list)`);
   cleanupJobs();
   setInterval(cleanupJobs, 3600 * 1000).unref();
   reapMintReservations();

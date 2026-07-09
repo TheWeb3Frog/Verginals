@@ -7,7 +7,7 @@
     "verginals": "src/cli.js"
   },
   "scripts": {
-    "test": "node test/cbor.test.js && node test/envelope.test.js && node test/builder.test.js && node test/indexer.test.js && node test/rpc.test.js && node test/cli.test.js && node test/mint.test.js",
+    "test": "node test/cbor.test.js && node test/envelope.test.js && node test/builder.test.js && node test/indexer.test.js && node test/rpc.test.js && node test/cli.test.js && node test/mint.test.js && node test/promo.test.js && node test/rarity.test.js",
     "web": "node src/server.js"
   },
   "author": "@TheWeb3Frog (https://x.com/TheWeb3Frog)",

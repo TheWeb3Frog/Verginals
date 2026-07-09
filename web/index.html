@@ -39,6 +39,7 @@
     <button class="tab active" data-tab="inscribe">Inscribe</button>
     <button class="tab hidden" data-tab="mint" id="tab-mint">Mint ✦</button>
     <button class="tab" data-tab="explore">Explore</button>
+    <button class="tab" data-tab="launchpad">Launchpad 🚀</button>
     <button class="tab hidden" data-tab="stats" id="tab-stats">Stats</button>
     <button class="tab" data-tab="wallet">My Wallet</button>
     <button class="tab" data-tab="vision">Vision</button>
@@ -277,6 +278,94 @@
         <h2>Trait distribution</h2>
         <p class="hint">How many Verginals carry each trait, across the full collection. Click a trait anywhere on the site to see every Verginal that shares it.</p>
         <div id="stats-traits"><div class="empty">Loading…</div></div>
+      </div>
+    </section>
+
+    <!-- ============ LAUNCHPAD ============ -->
+    <section class="panel" id="panel-launchpad">
+      <div class="card" id="lp-browse">
+        <h2>Community launchpad</h2>
+        <p class="hint">Collections created by the community and minted the same provably fair way as the Alphas: a committed random draw assigns your piece, images stay sealed until they are minted, and everything lives on the Verge chain forever. Every collection here was reviewed before going live.</p>
+        <div class="lp-grid" id="lp-list"><div class="empty">Loading…</div></div>
+      </div>
+
+      <!-- one collection: mint page -->
+      <div class="card hidden" id="lp-mint-card">
+        <button class="link" id="lp-back">← all collections</button>
+        <div class="lp-head">
+          <img id="lp-cover" alt="" width="120" height="120" />
+          <div class="lp-headtext">
+            <h2 id="lp-name"></h2>
+            <p class="hint" id="lp-desc"></p>
+            <div class="hint" id="lp-byline"></div>
+            <div class="mint-progress"><div class="mint-bar" id="lp-bar"></div></div>
+            <div class="hint" id="lp-count"></div>
+            <div class="hint" id="lp-fair"></div>
+          </div>
+        </div>
+
+        <div id="lp-form">
+          <label class="lbl">Your Verge address (where your mint will live)</label>
+          <input type="text" id="lp-address" placeholder="paste your Verge address (Vesta, Core, Electrum…)" />
+          <button class="btn primary" id="lp-mint-btn">Mint a random one →</button>
+          <div class="error" id="lp-error"></div>
+        </div>
+
+        <div class="hidden" id="lp-soldout">
+          <h3>Sold out 🎉</h3>
+          <p class="hint">Every item in this collection has been minted. Find them in the Explore tab.</p>
+        </div>
+
+        <div class="hidden" id="lp-active">
+          <div class="pay-grid" id="lp-payblock">
+            <div class="qr-wrap"><div id="lp-qrcode"></div></div>
+            <div class="pay-fields">
+              <div class="summary" id="lp-summary"></div>
+              <label class="lbl">Amount to send</label>
+              <div class="copyline"><code id="lp-amount"></code><button class="link copy" id="lp-copy-amount">copy</button></div>
+              <label class="lbl">Deposit address</label>
+              <div class="copyline"><code id="lp-pay-address"></code><button class="link copy" id="lp-copy-address">copy</button></div>
+              <a class="btn ghost" id="lp-uri" href="#">Open in wallet</a>
+            </div>
+          </div>
+          <div class="paystatus" id="lp-paystatus">
+            <span class="spinner"></span> <span id="lp-paystatus-text">Waiting for your payment…</span>
+          </div>
+          <div class="error" id="lp-pay-error"></div>
+          <div class="lp-reveal hidden" id="lp-reveal"></div>
+          <button class="link hidden" id="lp-again">← mint another</button>
+        </div>
+      </div>
+
+      <!-- creator submission wizard -->
+      <div class="card" id="lp-submit-card">
+        <h2>Launch your collection</h2>
+        <p class="hint">Anyone can submit a collection. Submissions are <strong>reviewed before going live</strong> (that keeps the launchpad clean and lawful; see the Terms). Once approved, your collection gets its own mint page here, minted by the community with the same provably fair random draw as the Alphas. Images: webp, png, jpeg or gif, one format for the whole collection, up to 60 KB each, up to 500 items.</p>
+        <div class="grid2">
+          <div>
+            <label class="lbl">Collection name</label>
+            <input type="text" id="lps-name" maxlength="60" placeholder="Cosmic Frogs" />
+          </div>
+          <div>
+            <label class="lbl">Creator (X handle or name)</label>
+            <input type="text" id="lps-creator" maxlength="60" placeholder="@you" />
+          </div>
+        </div>
+        <label class="lbl">Description</label>
+        <input type="text" id="lps-desc" maxlength="500" placeholder="what is this collection about?" />
+        <label class="lbl">Images</label>
+        <div class="dropzone" id="lps-dropzone">
+          <input type="file" id="lps-files" multiple accept=".png,.webp,.jpg,.jpeg,.gif" hidden />
+          <div id="lps-drop-empty"><strong>Drop your images here</strong><br /><span class="hint">or click to choose them (the file order sets the item numbers; item 1 is the public cover)</span></div>
+          <div id="lps-drop-filled" class="hidden"></div>
+        </div>
+        <label class="lbl">Traits manifest (optional)</label>
+        <input type="file" id="lps-manifest" accept=".json,.csv" />
+        <div class="hint">JSON: an array of <code>{"filename", "name", "attributes":[{"trait_type","value"}]}</code>. CSV: a header row <code>filename,name,TraitA,TraitB…</code> then one row per image. Without a manifest, items are numbered automatically with no traits.</div>
+        <button class="btn primary" id="lps-submit">Submit for review →</button>
+        <div class="lps-progress hidden" id="lps-progress"><div class="lps-bar" id="lps-bar"></div><span id="lps-progress-text"></span></div>
+        <div class="error" id="lps-error"></div>
+        <div class="success hidden" id="lps-success"></div>
       </div>
     </section>
 

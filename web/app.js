@@ -40,6 +40,7 @@ $$('.tab').forEach((t) => t.addEventListener('click', () => {
   else stopExploreAutoRefresh();
   if (t.dataset.tab === 'mint') loadMintStatus();
   if (t.dataset.tab === 'stats') loadStats();
+  if (t.dataset.tab === 'launchpad') loadLaunchpad();
   if (t.dataset.tab === 'support') renderDonateQR();
 }));
 
@@ -843,11 +844,301 @@ async function loadLatestStrip() {
   } catch (_) { /* cosmetic: no strip if the API is unavailable */ }
 }
 
+// --- launchpad: browse + mint community collections ----------------------------------------
+let lpSlug = null;
+let lpJob = null;
+let lpPollTimer = null;
+let lpPending = null; // the assigned item, revealed when payment confirms
+
+async function loadLaunchpad() {
+  const g = $('#lp-list');
+  try {
+    const data = await api('/api/launchpad');
+    if (!data.collections.length) {
+      g.innerHTML = '<div class="empty">No community collections live yet. Yours could be the first: submit it below. 🚀</div>';
+      return;
+    }
+    g.innerHTML = '';
+    data.collections.forEach((c) => {
+      const el = document.createElement('div');
+      el.className = 'lp-card clickable';
+      const pct = c.supply ? Math.min(100, (c.minted / c.supply) * 100) : 0;
+      el.innerHTML = `
+        <img src="/api/launchpad/${esc(c.slug)}/image/1" alt="${esc(c.name)}" loading="lazy" />
+        <div class="lp-card-body">
+          <div class="num">${esc(c.name)} ${c.soldOut ? '<span class="badge ok">sold out</span>' : ''}</div>
+          <div class="hint">${esc(c.creator ? 'by ' + c.creator : '')}</div>
+          <div class="mint-progress"><div class="mint-bar" style="width:${pct.toFixed(1)}%"></div></div>
+          <div class="hint">${fmt(c.minted)} / ${fmt(c.supply)} minted</div>
+        </div>`;
+      el.addEventListener('click', () => openLaunchpadCollection(c.slug));
+      g.appendChild(el);
+    });
+  } catch (e) {
+    g.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+async function openLaunchpadCollection(slug, push = true) {
+  try {
+    const s = await api('/api/launchpad/' + slug + '/status');
+    lpSlug = slug;
+    $('#lp-mint-card').classList.remove('hidden');
+    $('#lp-cover').src = `/api/launchpad/${slug}/image/1`;
+    $('#lp-name').textContent = s.name;
+    $('#lp-desc').textContent = s.description || '';
+    $('#lp-byline').textContent = s.creator ? 'by ' + s.creator : '';
+    const pct = s.supply ? Math.min(100, (s.minted / s.supply) * 100) : 0;
+    $('#lp-bar').style.width = pct.toFixed(1) + '%';
+    $('#lp-count').textContent = `${fmt(s.minted)} / ${fmt(s.supply)} minted · ${fmt(s.remaining)} left`;
+    $('#lp-fair').innerHTML = `Provably fair · commitment <code>${esc(short(s.commitment))}</code> · images stay sealed until minted`;
+    $('#lp-form').classList.toggle('hidden', !!s.soldOut);
+    $('#lp-soldout').classList.toggle('hidden', !s.soldOut);
+    $('#lp-active').classList.add('hidden');
+    $('#lp-error').textContent = '';
+    if (push) history.pushState({ lp: slug }, '', '/launchpad/' + slug);
+    $('#lp-mint-card').scrollIntoView({ behavior: 'smooth' });
+  } catch (e) {
+    $('#lp-list').innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+$('#lp-back').addEventListener('click', () => {
+  $('#lp-mint-card').classList.add('hidden');
+  lpSlug = null;
+  if (/^\/launchpad\//.test(location.pathname)) history.pushState({}, '', '/launchpad');
+});
+
+$('#lp-mint-btn').addEventListener('click', async () => {
+  $('#lp-error').textContent = '';
+  const to = $('#lp-address').value.trim();
+  if (!to) { $('#lp-error').textContent = '✗ Enter the Verge address where your mint should live.'; return; }
+  if (!(await requireConsent())) return;
+  const btn = $('#lp-mint-btn');
+  btn.disabled = true; btn.textContent = 'Reserving…';
+  try {
+    const r = await api('/api/launchpad/' + lpSlug + '/mint', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ to }) });
+    if (r.soldOut) { $('#lp-form').classList.add('hidden'); $('#lp-soldout').classList.remove('hidden'); return; }
+    renderLpPayment(r);
+  } catch (e) {
+    $('#lp-error').textContent = '✗ ' + e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Mint a random one →';
+  }
+});
+
+function renderLpPayment(r) {
+  lpJob = r.jobId;
+  lpPending = r.verginal;
+  $('#lp-active').classList.remove('hidden');
+  $('#lp-payblock').classList.remove('hidden');
+  $('#lp-reveal').classList.add('hidden');
+  $('#lp-reveal').innerHTML = '';
+  $('#lp-again').classList.add('hidden');
+  $('#lp-pay-error').textContent = '';
+  $('#lp-paystatus').classList.remove('hidden');
+
+  $('#lp-amount').textContent = fmt(r.totalXVG) + ' XVG';
+  $('#lp-pay-address').textContent = r.depositAddress;
+  $('#lp-uri').href = r.paymentURI;
+  const b = r.breakdown;
+  const rows = [
+    ['Total to send', fmt(r.totalXVG) + ' XVG'],
+    ['Returned to you', fmt(b.carrierReturnedXVG) + ' XVG'],
+    ['Net cost', fmt(b.netCostXVG) + ' XVG'],
+  ];
+  $('#lp-summary').innerHTML = rows.map(([k, v]) => `<div class="kv"><b>${v}</b><span>${k}</span></div>`).join('');
+  const holder = $('#lp-qrcode');
+  holder.innerHTML = '';
+  try {
+    const qr = qrcode(0, 'M');
+    qr.addData(r.paymentURI);
+    qr.make();
+    holder.innerHTML = qr.createSvgTag({ cellSize: 5, margin: 2, scalable: true });
+  } catch (_) {
+    holder.innerHTML = '<div class="hint">(QR unavailable, copy the address)</div>';
+  }
+  $('#lp-paystatus-text').textContent = `Waiting for your payment of ${fmt(r.totalXVG)} XVG…`;
+  $('#lp-active').scrollIntoView({ behavior: 'smooth' });
+  startLpPolling();
+}
+
+function startLpPolling() {
+  if (lpPollTimer) clearInterval(lpPollTimer);
+  const id = lpJob;
+  lpPollTimer = setInterval(async () => {
+    if (lpJob !== id) return clearInterval(lpPollTimer);
+    try {
+      const j = await api('/api/job/' + id);
+      if (j.status === 'awaiting_payment') {
+        const got = j.receivedXVG != null ? fmt(j.receivedXVG) : '0';
+        $('#lp-paystatus-text').textContent = `Waiting for your payment… (received ${got} / ${fmt(j.totalXVG)} XVG)`;
+      } else if (j.status === 'funding') {
+        $('#lp-paystatus-text').textContent = 'Payment detected: inscribing & broadcasting your mint…';
+      } else if (j.status === 'done') {
+        clearInterval(lpPollTimer);
+        lpDone(j);
+      } else if (j.status === 'error') {
+        clearInterval(lpPollTimer);
+        $('#lp-paystatus').classList.add('hidden');
+        $('#lp-pay-error').textContent = '✗ ' + (j.error || 'something went wrong');
+      }
+    } catch (e) {
+      $('#lp-pay-error').textContent = '✗ ' + e.message;
+    }
+  }, 2500);
+}
+
+function lpDone(j) {
+  $('#lp-paystatus').classList.add('hidden');
+  $('#lp-payblock').classList.add('hidden');
+  const v = lpPending;
+  if (v) {
+    const traits = (v.attributes || [])
+      .map((a) => `<span class="trait"><b>${esc(a.trait_type)}</b>${esc(a.value)}</span>`).join('');
+    $('#lp-reveal').innerHTML = `
+      <img src="${esc(v.imageUrl)}" alt="${esc(v.name)}" />
+      <div class="reveal-info">
+        <div class="reveal-name">${esc(v.name)} <span class="badge ok">#${esc(v.number)}</span></div>
+        <div class="traits">${traits}</div>
+        <div class="hint">reveal txid: <code>${esc(short(j.revealTxid))}</code></div>
+      </div>`;
+    $('#lp-reveal').classList.remove('hidden');
+  }
+  $('#lp-again').classList.remove('hidden');
+  if (lpSlug) openLaunchpadCollection(lpSlug, false); // refresh the counter
+  loadLaunchpad();
+}
+
+$('#lp-again').addEventListener('click', () => {
+  lpJob = null;
+  lpPending = null;
+  $('#lp-active').classList.add('hidden');
+});
+
+// --- launchpad: creator submission wizard ---------------------------------------------------
+let lpsFileList = [];
+const lpsDz = $('#lps-dropzone');
+const lpsFi = $('#lps-files');
+lpsDz.addEventListener('click', () => lpsFi.click());
+lpsDz.addEventListener('dragover', (e) => { e.preventDefault(); lpsDz.classList.add('drag'); });
+lpsDz.addEventListener('dragleave', () => lpsDz.classList.remove('drag'));
+lpsDz.addEventListener('drop', (e) => { e.preventDefault(); lpsDz.classList.remove('drag'); lpsSetFiles([...e.dataTransfer.files]); });
+lpsFi.addEventListener('change', () => lpsSetFiles([...lpsFi.files]));
+
+function lpsSetFiles(files) {
+  lpsFileList = files.filter((f) => /\.(png|webp|jpe?g|gif)$/i.test(f.name));
+  const filled = $('#lps-drop-filled');
+  if (!lpsFileList.length) {
+    filled.classList.add('hidden');
+    $('#lps-drop-empty').classList.remove('hidden');
+    return;
+  }
+  $('#lps-drop-empty').classList.add('hidden');
+  filled.classList.remove('hidden');
+  const totalKB = Math.round(lpsFileList.reduce((s, f) => s + f.size, 0) / 1024);
+  filled.innerHTML = `<strong>${lpsFileList.length} image${lpsFileList.length > 1 ? 's' : ''}</strong> · ${fmt(totalKB)} KB total<br>
+    <span class="hint">${lpsFileList.slice(0, 3).map((f) => esc(f.name)).join(', ')}${lpsFileList.length > 3 ? '…' : ''} · <u>click to change</u></span>`;
+}
+
+function parseCsvManifest(text) {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  if (lines.length < 2) throw new Error('the CSV needs a header row and at least one item row');
+  const head = lines[0].split(',').map((s) => s.trim());
+  return lines.slice(1).map((line) => {
+    const cols = line.split(',').map((s) => s.trim());
+    const rec = { filename: cols[0], name: cols[1] || '', attributes: [] };
+    for (let i = 2; i < head.length; i++) {
+      if (head[i] && cols[i]) rec.attributes.push({ trait_type: head[i], value: cols[i] });
+    }
+    return rec;
+  });
+}
+
+async function readManifestFile(file) {
+  const text = await file.text();
+  const recs = /\.csv$/i.test(file.name) ? parseCsvManifest(text) : JSON.parse(text);
+  if (!Array.isArray(recs)) throw new Error('the JSON manifest must be an array');
+  const byName = new Map();
+  for (const r of recs) {
+    if (r && r.filename) byName.set(String(r.filename), { name: r.name, attributes: r.attributes });
+  }
+  return byName;
+}
+
+const fileToBase64 = (file) => new Promise((resolve, reject) => {
+  const rd = new FileReader();
+  rd.onload = () => resolve(String(rd.result).split(',')[1]);
+  rd.onerror = () => reject(new Error('could not read ' + file.name));
+  rd.readAsDataURL(file);
+});
+
+$('#lps-submit').addEventListener('click', async () => {
+  const err = $('#lps-error');
+  const ok = $('#lps-success');
+  err.textContent = '';
+  ok.classList.add('hidden');
+  const name = $('#lps-name').value.trim();
+  if (!name) { err.textContent = '✗ Give your collection a name.'; return; }
+  if (!lpsFileList.length) { err.textContent = '✗ Choose your images.'; return; }
+  if (lpsFileList.length > 500) { err.textContent = '✗ Max 500 items for now.'; return; }
+  const tooBig = lpsFileList.find((f) => f.size > 60 * 1024);
+  if (tooBig) { err.textContent = `✗ ${tooBig.name} is over 60 KB.`; return; }
+  if (!(await requireConsent())) return;
+
+  const btn = $('#lps-submit');
+  btn.disabled = true;
+  const prog = $('#lps-progress');
+  const bar = $('#lps-bar');
+  const ptext = $('#lps-progress-text');
+  prog.classList.remove('hidden');
+  try {
+    let manifest = new Map();
+    const mf = $('#lps-manifest').files[0];
+    if (mf) manifest = await readManifestFile(mf);
+
+    const draft = await api('/api/launchpad/submit', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name, creator: $('#lps-creator').value.trim(), description: $('#lps-desc').value.trim() }),
+    });
+
+    let sent = 0;
+    for (let i = 0; i < lpsFileList.length; i += 25) {
+      const batch = lpsFileList.slice(i, i + 25);
+      const items = [];
+      for (const f of batch) {
+        const extra = manifest.get(f.name) || {};
+        items.push({ filename: f.name, dataBase64: await fileToBase64(f), name: extra.name, attributes: extra.attributes });
+      }
+      await api('/api/launchpad/submit/' + draft.id + '/items', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ items }),
+      });
+      sent += batch.length;
+      bar.style.width = ((sent / lpsFileList.length) * 100).toFixed(1) + '%';
+      ptext.textContent = `uploading ${sent} / ${lpsFileList.length}`;
+    }
+    await api('/api/launchpad/submit/' + draft.id + '/finalize', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    ok.innerHTML = `✅ <strong>Submitted for review.</strong> Your collection "${esc(name)}" (${lpsFileList.length} items) is in the queue.
+      Reference id: <code>${esc(draft.id)}</code>. It goes live on this page once approved.`;
+    ok.classList.remove('hidden');
+    lpsSetFiles([]);
+    $('#lps-name').value = ''; $('#lps-desc').value = ''; $('#lps-creator').value = ''; $('#lps-manifest').value = '';
+  } catch (e) {
+    err.textContent = '✗ ' + e.message;
+  } finally {
+    btn.disabled = false;
+    prog.classList.add('hidden');
+    bar.style.width = '0%';
+  }
+});
+
 // --- copy buttons ------------------------------------------------------------------------
 wireCopy('#copy-amount', () => String($('#pay-amount').textContent).replace(/[^\d.]/g, ''));
 wireCopy('#copy-address', () => $('#pay-address').textContent);
 wireCopy('#mint-copy-amount', () => String($('#mint-amount').textContent).replace(/[^\d.]/g, ''));
 wireCopy('#mint-copy-address', () => $('#mint-pay-address').textContent);
+wireCopy('#lp-copy-amount', () => String($('#lp-amount').textContent).replace(/[^\d.]/g, ''));
+wireCopy('#lp-copy-address', () => $('#lp-pay-address').textContent);
 if ($('#copy-donate')) wireCopy('#copy-donate', () => $('#donate-address').textContent);
 
 // --- "Open in wallet" links --------------------------------------------------------------
@@ -881,6 +1172,7 @@ function wireWalletLink(id) {
 }
 wireWalletLink('pay-uri');
 wireWalletLink('mint-uri');
+wireWalletLink('lp-uri');
 
 // --- donation QR ------------------------------------------------------------------------
 function renderDonateQR() {
@@ -946,13 +1238,18 @@ function renderDonateQR() {
   loadMintStatus(); // reveals the Mint tab only when the server has a collection loaded
   loadLatestStrip();
 
-  // Shareable deep links: /v/<number|txid> opens one Verginal, /gallery/<address> a holder page.
+  // Shareable deep links: /v/<number|txid> opens one Verginal, /gallery/<address> a holder
+  // page, /launchpad[/<slug>] the community launchpad.
   const v = location.pathname.match(/^\/v\/([A-Za-z0-9]+)$/);
   const gal = location.pathname.match(/^\/gallery\/([a-km-zA-HJ-NP-Z1-9]{25,40})$/);
+  const lp = location.pathname.match(/^\/launchpad(?:\/([a-z0-9-]{3,32}))?$/);
   if (v) {
     activateTab('explore');
     openDetailByKey(v[1]);
   } else if (gal) {
     showOwnerGallery(gal[1], false);
+  } else if (lp) {
+    activateTab('launchpad');
+    if (lp[1]) openLaunchpadCollection(lp[1], false);
   }
 })();

@@ -370,6 +370,13 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 /* --- stats: leaderboard + trait distribution ------------------------------------------------ */
 .lb-h { margin: 14px 0 6px; font-size: 14px; color: var(--accent); }
 .lb-h:first-child { margin-top: 0; }
+.lb-head { padding: 2px 8px; }
+.lb-head span { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+.lookup-row { display: flex; gap: 10px; margin: 10px 0 14px; }
+.lookup-row input { max-width: 160px; }
+.lookup-hit { display: flex; gap: 14px; align-items: flex-start; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); }
+.lookup-hit img { width: 96px; height: 96px; border-radius: 8px; object-fit: contain; image-rendering: pixelated; background: var(--bg); flex: none; }
+.lookup-mystery { width: 96px; height: 96px; display: grid; place-items: center; border-radius: 8px; background: var(--bg); font-size: 34px; flex: none; }
 .lb-row { display: grid; grid-template-columns: 52px 44px 1fr auto; gap: 10px; align-items: center; padding: 6px 8px; border-radius: 8px; }
 .lb-row.lb-minted:hover { background: var(--bg2); }
 .lb-rank { color: var(--accent); font-weight: 700; }

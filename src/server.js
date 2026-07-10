@@ -846,7 +846,7 @@ function handleRarityItem(res, nStr) {
   const n = Number(nStr);
   const item = Number.isInteger(n) ? r.byNumber.get(n) : null;
   if (!item) return sendJSON(res, 404, { error: 'no such verginal' });
-  sendJSON(res, 200, Object.assign({ supply: r.supply }, item));
+  sendJSON(res, 200, Object.assign({ supply: r.supply, minted: !!mintCtl.state.minted[n] }, item));
 }
 
 /**

@@ -270,6 +270,15 @@
         <div class="summary" id="stats-summary"><div class="empty">Loading…</div></div>
       </div>
       <div class="card">
+        <h2>Check a Verginal's rarity</h2>
+        <p class="hint">Enter any number from the collection to see its rarity rank and score. Minted ones show their full traits; unminted ones stay sealed.</p>
+        <div class="lookup-row">
+          <input type="number" id="rarity-num" min="1" max="3333" placeholder="e.g. 212" />
+          <button class="btn ghost" id="rarity-check">Check rarity</button>
+        </div>
+        <div id="rarity-result"></div>
+      </div>
+      <div class="card">
         <h2>Rarity leaderboard</h2>
         <p class="hint">The rarest Alpha Verginals, ranked over the whole collection (3,333). Percentages never change: rarity is fixed by design, and the committed-random draw means nobody can target a rare one. Unminted ranks stay sealed until someone mints them.</p>
         <div id="stats-leaderboard"><div class="empty">Loading…</div></div>

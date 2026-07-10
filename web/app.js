@@ -800,9 +800,12 @@ async function loadStats() {
         <span class="lb-score">${fmt(e.score)}</span>
       </div>`;
     };
+    const lbHead = `<div class="lb-row lb-head" aria-hidden="true">
+      <span class="lb-rank">Rank</span><span></span><span class="lb-name"></span><span class="lb-score">Rarity score</span>
+    </div>`;
     const sealedTop = board.top.filter((e) => !e.minted).slice(0, 5);
     const mintedHtml = mintedBoard.top.length
-      ? mintedBoard.top.map(lbRow).join('')
+      ? lbHead + mintedBoard.top.map(lbRow).join('')
       : '<div class="empty">No ranked mints yet. The first mint takes this board.</div>';
     const rarestSealed = sealedTop.length && sealedTop[0].rank === 1;
     $('#stats-leaderboard').innerHTML =
@@ -810,7 +813,7 @@ async function loadStats() {
       (sealedTop.length
         ? `<h3 class="lb-h">Still sealed 👀</h3>
            <p class="hint">${rarestSealed ? 'The single rarest Verginal of all 3,333 has not been minted yet. The committed-random draw means the next mint could be the one.' : 'Some of the very rarest are still waiting in the vault.'}</p>
-           ${sealedTop.map(lbRow).join('')}`
+           ${lbHead}${sealedTop.map(lbRow).join('')}`
         : '');
     $$('#stats-leaderboard [data-open]').forEach((row) => row.addEventListener('click', async () => {
       const list = lastList.length ? lastList : await loadInscriptions();
@@ -835,6 +838,46 @@ async function loadStats() {
     $('#stats-summary').innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`;
   }
 }
+
+// --- rarity lookup (stats tab): rank + score for any collection number ---------------------
+async function checkRarity() {
+  const box = $('#rarity-result');
+  const n = Number($('#rarity-num').value);
+  if (!Number.isInteger(n) || n < 1) { box.innerHTML = '<div class="error">Enter a collection number.</div>'; return; }
+  box.innerHTML = '<div class="empty">Checking…</div>';
+  try {
+    const r = await api('/api/collection/rarity/' + n);
+    if (r.minted) {
+      const traits = r.traits.map((t) =>
+        `<span class="trait"><b>${esc(t.trait_type)}</b>${esc(t.value)}<i class="pct">${t.pct}%</i></span>`).join('');
+      box.innerHTML = `
+        <div class="lookup-hit">
+          <img src="/api/collection/image/${n}" alt="${esc(r.name)}" />
+          <div>
+            <div class="num">${esc(r.name)} <span class="badge ok">minted</span></div>
+            <div class="detail-rank">Rarity rank <b>#${fmt(r.rank)}</b> of ${fmt(r.supply)} · score <b>${fmt(r.score)}</b></div>
+            <div class="traits">${traits}</div>
+            <button class="link" id="rarity-open" type="button">open its full page →</button>
+          </div>
+        </div>`;
+      $('#rarity-open').addEventListener('click', () => openDetailByKey(String(n)));
+    } else {
+      box.innerHTML = `
+        <div class="lookup-hit">
+          <span class="lb-mystery lookup-mystery">?</span>
+          <div>
+            <div class="num">Verginal #${fmt(n)} <span class="badge pending">still sealed</span></div>
+            <div class="detail-rank">Rarity rank <b>#${fmt(r.rank)}</b> of ${fmt(r.supply)} · score <b>${fmt(r.score)}</b></div>
+            <div class="hint">Not minted yet: its image and traits stay sealed in the vault. The committed-random draw decides who gets it.</div>
+          </div>
+        </div>`;
+    }
+  } catch (e) {
+    box.innerHTML = `<div class="error">✗ ${esc(e.message)}</div>`;
+  }
+}
+$('#rarity-check').addEventListener('click', checkRarity);
+$('#rarity-num').addEventListener('keydown', (e) => { if (e.key === 'Enter') checkRarity(); });
 
 // --- latest inscriptions strip (inscribe panel) --------------------------------------------
 async function loadLatestStrip() {

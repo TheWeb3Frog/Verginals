@@ -185,10 +185,18 @@
     const btn = document.createElement('button');
     btn.className = 'btn ghost xfer-btn';
     btn.textContent = 'Transfer';
-    btn.addEventListener('click', () => openTransfer(outpoint, num, rtx, ct));
+    btn.addEventListener('click', (e) => { e.stopPropagation(); openTransfer(outpoint, num, rtx, ct); });
     body.appendChild(btn);
 
     c.appendChild(media); c.appendChild(body);
+    // Open the site's detail view (traits + rarity percentages) for this Verginal. app.js is
+    // loaded before this file and exposes openDetailByKey; the key is the collection number
+    // when known, else the reveal txid.
+    const key = insc.number != null ? String(insc.number) : rtx;
+    if (key && typeof openDetailByKey === 'function') {
+      c.classList.add('clickable');
+      c.addEventListener('click', () => openDetailByKey(key));
+    }
     return c;
   }
 

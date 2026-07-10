@@ -281,6 +281,13 @@ async function handleInfo(res) {
   sendJSON(res, 200, { network: NETWORK, tip, indexFrom: INDEX_FROM, indexedThrough: lastScanned });
 }
 
+// Verge (like Bitcoin) refuses to relay transactions over ~100 KB as non-standard
+// ("tx-size, code 64"). A reveal spends one input per ~474-byte body chunk at ~600 bytes of
+// transaction per input, so the reveal is roughly body x 1.27. Cap the body so the reveal
+// stays safely under the limit; past this size a single-transaction inscription simply
+// cannot exist on Verge.
+const MAX_INSCRIBE_BYTES = 68 * 1024;
+
 /** Decode a request body's content (text or base64 file) into bytes + MIME + filename. */
 function decodeContent(b) {
   let body, contentType, filename;
@@ -496,6 +503,9 @@ async function handleQuote(req, res) {
   requireDestination(to, network);
 
   const { body, contentType, filename } = decodeContent(b);
+  if (body.length > MAX_INSCRIBE_BYTES) {
+    throw new Error(`file too large: the Verge network caps a transaction at ~100 KB, so an inscription can carry at most ~${Math.floor(MAX_INSCRIBE_BYTES / 1024)} KB. Compress the file and try again`);
+  }
   const metadata = encodeQuoteMetadata(b.metadata);
   const { response } = await createPaymentJob({ body, contentType, filename, to, amountPerInput, networkName, network, metadata });
   sendJSON(res, 200, response);
@@ -1323,7 +1333,11 @@ async function buildInscriptionsPayload() {
     mine.forEach((m) => known.add(m.txid));
   }
   const pending = await mempoolInscriptions(known);
-  const list = confirmed.concat(mine, pending);
+  // Blocklisted entries (abuse reports, or technical artifacts like refund transactions that
+  // spend commit inputs) are hidden from the public list, not just blocked from serving.
+  const list = confirmed.concat(mine, pending).filter(
+    (i) => !blocklist.isTxidBlocked(i.txid) && !(i.number != null && blocklist.isNumberBlocked(i.number)),
+  );
   const pendingCount = list.filter((i) => i.status === 'pending').length;
   return {
     indexFrom: INDEX_FROM,

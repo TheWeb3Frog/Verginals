@@ -120,6 +120,12 @@ fi.addEventListener('change', () => { if (fi.files[0]) readFile(fi.files[0]); })
 $('#file-clear').addEventListener('click', (e) => { e.stopPropagation(); fileState = null; $('#drop-empty').classList.remove('hidden'); $('#drop-filled').classList.add('hidden'); fi.value = ''; });
 
 function readFile(file) {
+  // Verge caps a transaction at ~100 KB, so a single-tx inscription can carry ~68 KB at most.
+  if (file.size > 68 * 1024) {
+    $('#quote-error').textContent = `✗ ${file.name} is ${Math.round(file.size / 1024)} KB. The Verge network caps an inscription at ~68 KB; compress the file and try again.`;
+    return;
+  }
+  $('#quote-error').textContent = '';
   const reader = new FileReader();
   reader.onload = () => {
     const b64 = String(reader.result).split(',')[1];

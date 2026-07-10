@@ -1096,7 +1096,7 @@ $('#lps-submit').addEventListener('click', async () => {
   const name = $('#lps-name').value.trim();
   if (!name) { err.textContent = '✗ Give your collection a name.'; return; }
   if (!lpsFileList.length) { err.textContent = '✗ Choose your images.'; return; }
-  if (lpsFileList.length > 500) { err.textContent = '✗ Max 500 items for now.'; return; }
+  if (lpsFileList.length > 10000) { err.textContent = '✗ Max 10,000 items.'; return; }
   const tooBig = lpsFileList.find((f) => f.size > 60 * 1024);
   if (tooBig) { err.textContent = `✗ ${tooBig.name} is over 60 KB.`; return; }
   if (!(await requireConsent())) return;
@@ -1118,8 +1118,8 @@ $('#lps-submit').addEventListener('click', async () => {
     });
 
     let sent = 0;
-    for (let i = 0; i < lpsFileList.length; i += 25) {
-      const batch = lpsFileList.slice(i, i + 25);
+    for (let i = 0; i < lpsFileList.length; i += 50) {
+      const batch = lpsFileList.slice(i, i + 50);
       const items = [];
       for (const f of batch) {
         const extra = manifest.get(f.name) || {};

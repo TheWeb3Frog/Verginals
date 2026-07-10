@@ -18,10 +18,10 @@ const path = require('path');
 const crypto = require('crypto');
 const { MintController } = require('./mint');
 
-const MAX_ITEMS = 500;
-const MAX_IMAGE_BYTES = 60 * 1024; // inscriptions get expensive fast; keep launch v1 modest
-const MAX_DRAFT_BYTES = 20 * 1024 * 1024; // one submission's total image budget
-const DEFAULT_BUDGET_BYTES = 200 * 1024 * 1024; // everything under launchpad/ combined
+const MAX_ITEMS = 10000; // the classic 10k collection standard
+const MAX_IMAGE_BYTES = 60 * 1024; // industry norm for inscriptions (Gamma uses the same cap)
+const MAX_DRAFT_BYTES = 150 * 1024 * 1024; // one submission's total image budget
+const DEFAULT_BUDGET_BYTES = 500 * 1024 * 1024; // everything under launchpad/ combined
 const MAX_PENDING = 20; // review-queue cap so disk can't be flooded before curation
 const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // unfinalized drafts older than this are pruned
 const NAME_MAX = 60;

@@ -352,6 +352,20 @@ function allowQuote(req) {
   return hits.length <= QUOTE_MAX;
 }
 
+// Launchpad item uploads get their own, higher limit: a 10k collection arrives as ~200 batch
+// requests, which would take ages under the quote limit. Uploads are cheap (no wallet import,
+// no RPC) and bounded by the disk budgets, so 60 requests/min per IP is safe.
+const uploadHits = new Map();
+function allowUpload(req) {
+  const ip = clientIp(req);
+  const now = Date.now();
+  const hits = (uploadHits.get(ip) || []).filter((t) => now - t < 60_000);
+  hits.push(now);
+  uploadHits.set(ip, hits);
+  if (uploadHits.size > 5000) uploadHits.clear();
+  return hits.length <= 60;
+}
+
 /**
  * Validate a caller-supplied destination address for THIS network, or throw. Shared by /api/quote
  * and /api/mint so a wrong-network / malformed "to" is rejected before anything irreversible.
@@ -966,15 +980,15 @@ async function handleLaunchpadSubmit(req, res) {
   }));
 }
 
-/** Items arrive in batches (up to 25 per call) so a full collection fits the rate limit. */
+/** Items arrive in ~4 MB batches (up to 50 per call), the same ballpark bulk uploaders use. */
 async function handleLaunchpadSubmitItems(req, res, id) {
-  if (!allowQuote(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
+  if (!allowUpload(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
   if (!launchpad) return sendJSON(res, 404, { error: 'launchpad disabled' });
   const raw = await readBody(req);
   const b = JSON.parse(raw.toString('utf8') || '{}');
   const items = Array.isArray(b.items) ? b.items : [];
   if (!items.length) return sendJSON(res, 400, { error: 'items[] is required' });
-  if (items.length > 25) return sendJSON(res, 400, { error: 'max 25 items per request' });
+  if (items.length > 50) return sendJSON(res, 400, { error: 'max 50 items per request' });
   let count = 0;
   for (const it of items) {
     count = launchpad.addItem(id, {

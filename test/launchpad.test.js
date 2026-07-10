@@ -127,6 +127,36 @@ test('approve is only possible on pending submissions', () => {
   assert.throws(() => lp.approve(id, 'frogs'), /draft, not pending/);
 });
 
+// --- disk budgets --------------------------------------------------------------------------
+test('a submission is capped by its own byte budget', () => {
+  const lp = new Launchpad({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'vlaunch-')), draftBytes: 15 });
+  const { id } = lp.createDraft({ name: 'Frogs' });
+  lp.addItem(id, { dataBase64: png64 }); // 11 bytes, fits
+  assert.throws(() => lp.addItem(id, { dataBase64: png64 }), /total budget/);
+});
+
+test('the global launchpad budget refuses writes at capacity', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vlaunch-'));
+  const a = new Launchpad({ dataDir: dir });
+  const d1 = a.createDraft({ name: 'One' });
+  a.addItem(d1.id, { dataBase64: png64 });
+  // Reopen with a ceiling just above what is already on disk: the next image cannot fit.
+  const b = new Launchpad({ dataDir: dir, budgetBytes: a.usageBytes() + 5 });
+  const d2 = b.createDraft({ name: 'Two' });
+  assert.throws(() => b.addItem(d2.id, { dataBase64: png64 }), /at capacity/);
+});
+
+test('usage is recounted after a rejection frees space', () => {
+  const lp = new Launchpad({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'vlaunch-')) });
+  const bigPng = Buffer.concat([PNG, Buffer.alloc(2048)]); // big enough to dominate metadata noise
+  const a = lp.createDraft({ name: 'One' });
+  lp.addItem(a.id, { dataBase64: bigPng.toString('base64') });
+  lp.finalize(a.id);
+  const before = lp.usageBytes();
+  lp.reject(a.id, 'no');
+  assert.ok(lp.usageBytes() < before, 'usage shrank after images were dropped');
+});
+
 test('list() surfaces live collections with mint status', () => {
   const lp = fresh();
   const { id } = lp.createDraft({ name: 'Frogs', description: 'ribbit', creator: '@frog' });

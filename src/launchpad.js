@@ -20,6 +20,8 @@ const { MintController } = require('./mint');
 
 const MAX_ITEMS = 500;
 const MAX_IMAGE_BYTES = 60 * 1024; // inscriptions get expensive fast; keep launch v1 modest
+const MAX_DRAFT_BYTES = 20 * 1024 * 1024; // one submission's total image budget
+const DEFAULT_BUDGET_BYTES = 200 * 1024 * 1024; // everything under launchpad/ combined
 const MAX_PENDING = 20; // review-queue cap so disk can't be flooded before curation
 const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // unfinalized drafts older than this are pruned
 const NAME_MAX = 60;
@@ -57,13 +59,39 @@ function cleanAttributes(attrs) {
 }
 
 class Launchpad {
-  constructor({ dataDir }) {
+  constructor({ dataDir, budgetBytes, draftBytes }) {
     this.root = path.join(dataDir, 'launchpad');
     this.subsDir = path.join(this.root, 'submissions');
     this.collsDir = path.join(this.root, 'collections');
     fs.mkdirSync(this.subsDir, { recursive: true });
     fs.mkdirSync(this.collsDir, { recursive: true });
     this.live = new Map(); // slug -> { ctl: MintController, manifest }
+    // Disk budgets: per submission, and a hard ceiling for everything under launchpad/ so
+    // uploads can never eat the server's disk (VERGINALS_LAUNCHPAD_BUDGET_MB to override).
+    this.draftBudget = draftBytes || MAX_DRAFT_BYTES;
+    this.budget = budgetBytes
+      || (Number(process.env.VERGINALS_LAUNCHPAD_BUDGET_MB) > 0
+        ? Number(process.env.VERGINALS_LAUNCHPAD_BUDGET_MB) * 1024 * 1024
+        : DEFAULT_BUDGET_BYTES);
+    this._usage = null; // lazily computed, then tracked incrementally
+  }
+
+  /** Total bytes currently stored under launchpad/ (walked once, then tracked on writes). */
+  usageBytes() {
+    if (this._usage == null) {
+      const walk = (dir) => {
+        let sum = 0;
+        if (!fs.existsSync(dir)) return 0;
+        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+          const p = path.join(dir, e.name);
+          if (e.isDirectory()) sum += walk(p);
+          else if (e.isFile()) sum += fs.statSync(p).size;
+        }
+        return sum;
+      };
+      this._usage = walk(this.root);
+    }
+    return this._usage;
   }
 
   // --- submissions (public, via the site) --------------------------------------------------
@@ -121,12 +149,20 @@ class Launchpad {
     const mediaType = sniffImage(body);
     if (!mediaType) throw new Error('not a supported image (webp, png, jpeg or gif)');
     if (d.mediaType && mediaType !== d.mediaType) throw new Error(`every image must share one format (this collection is ${d.mediaType})`);
+    if ((d.totalBytes || 0) + body.length > this.draftBudget) {
+      throw new Error(`this submission is over its ${Math.round(this.draftBudget / (1024 * 1024))} MB total budget`);
+    }
+    if (this.usageBytes() + body.length > this.budget) {
+      throw new Error('the launchpad is at capacity right now, please try again later');
+    }
 
     const number = d.items.length + 1;
     const ext = mediaType.split('/')[1].replace('jpeg', 'jpg');
     const safe = `${number}.${ext}`; // server-chosen name: no user-controlled paths on disk
     fs.writeFileSync(path.join(this._draftPath(id), 'images', safe), body);
+    this._usage = this.usageBytes() + body.length;
     d.mediaType = d.mediaType || mediaType;
+    d.totalBytes = (d.totalBytes || 0) + body.length;
     d.items.push({
       number,
       filename: safe,
@@ -150,11 +186,14 @@ class Launchpad {
 
   /** Drop unfinalized drafts that were abandoned (keeps the submissions dir bounded). */
   pruneDrafts() {
+    let removed = false;
     for (const d of this.listSubmissions()) {
       if (d.status === 'draft' && Date.now() - d.createdAt > DRAFT_TTL_MS) {
         fs.rmSync(this._draftPath(d.id), { recursive: true, force: true });
+        removed = true;
       }
     }
+    if (removed) this._usage = null; // recount on next write
   }
 
   listSubmissions() {
@@ -218,6 +257,7 @@ class Launchpad {
     this._saveDraft(d);
     // The images are dropped immediately: rejected content must not sit on the server.
     fs.rmSync(path.join(this._draftPath(id), 'images'), { recursive: true, force: true });
+    this._usage = null; // recount on next write
     return { id: d.id, status: d.status };
   }
 

@@ -835,14 +835,19 @@ function handleRarityItem(res, nStr) {
   sendJSON(res, 200, Object.assign({ supply: r.supply }, item));
 }
 
-/** GET /api/collection/leaderboard: rarest items first; minted flags reflect live state. */
-function handleLeaderboard(res, limitStr) {
+/**
+ * GET /api/collection/leaderboard: rarest items first; minted flags reflect live state.
+ * ?minted=1 keeps only minted items (ranks stay global), so early on, when the very rarest
+ * numbers are all still sealed, the board can still celebrate the rarest ACTUAL mints.
+ */
+function handleLeaderboard(res, limitStr, mintedOnly) {
   const r = getRarity();
   if (!r) return sendJSON(res, 404, { error: 'minting is not enabled on this server' });
   const limit = Math.max(1, Math.min(100, Number(limitStr) || 50));
-  const top = r.leaderboard.slice(0, limit).map((e) =>
+  let rows = r.leaderboard.map((e) =>
     Object.assign({}, e, { minted: !!mintCtl.state.minted[e.number] }));
-  sendJSON(res, 200, { supply: r.supply, top });
+  if (mintedOnly) rows = rows.filter((e) => e.minted);
+  sendJSON(res, 200, { supply: r.supply, top: rows.slice(0, limit) });
 }
 
 // --- launchpad: curated community collections, open-edition mints ---------------------------
@@ -1528,7 +1533,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/mint/status') return await handleMintStatus(res);
     if (req.method === 'GET' && p === '/api/collection/rarity') return handleRarity(res);
     if (req.method === 'GET' && p.startsWith('/api/collection/rarity/')) return handleRarityItem(res, p.slice('/api/collection/rarity/'.length));
-    if (req.method === 'GET' && p === '/api/collection/leaderboard') return handleLeaderboard(res, url.searchParams.get('limit'));
+    if (req.method === 'GET' && p === '/api/collection/leaderboard') return handleLeaderboard(res, url.searchParams.get('limit'), url.searchParams.get('minted') === '1');
     if (req.method === 'GET' && p.startsWith('/api/collection/image/')) return handleCollectionImage(res, p.slice('/api/collection/image/'.length));
     if (p === '/api/launchpad' && req.method === 'GET') return handleLaunchpadList(res);
     if (p === '/api/launchpad/submit' && req.method === 'POST') return await handleLaunchpadSubmit(req, res);

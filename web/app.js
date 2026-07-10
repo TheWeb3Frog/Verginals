@@ -765,9 +765,10 @@ let statsLoaded = false;
 async function loadStats() {
   if (statsLoaded) return;
   try {
-    const [status, board, rarity, inscriptions] = await Promise.all([
+    const [status, board, mintedBoard, rarity, inscriptions] = await Promise.all([
       api('/api/mint/status'),
-      api('/api/collection/leaderboard?limit=20'),
+      api('/api/collection/leaderboard?limit=10'),
+      api('/api/collection/leaderboard?limit=10&minted=1'),
       api('/api/collection/rarity'),
       api('/api/inscriptions'),
     ]);
@@ -783,12 +784,14 @@ async function loadStats() {
     if (status.promo && status.promo.active) cells.push([fmt(status.promo.remaining), 'free mints left 🎁']);
     $('#stats-summary').innerHTML = cells.map(([v, k]) => `<div class="kv"><b>${v}</b><span>${k}</span></div>`).join('');
 
-    // leaderboard: minted entries reveal themselves, unminted stay sealed
-    $('#stats-leaderboard').innerHTML = board.top.map((e) => {
+    // Two boards. "Rarest minted" celebrates real mints (global ranks, minted only), so it has
+    // content from mint one even while the overall top is all sealed. "Still sealed" teases the
+    // vault: the rarest of all stays a mystery anyone could pull with the next mint.
+    const lbRow = (e) => {
       const img = e.minted
         ? `<img src="/api/collection/image/${e.number}" alt="${esc(e.name)}" loading="lazy" />`
         : '<span class="lb-mystery">?</span>';
-      const label = e.minted ? esc(e.name) : 'Not yet minted';
+      const label = e.minted ? esc(e.name) : 'Still sealed in the vault';
       const link = e.minted ? ` data-open="${e.number}"` : '';
       return `<div class="lb-row${e.minted ? ' lb-minted clickable' : ''}"${link}>
         <span class="lb-rank">#${e.rank}</span>
@@ -796,7 +799,19 @@ async function loadStats() {
         <span class="lb-name">${label}</span>
         <span class="lb-score">${fmt(e.score)}</span>
       </div>`;
-    }).join('');
+    };
+    const sealedTop = board.top.filter((e) => !e.minted).slice(0, 5);
+    const mintedHtml = mintedBoard.top.length
+      ? mintedBoard.top.map(lbRow).join('')
+      : '<div class="empty">No ranked mints yet. The first mint takes this board.</div>';
+    const rarestSealed = sealedTop.length && sealedTop[0].rank === 1;
+    $('#stats-leaderboard').innerHTML =
+      `<h3 class="lb-h">Rarest minted so far</h3>${mintedHtml}` +
+      (sealedTop.length
+        ? `<h3 class="lb-h">Still sealed 👀</h3>
+           <p class="hint">${rarestSealed ? 'The single rarest Verginal of all 3,333 has not been minted yet. The committed-random draw means the next mint could be the one.' : 'Some of the very rarest are still waiting in the vault.'}</p>
+           ${sealedTop.map(lbRow).join('')}`
+        : '');
     $$('#stats-leaderboard [data-open]').forEach((row) => row.addEventListener('click', async () => {
       const list = lastList.length ? lastList : await loadInscriptions();
       const ins = list.find((i) => String(i.number) === row.dataset.open);

@@ -427,10 +427,11 @@ function card(ins) {
   const badge = pending
     ? '<span class="badge pending">⏳ unconfirmed</span>'
     : `<span class="badge ok">✓ ${fmt(ins.confirmations)} conf</span>`;
-  // Collection mints are labelled by their collection number (the identity minters know and the
-  // one rarity speaks); everything else falls back to the global inscription counter.
-  const numLabel = ins.collectionNumber != null ? `#${ins.collectionNumber}`
-    : (ins.number != null ? `#${ins.number}` : (ins.mine ? 'yours' : 'verginal'));
+  // Gallery cards are labelled by the global INSCRIPTION number (#0, #1, #2 ...), so the whole
+  // explore page reads in one consistent on-chain order. The collection name (e.g. Verginals
+  // #3055) is revealed in the detail view on click. Pending items have no inscription number yet.
+  const numLabel = ins.number != null ? `#${ins.number}`
+    : (ins.collectionNumber != null ? `#${ins.collectionNumber}` : (ins.mine ? 'yours' : 'verginal'));
   const where = pending ? 'mempool' : `block ${ins.genesisHeight}`;
   const salePrice = ins.location ? listedMap.get(ins.location) : null;
   const saleBadge = salePrice != null ? `<span class="badge sale">🏷️ ${fmt(salePrice / 1e6)} XVG</span>` : '';
@@ -543,8 +544,9 @@ function openDetail(ins, push = true) {
   const ownerBit = ins.ownerAddress
     ? ` · held by <a class="link" id="detail-owner">${esc(short(ins.ownerAddress))}</a>`
     : '';
+  const inscrBit = ins.number != null ? `inscription #${fmt(ins.number)} · ` : '';
   $('#detail-meta').innerHTML =
-    `${esc(ins.contentType) || 'n/a'} · ${fmt(ins.bodySize)} bytes · ${where}${ownerBit}<br>` +
+    `${inscrBit}${esc(ins.contentType) || 'n/a'} · ${fmt(ins.bodySize)} bytes · ${where}${ownerBit}<br>` +
     `tx <a class="link" href="https://verge-blockchain.info/tx/${esc(ins.txid)}" target="_blank" rel="noopener noreferrer">${esc(short(ins.txid))}</a>`;
   const ownerLink = $('#detail-owner');
   if (ownerLink) ownerLink.addEventListener('click', () => {

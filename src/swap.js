@@ -150,4 +150,142 @@ function completeListing({ network, listing, dummy, funds, buyerAddress, buyerKe
   return { hex, txid: txid(tx), outputs: vout.map((o) => ({ value: o.value })) };
 }
 
-module.exports = { buildListing, completeListing, SELLER_INDEX, LISTING_SIGHASH };
+// Default variant schedule (seconds from listing time), spanning a 30-day listing: dense near
+// the start so a fresh-coin buyer waits minutes, sparse later to keep the message small. See
+// spec section 2.1 for why a listing needs multiple nTime variants.
+const DEFAULT_SCHEDULE = [0, 900, 3600, 14400, 43200, 86400, 172800, 345600, 604800, 1209600, 2592000];
+
+/**
+ * Sign a full listing: the same sale re-signed at each scheduled nTime, so a buyer can later
+ * pick a variant valid for the age of their coins (spec 2.1). Returns one listing object whose
+ * `variants` array holds { time, scriptSig }; everything else (carrier, price) is shared.
+ */
+function buildListingSchedule({ network, carrier, priceUnits, sellerAddress, sellerKey, startTime, offsets }) {
+  const t0 = startTime == null ? Math.floor(Date.now() / 1000) : startTime;
+  const sched = offsets || DEFAULT_SCHEDULE;
+  const variants = sched.map((off) => {
+    const l = buildListing({ network, carrier, priceUnits, sellerAddress, sellerKey, time: t0 + off });
+    return { time: l.time, scriptSig: l.scriptSig };
+  });
+  return {
+    kind: 'verginals-listing-v1',
+    carrier: { txid: carrier.txid, vout: carrier.vout, value: carrier.value },
+    priceUnits,
+    sellerAddress,
+    version: 1,
+    locktime: 0,
+    startTime: t0,
+    expiresAt: t0 + sched[sched.length - 1],
+    variants,
+  };
+}
+
+/**
+ * Choose the best usable variant for a buyer: the one with the largest nTime that is already
+ * minable (time <= now) and not older than the buyer's newest coin (time >= maxCoinTime, so R1
+ * holds). Returns a single-variant listing ready for completeListing, or null if none fits yet.
+ */
+function pickVariant(listing, { now, maxCoinTime }) {
+  const usable = listing.variants
+    .filter((v) => v.time <= now && v.time >= maxCoinTime)
+    .sort((a, b) => b.time - a.time);
+  if (!usable.length) return null;
+  const v = usable[0];
+  return {
+    kind: 'verginals-listing-v1',
+    carrier: listing.carrier,
+    priceUnits: listing.priceUnits,
+    sellerAddress: listing.sellerAddress,
+    time: v.time,
+    version: listing.version,
+    locktime: listing.locktime,
+    scriptSig: v.scriptSig,
+  };
+}
+
+/**
+ * Build a bid: the buyer builds the WHOLE transaction against a public carrier outpoint, pins
+ * nTime = now, and signs only their own inputs (SIGHASH_ALL). The carrier input at SELLER_INDEX
+ * is left unsigned for the seller to fill on acceptance. No timestamp constraint (spec 3).
+ * @returns a JSON-safe bid: the unsigned-carrier transaction plus its metadata.
+ */
+function buildBid({ network, carrier, priceUnits, sellerAddress, dummy, funds, buyerAddress, buyerKey, feeUnits, feeOutput, time }) {
+  if (!(priceUnits > 0)) throw new Error('price must be positive');
+  const nTime = time == null ? Math.floor(Date.now() / 1000) : time;
+  const buyerScript = p2pkhScript(buyerAddress, network);
+  const sellerScript = p2pkhScript(sellerAddress, network);
+  const fee = feeOutput ? feeOutput.value : 0;
+  const fundsTotal = funds.reduce((s, u) => s + u.value, 0);
+  const change = fundsTotal - priceUnits - feeUnits - fee;
+  if (change < 0) throw new Error('bid funds do not cover price + fee');
+
+  const vout = [
+    { value: dummy.value + carrier.value, script: buyerScript },
+    { value: priceUnits, script: sellerScript },
+  ];
+  if (feeOutput) vout.push({ value: feeOutput.value, script: p2pkhScript(feeOutput.address, network) });
+  if (change > 0) vout.push({ value: change, script: buyerScript });
+
+  const vin = [
+    { txid: dummy.txid, vout: dummy.vout },
+    { txid: carrier.txid, vout: carrier.vout }, // seller fills this on acceptance
+    ...funds.map((u) => ({ txid: u.txid, vout: u.vout })),
+  ];
+  const tx = { version: 1, time: nTime, locktime: 0, vin, vout };
+
+  const buyerPub = Buffer.from(buyerKey.publicKey);
+  const buyerP2pkh = bitcoin.payments.p2pkh({ pubkey: buyerPub, network }).output;
+  const priv = Buffer.from(buyerKey.privateKey);
+  const scriptSigs = {}; // index -> hex, buyer inputs only
+  for (let i = 0; i < vin.length; i++) {
+    if (i === SELLER_INDEX) continue;
+    const sighash = legacySighash(tx, i, buyerP2pkh, SIGHASH_ALL);
+    const sig = Buffer.from(ecc.sign(sighash, priv));
+    if (!ecc.verify(sighash, buyerPub, sig)) throw new Error(`bid signature self-check failed for input ${i}`);
+    scriptSigs[i] = bitcoin.script.compile([bitcoin.script.signature.encode(sig, SIGHASH_ALL), buyerPub]).toString('hex');
+  }
+
+  return {
+    kind: 'verginals-bid-v1',
+    carrier: { txid: carrier.txid, vout: carrier.vout, value: carrier.value },
+    priceUnits,
+    sellerAddress,
+    buyerAddress,
+    time: nTime,
+    version: 1,
+    locktime: 0,
+    vin: vin.map((v) => ({ txid: v.txid, vout: v.vout })),
+    vout: vout.map((o) => ({ value: o.value, script: o.script.toString('hex') })),
+    scriptSigs,
+  };
+}
+
+/**
+ * Accept a bid: the seller signs the carrier input (SIGHASH_ALL) with their key and returns the
+ * broadcastable transaction. The seller changes nothing, the buyer already committed the whole
+ * transaction, so acceptance is a pure yes/no.
+ */
+function acceptBid({ network, bid, sellerKey }) {
+  const vout = bid.vout.map((o) => ({ value: o.value, script: Buffer.from(o.script, 'hex') }));
+  const vin = bid.vin.map((v, i) => ({
+    txid: v.txid,
+    vout: v.vout,
+    script: bid.scriptSigs[i] ? Buffer.from(bid.scriptSigs[i], 'hex') : undefined,
+  }));
+  const tx = { version: bid.version, time: bid.time, locktime: bid.locktime, vin, vout };
+
+  const sellerPub = Buffer.from(sellerKey.publicKey);
+  const carrierScript = bitcoin.payments.p2pkh({ pubkey: sellerPub, network }).output;
+  const sighash = legacySighash(tx, SELLER_INDEX, carrierScript, SIGHASH_ALL);
+  const priv = Buffer.from(sellerKey.privateKey);
+  const sig = Buffer.from(ecc.sign(sighash, priv));
+  if (!ecc.verify(sighash, sellerPub, sig)) throw new Error('accept signature self-check failed');
+  vin[SELLER_INDEX].script = bitcoin.script.compile([bitcoin.script.signature.encode(sig, SIGHASH_ALL), sellerPub]);
+
+  return { hex: serializeTx(tx).toString('hex'), txid: txid(tx) };
+}
+
+module.exports = {
+  buildListing, completeListing, buildListingSchedule, pickVariant, buildBid, acceptBid,
+  SELLER_INDEX, LISTING_SIGHASH, DEFAULT_SCHEDULE,
+};

@@ -7,7 +7,7 @@ const ecpair = require('ecpair');
 const ecc = require('tiny-secp256k1');
 const { pickNetwork } = require('../src/cli');
 const { legacySighash, SIGHASH_ALL, SIGHASH_NONE, SIGHASH_SINGLE, SIGHASH_ANYONECANPAY } = require('../src/vergetx');
-const { buildListing, completeListing, SELLER_INDEX, LISTING_SIGHASH } = require('../src/swap');
+const { buildListing, completeListing, buildListingSchedule, pickVariant, buildBid, acceptBid, SELLER_INDEX, LISTING_SIGHASH } = require('../src/swap');
 
 const ECPair = (ecpair.ECPairFactory || ecpair.default)(ecc);
 const { network } = pickNetwork('mainnet');
@@ -84,6 +84,66 @@ test('tampering with the pinned nTime breaks the signature', () => {
 test('completion refuses underfunded buys', () => {
   const l = mkListing();
   assert.throws(() => mkComplete(l, { funds: [{ txid: H('c'), vout: 0, value: 100_000_000 }] }), /do not cover/);
+});
+
+// --- listing variant schedule ----------------------------------------------------------------
+test('a listing schedule signs one working variant per timestamp', () => {
+  const sched = buildListingSchedule({
+    network, carrier, priceUnits: 150_000_000, sellerAddress: addr(seller), sellerKey: seller,
+    startTime: 1_783_000_000, offsets: [0, 3600, 86400],
+  });
+  assert.strictEqual(sched.variants.length, 3);
+  assert.strictEqual(sched.expiresAt, 1_783_000_000 + 86400);
+  // every variant must complete into a valid swap
+  for (const v of sched.variants) {
+    const one = pickVariant(sched, { now: v.time, maxCoinTime: 0 });
+    assert.strictEqual(one.time, v.time);
+    mkComplete(one);
+  }
+});
+
+test('pickVariant honours both the now ceiling and the coin-age floor', () => {
+  const sched = buildListingSchedule({
+    network, carrier, priceUnits: 150_000_000, sellerAddress: addr(seller), sellerKey: seller,
+    startTime: 1000, offsets: [0, 100, 200, 300],
+  });
+  // now=250 -> variants at 1000,1100,1200 are minable; pick the newest (1200)
+  assert.strictEqual(pickVariant(sched, { now: 1250, maxCoinTime: 0 }).time, 1200);
+  // coins created at 1150 -> need time>=1150, so 1200 (not 1100)
+  assert.strictEqual(pickVariant(sched, { now: 1250, maxCoinTime: 1150 }).time, 1200);
+  // coins created at 1250 but now only 1250 -> only the 1300 variant would cover them, not minable yet
+  assert.strictEqual(pickVariant(sched, { now: 1250, maxCoinTime: 1210 }), null);
+  // nothing minable yet
+  assert.strictEqual(pickVariant(sched, { now: 999, maxCoinTime: 0 }), null);
+});
+
+// --- bids -------------------------------------------------------------------------------------
+const mkBid = (over = {}) => buildBid(Object.assign({
+  network, carrier, priceUnits: 120_000_000, sellerAddress: addr(seller),
+  dummy: { txid: H('b'), vout: 1, value: 150_000 },
+  funds: [{ txid: H('c'), vout: 0, value: 200_000_000 }],
+  buyerAddress: addr(buyer), buyerKey: buyer, feeUnits: 200_000, time: 1_783_100_000,
+}, over));
+
+test('a bid is accepted by the seller into a broadcastable transaction', () => {
+  const bid = mkBid();
+  assert.strictEqual(bid.kind, 'verginals-bid-v1');
+  assert.ok(bid.scriptSigs[0] && bid.scriptSigs[2] && !bid.scriptSigs[SELLER_INDEX]); // carrier unsigned
+  const done = acceptBid({ network, bid, sellerKey: seller });
+  assert.ok(/^[0-9a-f]+$/.test(done.hex) && /^[0-9a-f]{64}$/.test(done.txid));
+});
+
+test('a bid can carry an optional service-fee output', () => {
+  const feeAddr = addr(ECPair.makeRandom({ network }));
+  const bid = mkBid({ feeOutput: { address: feeAddr, value: 5_000_000 } });
+  // vout: buyer-inscription, price, fee, change
+  assert.strictEqual(bid.vout.length, 4);
+  assert.strictEqual(bid.vout[2].value, 5_000_000);
+  acceptBid({ network, bid, sellerKey: seller });
+});
+
+test('buildBid refuses an underfunded offer', () => {
+  assert.throws(() => mkBid({ funds: [{ txid: H('c'), vout: 0, value: 100_000_000 }] }), /do not cover/);
 });
 
 // --- legacy sighash edge cases ---------------------------------------------------------------

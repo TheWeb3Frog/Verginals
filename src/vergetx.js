@@ -15,6 +15,9 @@
 const crypto = require('crypto');
 
 const SIGHASH_ALL = 0x01;
+const SIGHASH_NONE = 0x02;
+const SIGHASH_SINGLE = 0x03;
+const SIGHASH_ANYONECANPAY = 0x80;
 
 function dsha256(buf) {
   return crypto.createHash('sha256').update(crypto.createHash('sha256').update(buf).digest()).digest();
@@ -97,22 +100,53 @@ function txid(tx) {
 
 /**
  * Legacy signature hash for input `nIn`, signing against `scriptCode` (the redeemScript for a
- * P2SH input). Only SIGHASH_ALL is supported, the single mode Verginals needs. Mirrors Verge's
- * CTransactionSignatureSerializer: version, nTime, inputs (scriptCode on the signed input, empty
- * elsewhere, all nSequence kept), outputs, locktime; then the 4-byte hashType is appended.
+ * P2SH input, the scriptPubKey for a P2PKH one). Full legacy semantics, mirroring Verge's
+ * CTransactionSignatureSerializer (Bitcoin's, plus nTime after the version):
+ *   - ALL:    every input (scriptCode on nIn, empty elsewhere) and every output are committed.
+ *   - NONE:   no outputs; other inputs keep their prevouts but their nSequence is zeroed.
+ *   - SINGLE: only the output at index nIn is committed; earlier outputs serialize as null
+ *             (value -1, empty script) so the completer may set them freely; other inputs'
+ *             nSequence is zeroed. nIn beyond the outputs reproduces the historical
+ *             "SIGHASH_SINGLE bug" (the hash is uint256(1)), kept for consensus fidelity.
+ *   - ANYONECANPAY (flag): only input nIn is serialized, so anyone may add inputs.
+ * SINGLE|ANYONECANPAY is what a marketplace listing signs: it pins "my coin moves only in a
+ * transaction that pays output nIn exactly as written", everything else is the buyer's to build.
  * @returns {Buffer} 32-byte hash to ECDSA-sign
  */
 function legacySighash(tx, nIn, scriptCode, hashType = SIGHASH_ALL) {
-  if ((hashType & 0x1f) !== SIGHASH_ALL || hashType & 0x80) {
-    throw new Error('legacySighash: only SIGHASH_ALL is supported');
+  const base = hashType & 0x1f;
+  const anyoneCanPay = !!(hashType & SIGHASH_ANYONECANPAY);
+  if (base !== SIGHASH_ALL && base !== SIGHASH_NONE && base !== SIGHASH_SINGLE) {
+    throw new Error('legacySighash: unknown base hash type ' + base);
   }
-  const vin = tx.vin.map((inp, i) => ({
+  // The historical SIGHASH_SINGLE bug: signing input nIn with no matching output hashes the
+  // constant 1. Never build such a transaction; replicated only so verification matches consensus.
+  if (base === SIGHASH_SINGLE && nIn >= tx.vout.length) {
+    const one = Buffer.alloc(32);
+    one[0] = 0x01;
+    return one;
+  }
+
+  let vin = tx.vin.map((inp, i) => ({
     txid: inp.txid,
     vout: inp.vout,
-    sequence: inp.sequence,
+    // For NONE/SINGLE the other inputs' sequences are zeroed so the completer may change them.
+    sequence: i === nIn || base === SIGHASH_ALL ? inp.sequence : 0,
     script: i === nIn ? scriptCode : Buffer.alloc(0),
   }));
-  const ser = serializeTx({ version: tx.version, time: tx.time, vin, vout: tx.vout, locktime: tx.locktime });
+  if (anyoneCanPay) vin = [vin[nIn]];
+
+  let vout;
+  if (base === SIGHASH_NONE) {
+    vout = [];
+  } else if (base === SIGHASH_SINGLE) {
+    const NULL_OUT = { value: -1n, script: Buffer.alloc(0) };
+    vout = tx.vout.slice(0, nIn + 1).map((o, i) => (i === nIn ? o : NULL_OUT));
+  } else {
+    vout = tx.vout;
+  }
+
+  const ser = serializeTx({ version: tx.version, time: tx.time, vin, vout, locktime: tx.locktime });
   const ht = Buffer.allocUnsafe(4);
   ht.writeUInt32LE(hashType >>> 0);
   return dsha256(Buffer.concat([ser, ht]));
@@ -120,6 +154,9 @@ function legacySighash(tx, nIn, scriptCode, hashType = SIGHASH_ALL) {
 
 module.exports = {
   SIGHASH_ALL,
+  SIGHASH_NONE,
+  SIGHASH_SINGLE,
+  SIGHASH_ANYONECANPAY,
   dsha256,
   varint,
   withLength,

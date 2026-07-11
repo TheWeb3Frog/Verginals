@@ -169,6 +169,29 @@ async function handleRpc(method, params, origin, sender) {
       const sig = await w.signMessage(params.message);
       return { signature: sig, address: w.address };
     }
+    case 'listInscription': {
+      await requireConnected(origin, w);
+      await requestApproval({ type: 'listInscription', origin, params }, sender);
+      return w.listInscription({ carrierOutpoint: params.outpoint, priceUnits: params.priceUnits });
+    }
+    case 'buyListing': {
+      await requireConnected(origin, w);
+      await requestApproval({ type: 'buyListing', origin, params }, sender);
+      return w.buyListing({ carrierOutpoint: params.outpoint, expectedPriceUnits: params.priceUnits });
+    }
+    case 'placeBid': {
+      await requireConnected(origin, w);
+      await requestApproval({ type: 'placeBid', origin, params }, sender);
+      return w.placeBid({
+        carrierOutpoint: params.outpoint, sellerAddress: params.sellerAddress,
+        carrierValue: params.carrierValue, priceUnits: params.priceUnits,
+      });
+    }
+    case 'acceptBid': {
+      await requireConnected(origin, w);
+      await requestApproval({ type: 'acceptBid', origin, params }, sender);
+      return w.acceptBid({ carrierOutpoint: params.outpoint, buyerAddress: params.buyerAddress });
+    }
     default:
       throw new Error('unknown method: ' + method);
   }

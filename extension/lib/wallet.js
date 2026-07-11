@@ -16,6 +16,7 @@ import * as bip39 from './bip39.js';
 import * as bip32 from './bip32.js';
 import { ElectrumClient } from './electrum.js';
 import { InscriptionDetector } from './inscriptions.js';
+import * as swap from './swap.js';
 
 const DEFAULT_API = 'https://verginals.com';
 
@@ -461,6 +462,121 @@ export class Wallet {
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || `POST ${path} failed (${res.status})`);
     return body;
+  }
+
+  async _get(path) {
+    const res = await fetch(this.apiBase + path);
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `GET ${path} failed (${res.status})`);
+    return body;
+  }
+
+  // --- marketplace (trustless swaps; the site is only an order book, keys stay here) ----------
+
+  /** The active account's coins split into { carrier, dummy, funds }; a carrier check is enforced. */
+  async _marketCoins(carrierOutpoint) {
+    const utxos = await this.getUtxos();
+    let carrier = null;
+    if (carrierOutpoint) {
+      const [ct, cv] = carrierOutpoint.split(':');
+      carrier = utxos.find((u) => u.txid === ct && u.vout === Number(cv)) || null;
+    }
+    // Spendable, non-inscription coins only (never an untagged Verginal).
+    const clean = utxos.filter((u) => u.inscription === null);
+    // A dummy is a small clean coin used to pad output 0; prefer the smallest.
+    const sorted = clean.slice().sort((a, b) => a.value - b.value);
+    return { carrier, clean, sorted };
+  }
+
+  /**
+   * List one owned Verginal for sale at `priceUnits`. Signs a 30-day schedule of half-signed
+   * variants (SIGHASH_SINGLE|ANYONECANPAY) and posts them to the order book. No coins move.
+   */
+  async listInscription({ carrierOutpoint, priceUnits }) {
+    this._requireUnlocked();
+    if (!/^[a-fA-F0-9]{64}:\d+$/.test(carrierOutpoint || '')) throw new Error('bad carrier outpoint');
+    if (!(priceUnits > 0)) throw new Error('price must be positive');
+    const { carrier } = await this._marketCoins(carrierOutpoint);
+    if (!carrier) throw new Error('carrier UTXO not found for this wallet');
+    if (!carrier.inscription) throw new Error('that UTXO carries no Verginal');
+    const listing = await swap.buildListing({
+      carrier: { txid: carrier.txid, vout: carrier.vout, value: carrier.value },
+      priceUnits, sellerAddress: this._address, priv: this._priv,
+    });
+    return this._post('/api/market/list', listing);
+  }
+
+  /** Buy a listed Verginal: fetch the variant matching our coin ages, complete it, broadcast. */
+  async buyListing({ carrierOutpoint, expectedPriceUnits, broadcast = true }) {
+    this._requireUnlocked();
+    const { sorted } = await this._marketCoins(null);
+    if (sorted.length < 2) throw new Error('need at least two spendable coins (a small dummy + funds)');
+    const coinParam = sorted.map((u) => `${u.txid}:${u.vout}`).join(',');
+    const { variant } = await this._get(`/api/market/buy/${carrierOutpoint}?coins=${encodeURIComponent(coinParam)}`);
+    // Never pay more than the user approved: the seller-signed price is immutable, but guard anyway.
+    if (expectedPriceUnits != null && variant.priceUnits !== expectedPriceUnits) {
+      throw new Error('the listed price changed since you opened it; cancel and try again');
+    }
+
+    const dummy = sorted[0];
+    const feeUnits = 300000; // ~0.3 XVG, a 3-input swap is small
+    const need = variant.priceUnits + feeUnits;
+    const funds = [];
+    let sum = 0;
+    for (const u of sorted.slice(1)) { funds.push(u); sum += u.value; if (sum >= need) break; }
+    if (sum < need) throw new Error('insufficient spendable funds for price + fee');
+
+    const built = await swap.completeListing({
+      variant,
+      dummy: { txid: dummy.txid, vout: dummy.vout, value: dummy.value },
+      funds: funds.map((u) => ({ txid: u.txid, vout: u.vout, value: u.value })),
+      buyerAddress: this._address, priv: this._priv, feeUnits,
+    });
+    if (!broadcast) return built;
+    const { txid } = await this.broadcast(built.hex);
+    return { txid: txid || built.txid, hex: built.hex };
+  }
+
+  /** Place an offer on any Verginal by its carrier outpoint (public), at `priceUnits`. */
+  async placeBid({ carrierOutpoint, sellerAddress, carrierValue, priceUnits }) {
+    this._requireUnlocked();
+    if (!(priceUnits > 0)) throw new Error('price must be positive');
+    const { sorted } = await this._marketCoins(null);
+    if (sorted.length < 2) throw new Error('need at least two spendable coins (a small dummy + funds)');
+    const dummy = sorted[0];
+    const feeUnits = 300000;
+    const need = priceUnits + feeUnits;
+    const funds = [];
+    let sum = 0;
+    for (const u of sorted.slice(1)) { funds.push(u); sum += u.value; if (sum >= need) break; }
+    if (sum < need) throw new Error('insufficient spendable funds for the offer + fee');
+    const [ct, cv] = carrierOutpoint.split(':');
+    const bid = await swap.buildBid({
+      carrier: { txid: ct, vout: Number(cv), value: carrierValue },
+      priceUnits, sellerAddress,
+      dummy: { txid: dummy.txid, vout: dummy.vout, value: dummy.value },
+      funds: funds.map((u) => ({ txid: u.txid, vout: u.vout, value: u.value })),
+      buyerAddress: this._address, priv: this._priv, feeUnits,
+    });
+    return this._post('/api/market/bid', bid);
+  }
+
+  /** Accept an offer on one of our Verginals: sign the carrier input and broadcast. */
+  async acceptBid({ carrierOutpoint, buyerAddress, expectedPriceUnits, broadcast = true }) {
+    this._requireUnlocked();
+    const { carrier } = await this._marketCoins(carrierOutpoint);
+    if (!carrier) throw new Error('carrier UTXO not found for this wallet');
+    const { bid } = await this._get(`/api/market/accept/${carrierOutpoint}/${buyerAddress}`);
+    if (expectedPriceUnits != null && bid.priceUnits !== expectedPriceUnits) {
+      throw new Error('the offer changed since you opened it; refresh and try again');
+    }
+    // The bid's payout address must be OUR active address, or we would be handing over the Verginal
+    // for a payment that goes elsewhere. buildBid always pays vout[1] to sellerAddress; verify it.
+    if (bid.sellerAddress !== this._address) throw new Error('this offer does not pay your wallet');
+    const built = await swap.acceptBid({ bid, priv: this._priv });
+    if (!broadcast) return built;
+    const { txid } = await this.broadcast(built.hex);
+    return { txid: txid || built.txid, hex: built.hex };
   }
 
   /**

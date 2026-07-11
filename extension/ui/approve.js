@@ -25,6 +25,10 @@ const TITLES = {
   transferInscription: 'Transfer a Verginal',
   send: 'Send XVG',
   signMessage: 'Sign a message',
+  listInscription: 'List a Verginal for sale',
+  buyListing: 'Buy a Verginal',
+  placeBid: 'Make an offer',
+  acceptBid: 'Accept an offer',
 };
 
 function renderDetails(req, extra) {
@@ -50,6 +54,22 @@ function renderDetails(req, extra) {
     row('To', shorten(req.params.to));
   } else if (req.type === 'signMessage') {
     const el = document.createElement('pre'); el.className = 'msg'; el.textContent = req.params.message; d.appendChild(el);
+  } else if (req.type === 'listInscription') {
+    row('Verginal', req.params.name || req.params.outpoint);
+    row('List price', fmtXvg(req.params.priceUnits) + ' XVG');
+    row('You sign', 'a sale that pays YOU the price; your Verginal moves only if someone pays it');
+  } else if (req.type === 'buyListing') {
+    row('Verginal', req.params.name || req.params.outpoint);
+    row('You pay', fmtXvg(req.params.priceUnits) + ' XVG (+ network fee)');
+    row('You receive', 'the Verginal, atomically, in the same transaction');
+  } else if (req.type === 'placeBid') {
+    row('Verginal', req.params.name || req.params.outpoint);
+    row('Your offer', fmtXvg(req.params.priceUnits) + ' XVG');
+    row('You sign', 'an offer the owner can accept; nothing moves until they do');
+  } else if (req.type === 'acceptBid') {
+    row('Verginal', req.params.name || req.params.outpoint);
+    row('You receive', fmtXvg(req.params.priceUnits) + ' XVG');
+    row('You give', 'your Verginal to the buyer, atomically, in the same transaction');
   }
 }
 

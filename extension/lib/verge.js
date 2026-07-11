@@ -21,7 +21,10 @@ export const NETWORKS = {
 };
 
 export const COIN = 1_000_000; // 6 decimals; atomic unit = 0.000001 XVG
-const SIGHASH_ALL = 0x01;
+export const SIGHASH_ALL = 0x01;
+export const SIGHASH_NONE = 0x02;
+export const SIGHASH_SINGLE = 0x03;
+export const SIGHASH_ANYONECANPAY = 0x80;
 
 // ---------------------------------------------------------------------------
 // Byte helpers
@@ -245,16 +248,41 @@ export async function txid(tx) {
   return bytesToHex(reverseBytes(await dsha256(serializeTx(tx))));
 }
 
-/** Legacy sighash for input nIn against scriptCode; SIGHASH_ALL only (see src/vergetx.js). */
+/**
+ * Legacy sighash for input nIn against scriptCode. Full legacy semantics (mirror of
+ * src/vergetx.js): base type ALL / NONE / SINGLE plus the ANYONECANPAY flag, nTime included, and
+ * the historical SIGHASH_SINGLE bug reproduced for consensus fidelity. SINGLE|ANYONECANPAY is what
+ * a marketplace listing signs.
+ */
 export async function legacySighash(tx, nIn, scriptCode, hashType = SIGHASH_ALL) {
-  if ((hashType & 0x1f) !== SIGHASH_ALL || hashType & 0x80) throw new Error('only SIGHASH_ALL supported');
-  const vin = tx.vin.map((inp, i) => ({
+  const base = hashType & 0x1f;
+  const anyoneCanPay = !!(hashType & SIGHASH_ANYONECANPAY);
+  if (base !== SIGHASH_ALL && base !== SIGHASH_NONE && base !== SIGHASH_SINGLE) {
+    throw new Error('unknown base hash type ' + base);
+  }
+  if (base === SIGHASH_SINGLE && nIn >= tx.vout.length) {
+    const one = new Uint8Array(32);
+    one[0] = 0x01;
+    return one; // the SIGHASH_SINGLE bug: hash is the constant 1
+  }
+  let vin = tx.vin.map((inp, i) => ({
     txid: inp.txid,
     vout: inp.vout,
-    sequence: inp.sequence,
+    sequence: i === nIn || base === SIGHASH_ALL ? inp.sequence : 0,
     script: i === nIn ? scriptCode : new Uint8Array(0),
   }));
-  const ser = serializeTx({ version: tx.version, time: tx.time, vin, vout: tx.vout, locktime: tx.locktime });
+  if (anyoneCanPay) vin = [vin[nIn]];
+
+  let vout;
+  if (base === SIGHASH_NONE) {
+    vout = [];
+  } else if (base === SIGHASH_SINGLE) {
+    const NULL_OUT = { value: -1, script: new Uint8Array(0) };
+    vout = tx.vout.slice(0, nIn + 1).map((o, i) => (i === nIn ? o : NULL_OUT));
+  } else {
+    vout = tx.vout;
+  }
+  const ser = serializeTx({ version: tx.version, time: tx.time, vin, vout, locktime: tx.locktime });
   return dsha256(concatBytes(ser, u32le(hashType)));
 }
 
@@ -292,9 +320,60 @@ function pushData(bytes) {
 
 /** Sign a 32-byte hash with priv; returns DER sig + SIGHASH_ALL byte appended. Low-S enforced. */
 export async function signHash(hash, priv) {
+  return signHashWith(hash, priv, SIGHASH_ALL);
+}
+
+/** Sign a 32-byte hash and append an explicit hashType byte (for SINGLE|ANYONECANPAY listings). */
+export async function signHashWith(hash, priv, hashType) {
   const sig = await secp.signAsync(hash, priv); // lowS: true by default
   const der = derEncodeSig(sig.r, sig.s);
-  return concatBytes(der, new Uint8Array([SIGHASH_ALL]));
+  return concatBytes(der, new Uint8Array([hashType & 0xff]));
+}
+
+/** Parse a DER ECDSA signature into a 64-byte compact r||s (this secp build only takes compact). */
+function derToCompact(der) {
+  if (der[0] !== 0x30) throw new Error('bad DER');
+  let i = 2;
+  if (der[i++] !== 0x02) throw new Error('bad DER r');
+  let rlen = der[i++];
+  let r = der.slice(i, i + rlen); i += rlen;
+  if (der[i++] !== 0x02) throw new Error('bad DER s');
+  let slen = der[i++];
+  let s = der.slice(i, i + slen); i += slen;
+  const trim = (x) => { let j = 0; while (j < x.length - 1 && x[j] === 0) j++; return x.slice(j); };
+  const pad = (x) => { const o = new Uint8Array(32); o.set(trim(x), 32 - trim(x).length); return o; };
+  return concatBytes(pad(r), pad(s));
+}
+
+/** Verify a scriptSig-style signature (DER + trailing hashType byte) over `hash` under `pubkey`. */
+export function verifySig(hash, pubkey, sigWithHashType) {
+  try {
+    const compact = derToCompact(sigWithHashType.slice(0, sigWithHashType.length - 1));
+    return secp.verify(compact, hash, pubkey, { lowS: true });
+  } catch (_) {
+    return false;
+  }
+}
+
+/** The compressed pubkey (Uint8Array) pushed as the 2nd item of a P2PKH scriptSig, or null. */
+export function pubkeyFromScriptSig(scriptSig) {
+  // scriptSig = pushData(sig) || pushData(pubkey); read the 2nd push.
+  let i = 0;
+  const readPush = () => {
+    const op = scriptSig[i++];
+    let len;
+    if (op < 0x4c) len = op;
+    else if (op === 0x4c) len = scriptSig[i++];
+    else if (op === 0x4d) { len = scriptSig[i] | (scriptSig[i + 1] << 8); i += 2; }
+    else return null;
+    const data = scriptSig.slice(i, i + len);
+    i += len;
+    return data;
+  };
+  const first = readPush();
+  const second = readPush();
+  if (!first || !second) return null;
+  return second;
 }
 
 // ---------------------------------------------------------------------------

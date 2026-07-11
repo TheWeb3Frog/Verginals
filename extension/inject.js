@@ -41,7 +41,7 @@
 
   const api = {
     isVerginals: true,
-    version: '0.1.0',
+    version: '0.2.0',
 
     /** Request connection; prompts the user. Resolves { address } or rejects if denied. */
     connect: () => call('connect'),
@@ -60,6 +60,17 @@
     send: (opts) => call('send', opts),
     /** Sign a text message (Verge magic hash). Prompts to approve. Resolves base64 signature. */
     signMessage: (message) => call('signMessage', { message }),
+
+    // --- marketplace (trustless; the site is only an order book, keys never leave the wallet) ---
+    /** List an owned Verginal for sale. { outpoint, priceUnits, name? }. Prompts to approve. */
+    listInscription: (opts) => call('listInscription', opts),
+    /** Buy a listed Verginal. { outpoint, priceUnits?, name? }. Prompts, then broadcasts. */
+    buyListing: (opts) => call('buyListing', opts),
+    /** Offer to buy a Verginal. { outpoint, sellerAddress, carrierValue, priceUnits, name? }. */
+    placeBid: (opts) => call('placeBid', opts),
+    /** Accept an offer on your Verginal. { outpoint, buyerAddress, priceUnits?, name? }. */
+    acceptBid: (opts) => call('acceptBid', opts),
+
     /** Disconnect this site. */
     disconnect: () => call('disconnect'),
 

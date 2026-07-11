@@ -49,6 +49,7 @@ const { MintController } = require('./mint');
 const { PromoController } = require('./promo');
 const { computeRarity } = require('./rarity');
 const { Launchpad } = require('./launchpad');
+const { OrderBook } = require('./orderbook');
 const cbor = require('./cbor');
 
 const PORT = Number(process.env.PORT || 3400);
@@ -1014,6 +1015,113 @@ async function handleLaunchpadSubmitFinalize(res, id) {
   sendJSON(res, 200, launchpad.finalize(id));
 }
 
+// --- marketplace: trustless listings & bids (order book only, zero custody) ------------------
+// The server stores signed listings/bids, validates them against the chain, and serves them.
+// It never holds keys/funds, never broadcasts, and cannot execute a trade: settlement is the
+// counterparty broadcasting the fully-signed swap from their own wallet. See swap.js + spec.
+let orderbook = null;
+
+function initOrderBook() {
+  const { network } = pickNetwork(NETWORK);
+  const chain = {
+    // What the order book needs to know about a carrier outpoint: who owns it, its value, whether
+    // it is spent, and whether it currently carries a Verginal (per our own indexer).
+    async carrierInfo(txid, vout) {
+      let out;
+      try { out = await client.call('gettxout', [txid, vout, true]); } catch (_) { return null; }
+      if (!out) return { spent: true };
+      const spk = out.scriptPubKey || {};
+      const address = (spk.addresses && spk.addresses[0]) || spk.address || null;
+      const inscription = inscriptionLocationMap().get(`${txid}:${vout}`) || null;
+      return { address, valueUnits: xvgToUnits(out.value), spent: false, inscription };
+    },
+    async outpointSpent(txid, vout) { return !(await isUnspent(txid, vout)); },
+  };
+  orderbook = new OrderBook({ dataDir: DATA_DIR, network, chain }).load();
+}
+
+/** Coin-age floor a buyer must respect for a listing: the newest of their funding coins' nTimes. */
+async function maxCoinTime(outpoints) {
+  let maxT = 0;
+  for (const op of outpoints || []) {
+    const [txid] = String(op).split(':');
+    if (!/^[0-9a-f]{64}$/.test(txid || '')) continue;
+    try {
+      const tx = await client.call('getrawtransaction', [txid, true]);
+      if (tx && tx.time && tx.time > maxT) maxT = tx.time;
+    } catch (_) { /* ignore: caller falls back to a conservative variant */ }
+  }
+  return maxT;
+}
+
+async function handleMarketListings(res) {
+  if (!orderbook) return sendJSON(res, 404, { error: 'marketplace disabled' });
+  sendJSON(res, 200, { listings: await orderbook.listings() });
+}
+
+async function handleMarketList(req, res) {
+  if (!orderbook) return sendJSON(res, 404, { error: 'marketplace disabled' });
+  if (!allowQuote(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
+  const raw = await readBody(req);
+  const listing = JSON.parse(raw.toString('utf8') || '{}');
+  try {
+    sendJSON(res, 200, await orderbook.addListing(listing));
+  } catch (e) {
+    sendJSON(res, 400, { error: e.message });
+  }
+}
+
+async function handleMarketBid(req, res) {
+  if (!orderbook) return sendJSON(res, 404, { error: 'marketplace disabled' });
+  if (!allowQuote(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
+  const raw = await readBody(req);
+  const bid = JSON.parse(raw.toString('utf8') || '{}');
+  try {
+    sendJSON(res, 200, await orderbook.addBid(bid));
+  } catch (e) {
+    sendJSON(res, 400, { error: e.message });
+  }
+}
+
+async function handleMarketItem(res, carrierKey) {
+  if (!orderbook) return sendJSON(res, 404, { error: 'marketplace disabled' });
+  const listing = orderbook.getListing(carrierKey);
+  const bids = await orderbook.bidsFor(carrierKey);
+  sendJSON(res, 200, {
+    carrier: carrierKey,
+    listed: !!listing,
+    priceUnits: listing ? listing.priceUnits : null,
+    sellerAddress: listing ? listing.sellerAddress : null,
+    expiresAt: listing ? listing.expiresAt : null,
+    bids,
+  });
+}
+
+/**
+ * Hand a buyer the exact half-signed listing variant to complete, chosen for the age of the
+ * coins they intend to spend (passed as ?coins=txid:vout,txid:vout). The wallet completes and
+ * broadcasts it locally; the server still never touches keys or the network.
+ */
+async function handleMarketBuy(req, res, carrierKey) {
+  if (!orderbook) return sendJSON(res, 404, { error: 'marketplace disabled' });
+  const url = new URL(req.url, 'http://localhost');
+  const coins = (url.searchParams.get('coins') || '').split(',').filter(Boolean);
+  const floor = await maxCoinTime(coins);
+  const variant = orderbook.variantFor(carrierKey, { maxCoinTime: floor });
+  if (!variant) {
+    return sendJSON(res, 409, { error: 'no listing variant is usable for these coins yet. Try older coins, or place an offer instead.' });
+  }
+  sendJSON(res, 200, { variant });
+}
+
+/** Return the full signed bid a seller needs to accept (they sign the carrier and broadcast). */
+async function handleMarketAcceptData(res, carrierKey, buyerAddress) {
+  if (!orderbook) return sendJSON(res, 404, { error: 'marketplace disabled' });
+  const bid = orderbook.getBid(carrierKey, buyerAddress);
+  if (!bid) return sendJSON(res, 404, { error: 'no such bid' });
+  sendJSON(res, 200, { bid });
+}
+
 /**
  * Release reservations that have gone stale AND whose deposit never received the payment. Only the
  * server can check funding, so the pure controller defers to this. Funded-but-not-yet-driven jobs
@@ -1612,6 +1720,15 @@ const server = http.createServer(async (req, res) => {
       if ((m = p.match(/^\/api\/launchpad\/([a-z0-9-]{3,32})\/rarity$/)) && req.method === 'GET') return handleLaunchpadRarity(res, m[1]);
       if ((m = p.match(/^\/api\/launchpad\/([a-z0-9-]{3,32})\/mint$/)) && req.method === 'POST') return await handleLaunchpadMint(req, res, m[1]);
     }
+    if (p === '/api/market/listings' && req.method === 'GET') return await handleMarketListings(res);
+    if (p === '/api/market/list' && req.method === 'POST') return await handleMarketList(req, res);
+    if (p === '/api/market/bid' && req.method === 'POST') return await handleMarketBid(req, res);
+    {
+      let m;
+      if ((m = p.match(/^\/api\/market\/item\/([0-9a-fA-F]{64}:\d+)$/)) && req.method === 'GET') return await handleMarketItem(res, m[1]);
+      if ((m = p.match(/^\/api\/market\/buy\/([0-9a-fA-F]{64}:\d+)$/)) && req.method === 'GET') return await handleMarketBuy(req, res, m[1]);
+      if ((m = p.match(/^\/api\/market\/accept\/([0-9a-fA-F]{64}:\d+)\/([a-km-zA-HJ-NP-Z1-9]{25,40})$/)) && req.method === 'GET') return await handleMarketAcceptData(res, m[1], m[2]);
+    }
     if (req.method === 'GET' && p.startsWith('/api/job/')) return await handleJob(res, p.slice('/api/job/'.length));
     if (req.method === 'GET' && p === '/api/inscriptions') return await handleInscriptions(res, url.searchParams.get('owner'));
     if (req.method === 'GET' && p.startsWith('/api/content/')) return await handleContent(res, p.slice('/api/content/'.length));
@@ -1668,6 +1785,7 @@ initMint();
 initParent();
 initPromo();
 initLaunchpad();
+initOrderBook();
 
 server.listen(PORT, HOST, () => {
   console.log(`Verginals web UI  →  http://${HOST}:${PORT}`);
@@ -1691,6 +1809,7 @@ server.listen(PORT, HOST, () => {
       : `Promo: inactive (enabled=${PROMO_ENABLED} key=${!!promoKey})` + (promoAddress ? `, wallet ${promoAddress}` : ''),
   );
   console.log(`Launchpad: ${launchpad.live.size} live collection(s), ${launchpad.pendingCount()} pending review (node src/launchpad.js list)`);
+  console.log(`Marketplace: order book ready (${Object.keys(orderbook.state.listings).length} listing(s))`);
   cleanupJobs();
   setInterval(cleanupJobs, 3600 * 1000).unref();
   reapMintReservations();

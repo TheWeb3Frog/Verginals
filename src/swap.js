@@ -150,6 +150,71 @@ function completeListing({ network, listing, dummy, funds, buyerAddress, buyerKe
   return { hex, txid: txid(tx), outputs: vout.map((o) => ({ value: o.value })) };
 }
 
+/** The P2PKH address that produced a scriptSig `[sig, pubkey]`, on `network`. */
+function addressOfScriptSig(scriptSigHex, network) {
+  const parts = bitcoin.script.decompile(Buffer.from(scriptSigHex, 'hex'));
+  if (!parts || parts.length !== 2 || !Buffer.isBuffer(parts[1])) return null;
+  try {
+    return bitcoin.payments.p2pkh({ pubkey: parts[1], network }).address;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Verify a single listing variant with NO buyer data: reconstruct the exact template the seller
+ * signed (carrier at index 1, price to sellerAddress at index 1, the given nTime) and check the
+ * SINGLE|ANYONECANPAY signature. Returns { ok, address } where address is the signer's P2PKH
+ * address; the caller must confirm it owns the carrier on-chain.
+ */
+function verifyListingVariant({ network, carrier, priceUnits, sellerAddress, time, scriptSig }) {
+  const parts = bitcoin.script.decompile(Buffer.from(scriptSig, 'hex'));
+  if (!parts || parts.length !== 2 || !Buffer.isBuffer(parts[0]) || !Buffer.isBuffer(parts[1])) return { ok: false };
+  const pubkey = parts[1];
+  const address = (() => { try { return bitcoin.payments.p2pkh({ pubkey, network }).address; } catch { return null; } })();
+  if (!address) return { ok: false };
+  const tx = {
+    version: 1, time, locktime: 0,
+    vin: [{ txid: '00'.repeat(32), vout: 0 }, { txid: carrier.txid, vout: carrier.vout }],
+    vout: [{ value: 0, script: Buffer.alloc(0) }, { value: priceUnits, script: p2pkhScript(sellerAddress, network) }],
+  };
+  const carrierScript = bitcoin.payments.p2pkh({ pubkey, network }).output;
+  const sighash = legacySighash(tx, SELLER_INDEX, carrierScript, LISTING_SIGHASH);
+  let sig;
+  try { sig = bitcoin.script.signature.decode(parts[0]).signature; } catch { return { ok: false }; }
+  return { ok: ecc.verify(sighash, pubkey, sig), address };
+}
+
+/**
+ * Verify a bid's buyer signatures against the transaction it commits to (every input except the
+ * carrier). Returns { ok, inputs } where inputs lists each signed input's { txid, vout, address }
+ * so the caller can confirm those coins are unspent and owned by the buyer.
+ */
+function verifyBid({ network, bid }) {
+  const vout = bid.vout.map((o) => ({ value: o.value, script: Buffer.from(o.script, 'hex') }));
+  const vin = bid.vin.map((v, i) => ({
+    txid: v.txid, vout: v.vout,
+    script: bid.scriptSigs[i] ? Buffer.from(bid.scriptSigs[i], 'hex') : undefined,
+  }));
+  const tx = { version: bid.version, time: bid.time, locktime: bid.locktime, vin, vout };
+  const inputs = [];
+  for (let i = 0; i < vin.length; i++) {
+    if (i === SELLER_INDEX) continue; // carrier, unsigned by design
+    const ss = bid.scriptSigs[i];
+    if (!ss) return { ok: false };
+    const parts = bitcoin.script.decompile(Buffer.from(ss, 'hex'));
+    if (!parts || parts.length !== 2 || !Buffer.isBuffer(parts[1])) return { ok: false };
+    const pubkey = parts[1];
+    const p2pkh = bitcoin.payments.p2pkh({ pubkey, network });
+    const sighash = legacySighash(tx, i, p2pkh.output, SIGHASH_ALL);
+    let sig;
+    try { sig = bitcoin.script.signature.decode(parts[0]).signature; } catch { return { ok: false }; }
+    if (!ecc.verify(sighash, pubkey, sig)) return { ok: false };
+    inputs.push({ txid: vin[i].txid, vout: vin[i].vout, address: p2pkh.address });
+  }
+  return { ok: true, inputs };
+}
+
 // Default variant schedule (seconds from listing time), spanning a 30-day listing: dense near
 // the start so a fresh-coin buyer waits minutes, sparse later to keep the message small. See
 // spec section 2.1 for why a listing needs multiple nTime variants.
@@ -287,5 +352,6 @@ function acceptBid({ network, bid, sellerKey }) {
 
 module.exports = {
   buildListing, completeListing, buildListingSchedule, pickVariant, buildBid, acceptBid,
+  verifyListingVariant, verifyBid, addressOfScriptSig,
   SELLER_INDEX, LISTING_SIGHASH, DEFAULT_SCHEDULE,
 };

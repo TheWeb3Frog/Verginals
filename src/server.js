@@ -1087,8 +1087,15 @@ async function handleMarketItem(res, carrierKey) {
   if (!orderbook) return sendJSON(res, 404, { error: 'marketplace disabled' });
   const listing = orderbook.getListing(carrierKey);
   const bids = await orderbook.bidsFor(carrierKey);
+  // Live carrier facts (current owner + value) so a bidder can build the transaction and the
+  // detail view can tell who holds it right now, independent of the possibly-stale index.
+  const [ctxid, cvout] = carrierKey.split(':');
+  const info = await orderbook.chain.carrierInfo(ctxid, Number(cvout));
   sendJSON(res, 200, {
     carrier: carrierKey,
+    ownerAddress: info && !info.spent ? info.address : null,
+    carrierValue: info && !info.spent ? info.valueUnits : null,
+    carriesInscription: !!(info && info.inscription),
     listed: !!listing,
     priceUnits: listing ? listing.priceUnits : null,
     sellerAddress: listing ? listing.sellerAddress : null,

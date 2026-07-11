@@ -320,4 +320,44 @@
     try { const a = await provider.getAddress(); if (a) setAddress(a); } catch (_) { /* ignore */ }
     reflect();
   });
+
+  // --- marketplace bridge (used by app.js's detail view + Market tab) ---------------------
+  // Thin wrappers over the provider's trustless-swap methods. All signing + broadcasting happens
+  // on-device in the extension; this only forwards the user's intent and returns the result.
+  async function ensureConnected() {
+    if (address) return address;
+    if (!hasProvider()) { openStore(); throw new Error('Install the Verginals Wallet to trade.'); }
+    if (!provider) throw new Error('Wallet not ready yet, reload the page.');
+    const r = await provider.connect();
+    setAddress(r && r.address);
+    if (!address) throw new Error('connection was declined');
+    return address;
+  }
+
+  window.VerginalsMarket = {
+    installed: hasProvider,
+    address: () => address,
+    async list(outpoint, priceUnits, name) {
+      await ensureConnected();
+      return provider.listInscription({ outpoint, priceUnits, name });
+    },
+    async buy(outpoint, priceUnits, name) {
+      await ensureConnected();
+      return provider.buyListing({ outpoint, priceUnits, name });
+    },
+    async offer(outpoint, sellerAddress, carrierValue, priceUnits, name) {
+      await ensureConnected();
+      return provider.placeBid({ outpoint, sellerAddress, carrierValue, priceUnits, name });
+    },
+    async accept(outpoint, buyerAddress, priceUnits, name) {
+      await ensureConnected();
+      return provider.acceptBid({ outpoint, buyerAddress, priceUnits, name });
+    },
+    // Cancelling a listing = move the carrier (any self-transfer invalidates every signed variant;
+    // the order book drops it once it sees the outpoint spent).
+    async cancel(outpoint) {
+      const me = await ensureConnected();
+      return provider.transferInscription({ outpoint, to: me });
+    },
+  };
 })();

@@ -403,6 +403,23 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 .latest-item img { width: 26px; height: 26px; border-radius: 5px; object-fit: contain; image-rendering: pixelated; background: var(--bg); }
 .latest-ico { font-size: 15px; padding-left: 4px; }
 
+/* --- marketplace ------------------------------------------------------------------------------ */
+.detail-market { margin-top: 12px; }
+.mk { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--accent2); border-radius: 10px; background: linear-gradient(180deg, #1245661f, transparent); }
+.mk-price { font-size: 14px; }
+.mk-price b { color: var(--accent); }
+.mk-listrow { display: flex; gap: 8px; }
+.mk-listrow input { flex: 1; min-width: 0; }
+.mk .btn { align-self: flex-start; }
+.mk-listrow .btn { align-self: stretch; white-space: nowrap; }
+.btn.sm { padding: 5px 10px; font-size: 12px; }
+.mk-offers { margin-top: 4px; border-top: 1px solid var(--line); padding-top: 8px; }
+.mk-offers-h { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+.mk-offer { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; padding: 4px 0; }
+.mk-status { font-size: 12.5px; color: var(--muted); min-height: 1em; word-break: break-all; }
+.mk-status code { color: var(--accent); }
+#market-gallery .mk-price { margin-top: 4px; font-weight: 700; color: var(--accent); }
+
 /* --- launchpad -------------------------------------------------------------------------------- */
 .lp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin-top: 14px; }
 .lp-card { background: var(--bg2); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; transition: border-color .15s, transform .15s; }

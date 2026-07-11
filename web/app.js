@@ -41,6 +41,7 @@ $$('.tab').forEach((t) => t.addEventListener('click', () => {
   if (t.dataset.tab === 'mint') loadMintStatus();
   if (t.dataset.tab === 'stats') loadStats();
   if (t.dataset.tab === 'launchpad') loadLaunchpad();
+  if (t.dataset.tab === 'market') loadMarket();
   if (t.dataset.tab === 'support') renderDonateQR();
 }));
 
@@ -538,6 +539,8 @@ function openDetail(ins, push = true) {
     showOwnerGallery(ins.ownerAddress);
   });
 
+  renderDetailMarket(ins); // buy / sell / offer panel (async, fills in when ready)
+
   $('#detail-content').href = url;
   const shareUrl = 'https://verginals.com/v/' + detailKey(ins);
   const shareText = ins.number != null
@@ -570,6 +573,153 @@ async function openDetailByKey(key) {
   const ins = list.find((i) => (i.collectionNumber != null && String(i.collectionNumber) === key) || i.txid === key)
     || list.find((i) => String(i.number) === key); // legacy links that used the inscription counter
   if (ins) openDetail(ins, false);
+}
+
+// --- marketplace (trustless listings & offers, driven from the detail view) -----------------
+const MKT_COIN = 1_000_000;
+const toUnits = (xvg) => Math.round(Number(xvg) * MKT_COIN);
+const nameOf = (ins) => (ins.collectionNumber != null ? `Verginals #${ins.collectionNumber}` : 'this Verginal');
+
+/** Render the buy/sell/offer panel inside the open detail view for one inscription. */
+async function renderDetailMarket(ins) {
+  const box = $('#detail-market');
+  box.innerHTML = '';
+  const carrier = ins.location && /^[0-9a-f]{64}:\d+$/.test(ins.location) ? ins.location : null;
+  const isCollectible = ins.collectionNumber != null; // only Verginals trade, not free-form text
+  if (!carrier || !isCollectible) return;
+
+  let item;
+  try { item = await api('/api/market/item/' + carrier); } catch { return; }
+  if (item.carriesInscription === false) return; // the sat has moved off this outpoint
+
+  const M = window.VerginalsMarket;
+  const me = M ? M.address() : null;
+  const isOwner = me && item.ownerAddress && me === item.ownerAddress;
+  const name = nameOf(ins);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'mk';
+  const status = document.createElement('div');
+  status.className = 'mk-status';
+
+  const run = async (label, fn) => {
+    status.textContent = '';
+    const btns = wrap.querySelectorAll('button');
+    btns.forEach((b) => (b.disabled = true));
+    status.textContent = label + '…';
+    try {
+      const r = await fn();
+      status.innerHTML = `✅ done${r && r.txid ? ` · tx <code>${esc(short(r.txid))}</code>` : ' · submitted'}`;
+      setTimeout(() => renderDetailMarket(ins), 1500); // refresh the panel to the new state
+    } catch (e) {
+      status.textContent = '✗ ' + e.message;
+      btns.forEach((b) => (b.disabled = false));
+    }
+  };
+
+  if (item.listed) {
+    const price = item.priceUnits;
+    const head = document.createElement('div');
+    head.className = 'mk-price';
+    head.innerHTML = `For sale: <b>${fmt(price / MKT_COIN)} XVG</b>`;
+    wrap.appendChild(head);
+    if (isOwner) {
+      wrap.appendChild(btn('Cancel listing', 'ghost', () => run('Cancelling', () => M.cancel(carrier))));
+    } else {
+      wrap.appendChild(btn(`Buy now for ${fmt(price / MKT_COIN)} XVG`, 'primary', () => run('Buying', () => M.buy(carrier, price, name))));
+    }
+  } else if (isOwner) {
+    const row = document.createElement('div');
+    row.className = 'mk-listrow';
+    row.innerHTML = `<input type="number" min="0" step="0.1" id="mk-price" placeholder="price in XVG" />`;
+    const b = btn('List for sale', 'primary', () => {
+      const xvg = Number($('#mk-price').value);
+      if (!(xvg > 0)) { status.textContent = '✗ Enter a price.'; return; }
+      run('Listing', () => M.list(carrier, toUnits(xvg), name));
+    });
+    row.appendChild(b);
+    wrap.appendChild(row);
+  }
+
+  // Anyone who is not the owner can make an offer.
+  if (!isOwner) {
+    const row = document.createElement('div');
+    row.className = 'mk-listrow';
+    row.innerHTML = `<input type="number" min="0" step="0.1" id="mk-offer" placeholder="your offer in XVG" />`;
+    row.appendChild(btn('Make an offer', 'ghost', () => {
+      const xvg = Number($('#mk-offer').value);
+      if (!(xvg > 0)) { status.textContent = '✗ Enter an offer.'; return; }
+      if (item.carrierValue == null) { status.textContent = '✗ Cannot read the item right now.'; return; }
+      run('Offering', () => M.offer(carrier, item.ownerAddress, item.carrierValue, toUnits(xvg), name));
+    }));
+    wrap.appendChild(row);
+  }
+
+  // Offers on this item; the owner can accept one.
+  if (item.bids && item.bids.length) {
+    const ob = document.createElement('div');
+    ob.className = 'mk-offers';
+    ob.innerHTML = '<div class="mk-offers-h">Offers</div>';
+    item.bids.forEach((bid) => {
+      const r = document.createElement('div');
+      r.className = 'mk-offer';
+      r.innerHTML = `<span><b>${fmt(bid.priceUnits / MKT_COIN)} XVG</b> from ${esc(short(bid.buyerAddress))}</span>`;
+      if (isOwner) r.appendChild(btn('Accept', 'primary sm', () => run('Accepting', () => M.accept(carrier, bid.buyerAddress, bid.priceUnits, name))));
+      ob.appendChild(r);
+    });
+    wrap.appendChild(ob);
+  }
+
+  if (!M) {
+    const hint = document.createElement('div');
+    hint.className = 'hint';
+    hint.textContent = 'Install the Verginals Wallet to buy, sell or make offers.';
+    wrap.appendChild(hint);
+  }
+  wrap.appendChild(status);
+  box.appendChild(wrap);
+}
+
+function btn(label, cls, onClick) {
+  const b = document.createElement('button');
+  b.className = 'btn ' + cls;
+  b.textContent = label;
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+// --- market tab: all Verginals currently for sale -------------------------------------------
+async function loadMarket() {
+  const g = $('#market-gallery');
+  try {
+    const [data, list] = await Promise.all([
+      api('/api/market/listings'),
+      lastList.length ? Promise.resolve(lastList) : loadInscriptions(),
+    ]);
+    $('#market-meta').textContent = `${data.listings.length} for sale`;
+    if (!data.listings.length) {
+      g.innerHTML = '<div class="empty">Nothing listed yet. Open one of your Verginals in My Wallet and hit “List for sale”. 🏷️</div>';
+      return;
+    }
+    const byLoc = new Map(list.map((i) => [i.location, i]));
+    g.innerHTML = '';
+    data.listings.forEach((l) => {
+      const ins = byLoc.get(l.carrier);
+      const c = document.createElement('div');
+      c.className = 'ins-card clickable';
+      const img = ins && ins.collectionNumber != null
+        ? `<img src="/api/content/${esc(ins.txid)}" loading="lazy" alt="" />`
+        : '<div class="blob">🏷️</div>';
+      const label = ins && ins.collectionNumber != null ? `#${ins.collectionNumber}` : 'Verginal';
+      c.innerHTML = `<div class="ins-media">${img}</div>
+        <div class="ins-body"><div class="num">${label}</div>
+        <div class="mk-price">${fmt(l.priceUnits / MKT_COIN)} XVG</div></div>`;
+      if (ins) c.addEventListener('click', () => openDetail(ins));
+      g.appendChild(c);
+    });
+  } catch (e) {
+    g.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`;
+  }
 }
 
 // --- "show mine" owner filter (a shareable holder gallery: /gallery/<address>) ------------

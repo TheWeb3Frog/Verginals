@@ -39,6 +39,7 @@
     <button class="tab active" data-tab="inscribe">Inscribe</button>
     <button class="tab hidden" data-tab="mint" id="tab-mint">Mint ✦</button>
     <button class="tab" data-tab="explore">Explore</button>
+    <button class="tab" data-tab="market">Market</button>
     <button class="tab" data-tab="launchpad">Launchpad 🚀</button>
     <button class="tab hidden" data-tab="stats" id="tab-stats">Stats</button>
     <button class="tab" data-tab="wallet">My Wallet</button>
@@ -261,6 +262,19 @@
       </div>
       <div class="filterbar hidden" id="filterbar"></div>
       <div class="gallery" id="gallery"></div>
+    </section>
+
+    <!-- ============ MARKET ============ -->
+    <section class="panel" id="panel-market">
+      <div class="explore-head">
+        <h2>Verginals for sale</h2>
+        <div>
+          <span class="hint" id="market-meta"></span>
+          <button class="btn ghost" id="btn-market-refresh">Refresh</button>
+        </div>
+      </div>
+      <p class="hint">Trustless peer-to-peer trading. Every sale settles in a single Verge transaction: the seller is paid and the buyer receives the Verginal at the same instant, with no middleman ever holding either side. This site is only a notice board; your keys stay in your wallet. No service fee.</p>
+      <div class="gallery" id="market-gallery"><div class="empty">Loading…</div></div>
     </section>
 
     <!-- ============ STATS ============ -->
@@ -583,6 +597,7 @@
           <div class="traits detail-traits" id="detail-traits"></div>
           <div class="detail-desc hidden" id="detail-desc"></div>
           <div class="meta detail-meta" id="detail-meta"></div>
+          <div class="detail-market" id="detail-market"></div>
           <div class="detail-actions">
             <a class="btn ghost" id="detail-content" target="_blank" rel="noopener noreferrer">view content ↗</a>
             <a class="btn primary" id="detail-share" target="_blank" rel="noopener noreferrer">Share on X</a>

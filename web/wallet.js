@@ -179,7 +179,8 @@
 
     const body = document.createElement('div');
     body.className = 'ins-body';
-    const num = insc.number != null ? `#${insc.number}` : 'Verginal';
+    const num = insc.collectionNumber != null ? `#${insc.collectionNumber}`
+      : (insc.number != null ? `#${insc.number}` : 'Verginal');
     body.innerHTML = `<div class="num">${esc(num)}</div>
       <div class="meta">${fmt(u.value / COIN)} XVG locked<br>${esc(short(u.txid))}:${u.vout}</div>`;
     const btn = document.createElement('button');
@@ -192,7 +193,7 @@
     // Open the site's detail view (traits + rarity percentages) for this Verginal. app.js is
     // loaded before this file and exposes openDetailByKey; the key is the collection number
     // when known, else the reveal txid.
-    const key = insc.number != null ? String(insc.number) : rtx;
+    const key = insc.collectionNumber != null ? String(insc.collectionNumber) : rtx;
     if (key && typeof openDetailByKey === 'function') {
       c.classList.add('clickable');
       c.addEventListener('click', () => openDetailByKey(key));

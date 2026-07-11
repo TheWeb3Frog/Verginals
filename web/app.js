@@ -416,7 +416,10 @@ function card(ins) {
   const badge = pending
     ? '<span class="badge pending">⏳ unconfirmed</span>'
     : `<span class="badge ok">✓ ${fmt(ins.confirmations)} conf</span>`;
-  const numLabel = ins.number != null ? `#${ins.number}` : (ins.mine ? 'yours' : 'verginal');
+  // Collection mints are labelled by their collection number (the identity minters know and the
+  // one rarity speaks); everything else falls back to the global inscription counter.
+  const numLabel = ins.collectionNumber != null ? `#${ins.collectionNumber}`
+    : (ins.number != null ? `#${ins.number}` : (ins.mine ? 'yours' : 'verginal'));
   const where = pending ? 'mempool' : `block ${ins.genesisHeight}`;
   body.innerHTML = `<div class="num">${numLabel} ${badge}</div>
     <div class="ct">${esc(ins.contentType) || 'n/a'}</div>
@@ -445,10 +448,13 @@ function card(ins) {
 }
 $('#btn-refresh').addEventListener('click', loadInscriptions);
 
-// --- detail view (modal, deep-linkable as /v/<number|txid>) --------------------------------
+// --- detail view (modal, deep-linkable as /v/<collection number|txid>) ----------------------
 const detailModal = $('#detail-modal');
 
-function detailKey(ins) { return ins.number != null ? String(ins.number) : ins.txid; }
+// Deep-link key: the COLLECTION number when this inscription is a collection mint (that is
+// the number people know it by), else the txid. Never the global inscription counter: the
+// two sequences collide (inscription #4 is not Alpha #4).
+function detailKey(ins) { return ins.collectionNumber != null ? String(ins.collectionNumber) : ins.txid; }
 
 function openDetail(ins, push = true) {
   const url = '/api/content/' + ins.txid;
@@ -466,7 +472,7 @@ function openDetail(ins, push = true) {
   }
 
   const mdEntry = Array.isArray(ins.metadata) ? ins.metadata.find((m) => m && typeof m === 'object' && !Array.isArray(m)) : null;
-  const name = mdEntry && mdEntry.name ? String(mdEntry.name) : (ins.number != null ? `Verginals #${ins.number}` : 'Inscription');
+  const name = mdEntry && mdEntry.name ? String(mdEntry.name) : (ins.collectionNumber != null ? `Verginals #${ins.collectionNumber}` : 'Inscription');
   const pending = ins.status === 'pending';
   const badge = pending
     ? '<span class="badge pending">⏳ unconfirmed</span>'
@@ -497,13 +503,26 @@ function openDetail(ins, push = true) {
 
   const rankEl = $('#detail-rank');
   rankEl.classList.add('hidden');
-  if (ins.number != null) {
-    api('/api/collection/rarity/' + ins.number).then((r) => {
+  if (ins.collectionNumber != null && !ins.collectionSlug) {
+    // Alpha mint: the rarity engine is keyed by COLLECTION number (never the inscription counter).
+    api('/api/collection/rarity/' + ins.collectionNumber).then((r) => {
       rankEl.innerHTML = `Rarity rank <b>#${fmt(r.rank)}</b> of ${fmt(r.supply)} · score ${fmt(r.score)}`;
       rankEl.classList.remove('hidden');
       traitsEl.innerHTML = '';
       r.traits.forEach((t) => traitsEl.appendChild(chipFor(t, t.pct)));
-    }).catch(() => { /* not a collection item or rarity unavailable: keep plain chips */ });
+    }).catch(() => { /* rarity unavailable: keep the on-chain chips */ });
+  } else if (ins.collectionSlug) {
+    // Launchpad mint: annotate the on-chain chips with percentages from that collection's
+    // trait distribution (there is no per-item rank endpoint for launchpad collections yet).
+    api('/api/launchpad/' + ins.collectionSlug + '/rarity').then((r) => {
+      const pctOf = (type, value) => {
+        const t = r.traits.find((x) => x.trait_type === type);
+        const v = t && t.values.find((x) => String(x.value) === String(value));
+        return v ? v.pct : null;
+      };
+      traitsEl.innerHTML = '';
+      attrs.forEach((a) => traitsEl.appendChild(chipFor(a, pctOf(a.trait_type, a.value))));
+    }).catch(() => { /* keep plain chips */ });
   }
 
   const where = pending ? 'in the mempool' : `block ${fmt(ins.genesisHeight)}`;
@@ -545,10 +564,11 @@ window.addEventListener('popstate', () => {
   else closeDetail(false);
 });
 
-/** Open the detail view from a /v/<number|txid> deep link, loading the list if needed. */
+/** Open the detail view from a /v/<collection number|txid> deep link, loading the list if needed. */
 async function openDetailByKey(key) {
   const list = lastList.length ? lastList : await loadInscriptions();
-  const ins = list.find((i) => String(i.number) === key || i.txid === key);
+  const ins = list.find((i) => (i.collectionNumber != null && String(i.collectionNumber) === key) || i.txid === key)
+    || list.find((i) => String(i.number) === key); // legacy links that used the inscription counter
   if (ins) openDetail(ins, false);
 }
 
@@ -780,8 +800,8 @@ async function loadStats() {
     ]);
     statsLoaded = true;
 
-    // headline numbers
-    const holders = new Set(inscriptions.inscriptions.filter((i) => i.number != null && i.ownerAddress).map((i) => i.ownerAddress)).size;
+    // headline numbers (collection mints only: text and free-form inscriptions are not holders)
+    const holders = new Set(inscriptions.inscriptions.filter((i) => i.collectionNumber != null && !i.collectionSlug && i.ownerAddress).map((i) => i.ownerAddress)).size;
     const cells = [
       [fmt(status.minted), 'minted'],
       [fmt(status.remaining), 'left to mint'],
@@ -823,7 +843,8 @@ async function loadStats() {
         : '');
     $$('#stats-leaderboard [data-open]').forEach((row) => row.addEventListener('click', async () => {
       const list = lastList.length ? lastList : await loadInscriptions();
-      const ins = list.find((i) => String(i.number) === row.dataset.open);
+      // Leaderboard entries are COLLECTION numbers; match on that, never the inscription counter.
+      const ins = list.find((i) => i.collectionNumber != null && String(i.collectionNumber) === row.dataset.open);
       if (ins) openDetail(ins);
     }));
 
@@ -897,7 +918,8 @@ async function loadLatestStrip() {
       const b = document.createElement('button');
       b.className = 'latest-item';
       b.type = 'button';
-      const label = ins.number != null ? `#${ins.number}` : (ins.contentType || '').split(';')[0] || 'inscription';
+      const label = ins.collectionNumber != null ? `#${ins.collectionNumber}`
+        : (ins.number != null ? `#${ins.number}` : (ins.contentType || '').split(';')[0] || 'inscription');
       b.innerHTML = (ins.contentType || '').startsWith('image/')
         ? `<img src="/api/content/${esc(ins.txid)}" alt="" loading="lazy" /><span>${esc(label)}</span>`
         : `<span class="latest-ico">✍️</span><span>${esc(label)}</span>`;

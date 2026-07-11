@@ -1297,6 +1297,28 @@ const SHOW_OPERATOR_JOBS = process.env.VERGINALS_SHOW_JOBS === '1';
 let inscriptionsCache = null; // { at, payload }
 let inscriptionsBuilding = null;
 
+/**
+ * revealTxid -> { slug, number } for every known collection mint (Alpha slug=null, plus each
+ * live launchpad collection). Lets the payload carry the COLLECTION number alongside the global
+ * inscription number; the two live in different sequences and must never be mixed up.
+ */
+function collectionMintMap() {
+  const map = new Map();
+  if (mintCtl) {
+    for (const [num, m] of Object.entries(mintCtl.state.minted)) {
+      if (m && m.revealTxid) map.set(m.revealTxid, { slug: null, number: Number(num) });
+    }
+  }
+  if (launchpad) {
+    for (const [slug, { ctl }] of launchpad.live) {
+      for (const [num, m] of Object.entries(ctl.state.minted)) {
+        if (m && m.revealTxid) map.set(m.revealTxid, { slug, number: Number(num) });
+      }
+    }
+  }
+  return map;
+}
+
 async function buildInscriptionsPayload() {
   const tip = await chain.getBlockCount();
   // Source of truth = the full-chain index (every inscriber). Needs txindex; tolerate it not being
@@ -1338,6 +1360,15 @@ async function buildInscriptionsPayload() {
   const list = confirmed.concat(mine, pending).filter(
     (i) => !blocklist.isTxidBlocked(i.txid) && !(i.number != null && blocklist.isNumberBlocked(i.number)),
   );
+  // Attach collection identity: `number` is the global inscription counter, while rarity,
+  // names and mint state all speak COLLECTION numbers. Keeping both explicit prevents the
+  // frontend from ever asking the rarity engine about the wrong sequence.
+  const mints = collectionMintMap();
+  for (const i of list) {
+    const c = mints.get(i.txid);
+    i.collectionNumber = c ? c.number : null;
+    i.collectionSlug = c ? c.slug : null;
+  }
   const pendingCount = list.filter((i) => i.status === 'pending').length;
   return {
     indexFrom: INDEX_FROM,
@@ -1436,10 +1467,17 @@ async function handleContent(res, txid) {
 
 /** Build "txid:vout" -> {id, contentType, number} from the indexer's confirmed inscriptions. */
 function inscriptionLocationMap() {
+  const mints = collectionMintMap();
   const map = new Map();
   for (const i of indexer.list()) {
     if (i.location && i.location.includes(':')) {
-      map.set(i.location, { id: i.id, contentType: i.contentType, number: i.number });
+      const mint = mints.get(i.id.replace(/i0$/, ''));
+      map.set(i.location, {
+        id: i.id,
+        contentType: i.contentType,
+        number: i.number,
+        collectionNumber: mint ? mint.number : null,
+      });
     }
   }
   return map;

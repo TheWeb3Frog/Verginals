@@ -334,8 +334,15 @@
     return address;
   }
 
+  // The marketplace methods only exist in wallet 0.10.0+. An older extension injects a provider
+  // without them, so a method-presence check is an exact capability probe (no version parsing).
+  function activeProvider() {
+    return provider || (window.verge && window.verge.isVerginals ? window.verge : null);
+  }
+
   window.VerginalsMarket = {
     installed: hasProvider,
+    supported: () => { const p = activeProvider(); return !!(p && typeof p.listInscription === 'function'); },
     address: () => address,
     async list(outpoint, priceUnits, name) {
       await ensureConnected();

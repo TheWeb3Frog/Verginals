@@ -419,6 +419,8 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 .mk-status { font-size: 12.5px; color: var(--muted); min-height: 1em; word-break: break-all; }
 .mk-status code { color: var(--accent); }
 #market-gallery .mk-price { margin-top: 4px; font-weight: 700; color: var(--accent); }
+.badge.sale { background: #1aa3e022; color: var(--accent); border: 1px solid var(--accent2); }
+.card-sale { margin: 4px 0 2px; }
 
 /* --- launchpad -------------------------------------------------------------------------------- */
 .lp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin-top: 14px; }

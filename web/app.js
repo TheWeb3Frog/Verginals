@@ -319,6 +319,7 @@ let exploreTimer = null;
 let ownerFilter = null; // when set, Explore shows only verginals held by this address
 let traitFilter = null; // { type, value } client-side filter, set by clicking a trait chip
 let lastList = []; // inscriptions from the last load, display order (used by filter + detail)
+let listedMap = new Map(); // carrier outpoint -> priceUnits, for the "for sale" badge on cards
 
 function hasTrait(ins, type, value) {
   const md = Array.isArray(ins.metadata) ? ins.metadata.find((m) => m && Array.isArray(m.attributes)) : null;
@@ -358,6 +359,14 @@ function renderGallery() {
   list.forEach((ins) => g.appendChild(card(ins)));
 }
 
+/** Refresh the outpoint -> price map used to badge "for sale" cards. Best-effort, never throws. */
+async function refreshListedMap() {
+  try {
+    const m = await api('/api/market/listings');
+    listedMap = new Map(m.listings.map((l) => [l.carrier, l.priceUnits]));
+  } catch (_) { /* leave the previous map on error */ }
+}
+
 async function loadInscriptions() {
   const g = $('#gallery');
   if (!g.children.length || g.querySelector('.empty')) g.innerHTML = '<div class="empty">Indexing…</div>';
@@ -375,6 +384,7 @@ async function loadInscriptions() {
     const pending = data.inscriptions.filter((i) => i.status === 'pending');
     const confirmed = data.inscriptions.filter((i) => i.status !== 'pending').reverse();
     lastList = pending.concat(confirmed);
+    await refreshListedMap();
     renderGallery();
     return lastList;
   } catch (e) {
@@ -422,7 +432,10 @@ function card(ins) {
   const numLabel = ins.collectionNumber != null ? `#${ins.collectionNumber}`
     : (ins.number != null ? `#${ins.number}` : (ins.mine ? 'yours' : 'verginal'));
   const where = pending ? 'mempool' : `block ${ins.genesisHeight}`;
+  const salePrice = ins.location ? listedMap.get(ins.location) : null;
+  const saleBadge = salePrice != null ? `<span class="badge sale">🏷️ ${fmt(salePrice / 1e6)} XVG</span>` : '';
   body.innerHTML = `<div class="num">${numLabel} ${badge}</div>
+    ${saleBadge ? `<div class="card-sale">${saleBadge}</div>` : ''}
     <div class="ct">${esc(ins.contentType) || 'n/a'}</div>
     <div class="meta">${fmt(ins.bodySize)} bytes · ${where}<br>${esc(short(ins.txid))}</div>`;
   // On-chain traits (ord tag-5 CBOR metadata), when the inscription carries them.
@@ -593,6 +606,7 @@ async function renderDetailMarket(ins) {
   if (item.carriesInscription === false) return; // the sat has moved off this outpoint
 
   const M = window.VerginalsMarket;
+  const canTrade = !!(M && M.supported());
   const me = M ? M.address() : null;
   const isOwner = me && item.ownerAddress && me === item.ownerAddress;
   const name = nameOf(ins);
@@ -617,32 +631,32 @@ async function renderDetailMarket(ins) {
     }
   };
 
+  // The listed price is always shown (read-only); actions only when the wallet can trade.
   if (item.listed) {
     const price = item.priceUnits;
     const head = document.createElement('div');
     head.className = 'mk-price';
     head.innerHTML = `For sale: <b>${fmt(price / MKT_COIN)} XVG</b>`;
     wrap.appendChild(head);
-    if (isOwner) {
+    if (canTrade && isOwner) {
       wrap.appendChild(btn('Cancel listing', 'ghost', () => run('Cancelling', () => M.cancel(carrier))));
-    } else {
+    } else if (canTrade && !isOwner) {
       wrap.appendChild(btn(`Buy now for ${fmt(price / MKT_COIN)} XVG`, 'primary', () => run('Buying', () => M.buy(carrier, price, name))));
     }
-  } else if (isOwner) {
+  } else if (canTrade && isOwner) {
     const row = document.createElement('div');
     row.className = 'mk-listrow';
     row.innerHTML = `<input type="number" min="0" step="0.1" id="mk-price" placeholder="price in XVG" />`;
-    const b = btn('List for sale', 'primary', () => {
+    row.appendChild(btn('List for sale', 'primary', () => {
       const xvg = Number($('#mk-price').value);
       if (!(xvg > 0)) { status.textContent = '✗ Enter a price.'; return; }
       run('Listing', () => M.list(carrier, toUnits(xvg), name));
-    });
-    row.appendChild(b);
+    }));
     wrap.appendChild(row);
   }
 
-  // Anyone who is not the owner can make an offer.
-  if (!isOwner) {
+  // Anyone who is not the owner can make an offer (when their wallet supports it).
+  if (canTrade && !isOwner) {
     const row = document.createElement('div');
     row.className = 'mk-listrow';
     row.innerHTML = `<input type="number" min="0" step="0.1" id="mk-offer" placeholder="your offer in XVG" />`;
@@ -655,7 +669,7 @@ async function renderDetailMarket(ins) {
     wrap.appendChild(row);
   }
 
-  // Offers on this item; the owner can accept one.
+  // Offers on this item are always visible; the owner can accept one if their wallet supports it.
   if (item.bids && item.bids.length) {
     const ob = document.createElement('div');
     ob.className = 'mk-offers';
@@ -664,16 +678,22 @@ async function renderDetailMarket(ins) {
       const r = document.createElement('div');
       r.className = 'mk-offer';
       r.innerHTML = `<span><b>${fmt(bid.priceUnits / MKT_COIN)} XVG</b> from ${esc(short(bid.buyerAddress))}</span>`;
-      if (isOwner) r.appendChild(btn('Accept', 'primary sm', () => run('Accepting', () => M.accept(carrier, bid.buyerAddress, bid.priceUnits, name))));
+      if (canTrade && isOwner) r.appendChild(btn('Accept', 'primary sm', () => run('Accepting', () => M.accept(carrier, bid.buyerAddress, bid.priceUnits, name))));
       ob.appendChild(r);
     });
     wrap.appendChild(ob);
   }
 
-  if (!M) {
+  // Wallet capability hint: install, or update to the trading version.
+  if (!M || !M.installed()) {
     const hint = document.createElement('div');
     hint.className = 'hint';
-    hint.textContent = 'Install the Verginals Wallet to buy, sell or make offers.';
+    hint.innerHTML = 'Install the <a class="link" href="/verginalswallet" target="_blank" rel="noopener noreferrer">Verginals Wallet</a> to buy, sell or make offers.';
+    wrap.appendChild(hint);
+  } else if (!canTrade) {
+    const hint = document.createElement('div');
+    hint.className = 'hint';
+    hint.textContent = 'Update your Verginals Wallet to the latest version to trade (buy, sell and offers).';
     wrap.appendChild(hint);
   }
   wrap.appendChild(status);

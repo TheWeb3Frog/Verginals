@@ -118,7 +118,7 @@ async function main() {
     const svg = buildTrophySVG({
       number: champ.verginal, house: champ.house || item.house,
       imageDataUri: `data:${mime};base64,${img.toString('base64')}`,
-      tournamentName: t.name, seasonName: store.state.season.name,
+      tournamentName: t.name,
       dateISO: new Date(t.endedAt || Date.now()).toISOString().slice(0, 10), place: 'CHAMPION',
     });
     const outdir = path.join(DATA_DIR, 'game', 'trophies');

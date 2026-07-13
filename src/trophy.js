@@ -18,7 +18,6 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
  * @param {string} [p.house]        fire | water | earth (accent colour)
  * @param {string} p.imageDataUri   data: URI of the champion's Verginal image (embedded)
  * @param {string} p.tournamentName
- * @param {string} [p.seasonName]
  * @param {string} p.dateISO        e.g. '2026-07-14'
  * @param {('CHAMPION'|'RUNNER-UP')} [p.place]
  * @returns {string} a standalone SVG document
@@ -29,7 +28,6 @@ function buildTrophySVG(p) {
   const medal = place === 'CHAMPION' ? GOLD : SILVER;
   const date = esc(p.dateISO || '');
   const tname = esc(p.tournamentName || 'Arena Cup');
-  const season = esc(p.seasonName || '');
   const num = Number(p.number);
 
   // 640x800 portrait. The Verginal sits in a framed medallion; the crown, place and titles frame it.
@@ -78,7 +76,7 @@ function buildTrophySVG(p) {
   </g>
 
   <text x="320" y="672" text-anchor="middle" class="num">Verginals #${num}${p.house ? ` &#183; House of ${esc(String(p.house)[0].toUpperCase() + String(p.house).slice(1))}` : ''}</text>
-  <text x="320" y="712" text-anchor="middle" class="sub">${tname}${season ? ` &#183; ${season}` : ''}</text>
+  <text x="320" y="712" text-anchor="middle" class="sub">${tname}</text>
   <text x="320" y="748" text-anchor="middle" class="small">VERGINALS ARENA${date ? ` &#183; ${date}` : ''}</text>
 </svg>`;
 }

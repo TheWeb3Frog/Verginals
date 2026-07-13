@@ -10,7 +10,7 @@ const IMG = 'data:image/webp;base64,' + Buffer.alloc(4000, 7).toString('base64')
 
 const base = {
   number: 1856, house: 'earth', imageDataUri: IMG,
-  tournamentName: 'First Blood Cup', seasonName: 'Season 1', dateISO: '2026-07-14', place: 'CHAMPION',
+  tournamentName: 'First Blood Cup', dateISO: '2026-07-14', place: 'CHAMPION',
 };
 
 test('produces a standalone SVG document', () => {
@@ -27,6 +27,7 @@ test('embeds the champion image and identity', () => {
   assert.ok(svg.includes('CHAMPION'));
   assert.ok(svg.includes('First Blood Cup'));
   assert.ok(svg.includes('House of Earth'));
+  assert.ok(!/season/i.test(svg), 'the trophy carries no season label');
 });
 
 test('runner-up variant reads RUNNER-UP and stays valid', () => {

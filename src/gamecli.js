@@ -108,25 +108,40 @@ async function main() {
     const t = store.getTournament(args[0]);
     if (!t) { console.error('no such tournament'); process.exit(1); }
     if (t.status !== 'ended' || !t.championAddress) { console.error('tournament has no champion yet'); process.exit(1); }
-    const champ = t.participants.find((p) => p.address === t.championAddress);
-    if (!champ || champ.verginal == null) { console.error('champion has no Verginal on record'); process.exit(1); }
+    const finalRound = t.rounds[t.rounds.length - 1];
+    const fm = finalRound && finalRound.matches[0];
+    const runnerUpAddr = fm ? (fm.winner === fm.p1 ? fm.p2 : fm.p1) : null;
+
     const mint = new MintController({ collectionDir: COLLECTION_DIR, dataDir: path.join(DATA_DIR, 'mint') }).load();
-    const item = mint.byNumber.get(Number(champ.verginal));
-    if (!item) { console.error(`Verginal #${champ.verginal} not found in the collection`); process.exit(1); }
-    const img = fs.readFileSync(path.join(COLLECTION_DIR, 'images', item.filename));
-    const mime = item.filename.endsWith('.png') ? 'image/png' : item.filename.endsWith('.gif') ? 'image/gif' : 'image/webp';
-    const svg = buildTrophySVG({
-      number: champ.verginal, house: champ.house || item.house,
-      imageDataUri: `data:${mime};base64,${img.toString('base64')}`,
-      tournamentName: t.name,
-      dateISO: new Date(t.endedAt || Date.now()).toISOString().slice(0, 10), place: 'CHAMPION',
-    });
+    const dateISO = new Date(t.endedAt || Date.now()).toISOString().slice(0, 10);
     const outdir = path.join(DATA_DIR, 'game', 'trophies');
     fs.mkdirSync(outdir, { recursive: true });
-    const out = args[1] || path.join(outdir, `${t.id}.svg`);
-    fs.writeFileSync(out, svg);
-    console.log(`trophy art written to ${out} (${Buffer.byteLength(svg)} bytes) for champion ${t.championAddress}, Verginals #${champ.verginal}`);
-    console.log('review it, then inscribe it to the champion with the treasury (see the mint step).');
+
+    // Champion (gold) and runner-up (silver). Both get a trophy per the tournament setup.
+    const winners = [
+      { place: 'CHAMPION', address: t.championAddress, suffix: 'champion' },
+      { place: 'RUNNER-UP', address: runnerUpAddr, suffix: 'runner-up' },
+    ];
+    for (const w of winners) {
+      if (!w.address) continue;
+      const part = t.participants.find((p) => p.address === w.address);
+      if (!part || part.verginal == null) { console.warn(`skip ${w.place}: no Verginal on record`); continue; }
+      const item = mint.byNumber.get(Number(part.verginal));
+      if (!item) { console.warn(`skip ${w.place}: Verginal #${part.verginal} not in the collection`); continue; }
+      const img = fs.readFileSync(path.join(COLLECTION_DIR, 'images', item.filename));
+      const mime = item.filename.endsWith('.png') ? 'image/png' : item.filename.endsWith('.gif') ? 'image/gif' : 'image/webp';
+      const svg = buildTrophySVG({
+        number: part.verginal, house: part.house || item.house,
+        imageDataUri: `data:${mime};base64,${img.toString('base64')}`,
+        tournamentName: t.name, dateISO, place: w.place,
+      });
+      const out = path.join(outdir, `${t.id}-${w.suffix}.svg`);
+      fs.writeFileSync(out, svg);
+      console.log(`${w.place}: ${out} (${Buffer.byteLength(svg)} bytes) -> inscribe to ${w.address} (Verginals #${part.verginal})`);
+    }
+    console.log('\nTo mint: open the site Inscribe tab, upload the SVG, set the destination to the winner address above,');
+    console.log('create the payment request, and pay the total from the promo wallet. Then record it:');
+    console.log(`  node src/gamecli.js tournament trophy ${t.id} <revealTxid>i0`);
     return;
   }
   console.error(`unknown command: ${cmd}`);

@@ -50,6 +50,8 @@ const { PromoController } = require('./promo');
 const { computeRarity } = require('./rarity');
 const { Launchpad } = require('./launchpad');
 const { OrderBook } = require('./orderbook');
+const { GameAuth } = require('./gameauth');
+const { verifyMessage } = require('./message');
 const cbor = require('./cbor');
 
 const PORT = Number(process.env.PORT || 3400);
@@ -1040,6 +1042,76 @@ function initOrderBook() {
   orderbook = new OrderBook({ dataDir: DATA_DIR, network, chain }).load();
 }
 
+// --- Verginals Arena: player authentication and ownership (spec/GAME-SPEC-v0.md) --------------
+// The session secret should be set in the systemd env so tokens survive restarts; if it is missing
+// we fall back to a per-process random secret (sessions reset on restart, which is safe, just less
+// convenient). The game never holds funds; this only gates who may act as which player.
+const gameAuth = new GameAuth({ secret: process.env.VERGINALS_GAME_SECRET });
+if (!process.env.VERGINALS_GAME_SECRET) {
+  console.warn('VERGINALS_GAME_SECRET not set: Arena session tokens reset on each restart');
+}
+
+/** True if a string is a valid Verge address on the active network. */
+function isValidAddress(addr) {
+  if (!addr || !VALID_ADDR.test(addr)) return false;
+  try { bitcoin.address.toOutputScript(addr, pickNetwork(NETWORK).network); return true; } catch (_) { return false; }
+}
+
+/** The address a Bearer token authenticates, or null. Used to gate mutating game calls. */
+function gamePlayer(req) {
+  const h = (req.headers && req.headers.authorization) || '';
+  const m = h.match(/^Bearer\s+(.+)$/i);
+  return m ? gameAuth.verifyToken(m[1]) : null;
+}
+
+/**
+ * Resolve a carrier outpoint to its current owner and whether it still carries a Verginal. Same
+ * facts the marketplace uses, kept independent so the game does not depend on the order book.
+ */
+async function carrierOwner(txid, vout) {
+  let out;
+  try { out = await client.call('gettxout', [txid, vout, true]); } catch (_) { return null; }
+  if (!out) return { spent: true };
+  const spk = out.scriptPubKey || {};
+  const address = (spk.addresses && spk.addresses[0]) || spk.address || null;
+  const inscription = inscriptionLocationMap().get(`${txid}:${vout}`) || null;
+  return { spent: false, address, inscription };
+}
+
+/** True if `address` currently holds the Verginal at carrier outpoint `carrierKey` (txid:vout). */
+async function ownsVerginal(address, carrierKey) {
+  if (!/^[0-9a-f]{64}:\d+$/.test(carrierKey || '')) return false;
+  const [txid, vout] = carrierKey.split(':');
+  const info = await carrierOwner(txid, Number(vout));
+  return !!(info && !info.spent && info.address === address && info.inscription);
+}
+
+async function handleGameChallenge(res, address) {
+  if (!isValidAddress(address)) return sendJSON(res, 400, { error: 'a valid Verge address is required' });
+  return sendJSON(res, 200, gameAuth.issueChallenge(address));
+}
+
+async function handleGameSession(req, res) {
+  if (!allowQuote(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
+  let body;
+  try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); } catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+  const { address, nonce, signature } = body;
+  if (!address || !nonce || !signature) return sendJSON(res, 400, { error: 'address, nonce and signature are required' });
+  let challenge;
+  try { challenge = gameAuth.consumeChallenge(address, nonce); } catch (e) { return sendJSON(res, 400, { error: e.message }); }
+  if (!verifyMessage(address, challenge, signature, pickNetwork(NETWORK).network)) {
+    return sendJSON(res, 401, { error: 'signature does not match the address' });
+  }
+  return sendJSON(res, 200, { token: gameAuth.issueToken(address), address });
+}
+
+/** Whoami for the client after it holds a token: confirms the session and echoes the address. */
+async function handleGameMe(req, res) {
+  const address = gamePlayer(req);
+  if (!address) return sendJSON(res, 401, { error: 'not signed in' });
+  return sendJSON(res, 200, { address });
+}
+
 /** Coin-age floor a buyer must respect for a listing: the newest of their funding coins' nTimes. */
 async function maxCoinTime(outpoints) {
   let maxT = 0;
@@ -1756,6 +1828,9 @@ const server = http.createServer(async (req, res) => {
       if ((m = p.match(/^\/api\/launchpad\/([a-z0-9-]{3,32})\/mint$/)) && req.method === 'POST') return await handleLaunchpadMint(req, res, m[1]);
     }
     if (p === '/api/price' && req.method === 'GET') return await handlePrice(res);
+    if (p === '/api/game/challenge' && req.method === 'GET') return await handleGameChallenge(res, url.searchParams.get('address') || '');
+    if (p === '/api/game/session' && req.method === 'POST') return await handleGameSession(req, res);
+    if (p === '/api/game/me' && req.method === 'GET') return await handleGameMe(req, res);
     if (p === '/api/market/listings' && req.method === 'GET') return await handleMarketListings(res);
     if (p === '/api/market/list' && req.method === 'POST') return await handleMarketList(req, res);
     if (p === '/api/market/bid' && req.method === 'POST') return await handleMarketBid(req, res);

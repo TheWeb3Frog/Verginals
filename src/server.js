@@ -1240,6 +1240,141 @@ async function handleGameTournamentSubmit(req, res) {
   catch (e) { return sendJSON(res, 400, { error: e.message }); }
 }
 
+// --- Arena admin (tournaments + trophy minting) ---------------------------------------------
+// Off the public surface: gated by VERGINALS_GAME_ADMIN_TOKEN (set in the systemd env). The server
+// is the SOLE writer of the game store, so all tournament mutations go through here, never a CLI
+// that writes game.json behind the running server's back.
+const GAME_ADMIN_TOKEN = process.env.VERGINALS_GAME_ADMIN_TOKEN || '';
+
+function gameAdmin(req) {
+  if (!GAME_ADMIN_TOKEN) return false;
+  const h = (req.headers && req.headers.authorization) || '';
+  const m = h.match(/^Bearer\s+(.+)$/i);
+  if (!m) return false;
+  const a = Buffer.from(m[1]);
+  const b = Buffer.from(GAME_ADMIN_TOKEN);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+/** Current best block hash: the provably-fair beacon for a bracket shuffle or round resolution. */
+async function bestBlockBeacon() {
+  const height = await chain.getBlockCount();
+  const hash = await chain.getBlockHash(height);
+  return { height, hash };
+}
+
+/**
+ * Inscribe one trophy SVG to a winner, funded by the promo (treasury) wallet. Reuses the proven
+ * pipeline unchanged: build a payment job for the SVG destined to the winner, fund its deposit from
+ * the promo wallet, then drive the commit + reveal. Returns the reveal txid, or throws.
+ */
+async function mintTrophy({ address, number, house, tournamentName, place, dateISO }) {
+  if (!promoKey) throw new Error('promo wallet not configured (cannot fund the trophy)');
+  if (!mintCtl) throw new Error('collection not loaded (cannot read the champion image)');
+  const item = mintCtl.byNumber.get(Number(number));
+  if (!item) throw new Error(`Verginal #${number} not in the collection`);
+  const imgPath = path.join(COLLECTION_DIR, 'images', item.filename);
+  const img = fs.readFileSync(imgPath);
+  const mime = item.filename.endsWith('.png') ? 'image/png' : item.filename.endsWith('.gif') ? 'image/gif' : 'image/webp';
+  const svg = buildTrophySVG({
+    number, house: house || item.house, imageDataUri: `data:${mime};base64,${img.toString('base64')}`,
+    tournamentName, dateISO, place,
+  });
+  const body = Buffer.from(svg, 'utf8');
+  const { network } = pickNetwork(NETWORK);
+  const { job } = await createPaymentJob({
+    body, contentType: 'image/svg+xml', filename: 'trophy.svg', to: address,
+    amountPerInput: toUnits(MINT_PER_INPUT_XVG), networkName: NETWORK, network,
+  });
+  await promoFundDeposit(job.depositAddress, job.total);
+  // The promo funding is broadcast; listunspent(0) sees it right away. Retry briefly to be safe.
+  let utxos = [];
+  for (let i = 0; i < 10; i++) {
+    utxos = await client.call('listunspent', [0, 9999999, [job.depositAddress]]);
+    if (utxos.reduce((s, u) => s + toUnits(u.amount), 0) >= job.total) break;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  if (utxos.reduce((s, u) => s + toUnits(u.amount), 0) < job.total) throw new Error('promo funding not visible yet, retry');
+  await drivePayout(job, utxos);
+  return job.revealTxid;
+}
+
+/** After a tournament ends, mint the gold champion and silver runner-up trophies (best-effort). */
+async function mintTournamentTrophies(t) {
+  const finalRound = t.rounds[t.rounds.length - 1];
+  const fm = finalRound && finalRound.matches[0];
+  const runnerUpAddr = fm ? (fm.winner === fm.p1 ? fm.p2 : fm.p1) : null;
+  const dateISO = new Date(t.endedAt || Date.now()).toISOString().slice(0, 10);
+  const targets = [
+    { place: 'CHAMPION', slot: 'champion', address: t.championAddress },
+    { place: 'RUNNER-UP', slot: 'runnerUp', address: runnerUpAddr },
+  ];
+  for (const w of targets) {
+    if (!w.address) continue;
+    const part = t.participants.find((p) => p.address === w.address);
+    if (!part || part.verginal == null) { console.warn(`Trophy ${w.place}: no Verginal on record, skipped`); continue; }
+    try {
+      const txid = await mintTrophy({ address: w.address, number: part.verginal, house: part.house, tournamentName: t.name, place: w.place, dateISO });
+      gameStore.setTrophy(t.id, w.slot, `${txid}i0`);
+      console.log(`Trophy ${w.place} minted to ${w.address}: ${txid}i0`);
+    } catch (e) {
+      console.warn(`Trophy ${w.place} mint failed (retry later with the CLI): ${e.message}`);
+    }
+  }
+}
+
+async function handleGameAdminCreate(req, res) {
+  if (!gameAdmin(req)) return sendJSON(res, 401, { error: 'admin token required' });
+  if (!gameStore) return sendJSON(res, 404, { error: 'the Arena is not enabled on this server' });
+  let body; try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); } catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+  try { return sendJSON(res, 200, gameStore.createTournament({ name: body.name, size: Number(body.size) })); }
+  catch (e) { return sendJSON(res, 400, { error: e.message }); }
+}
+
+async function handleGameAdminStart(req, res) {
+  if (!gameAdmin(req)) return sendJSON(res, 401, { error: 'admin token required' });
+  if (!gameStore) return sendJSON(res, 404, { error: 'the Arena is not enabled on this server' });
+  let body; try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); } catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+  try {
+    const { hash, height } = await bestBlockBeacon();
+    const t = gameStore.startTournament(body.tournamentId, hash);
+    return sendJSON(res, 200, { tournament: t, beaconHeight: height });
+  } catch (e) { return sendJSON(res, 400, { error: e.message }); }
+}
+
+async function handleGameAdminResolve(req, res) {
+  if (!gameAdmin(req)) return sendJSON(res, 401, { error: 'admin token required' });
+  if (!gameStore) return sendJSON(res, 404, { error: 'the Arena is not enabled on this server' });
+  let body; try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); } catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+  try {
+    const { hash, height } = await bestBlockBeacon();
+    const t = gameStore.resolveTournamentRound(body.tournamentId, hash);
+    if (t.status === 'ended') await mintTournamentTrophies(t);
+    return sendJSON(res, 200, { tournament: gameStore.getTournament(body.tournamentId), beaconHeight: height });
+  } catch (e) { return sendJSON(res, 400, { error: e.message }); }
+}
+
+/** Manually record a trophy inscription id (fallback when auto-mint failed and you inscribed by hand). */
+async function handleGameAdminTrophy(req, res) {
+  if (!gameAdmin(req)) return sendJSON(res, 401, { error: 'admin token required' });
+  if (!gameStore) return sendJSON(res, 404, { error: 'the Arena is not enabled on this server' });
+  let body; try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); } catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+  try { return sendJSON(res, 200, gameStore.setTrophy(body.tournamentId, body.place, body.inscriptionId)); }
+  catch (e) { return sendJSON(res, 400, { error: e.message }); }
+}
+
+/** Re-run trophy minting for an ended tournament (e.g. after topping up the promo wallet). */
+async function handleGameAdminMintTrophies(req, res) {
+  if (!gameAdmin(req)) return sendJSON(res, 401, { error: 'admin token required' });
+  if (!gameStore) return sendJSON(res, 404, { error: 'the Arena is not enabled on this server' });
+  let body; try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); } catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+  const raw = gameStore.state.tournaments[body.tournamentId];
+  if (!raw) return sendJSON(res, 404, { error: 'no such tournament' });
+  if (raw.status !== 'ended') return sendJSON(res, 400, { error: 'tournament has not ended' });
+  await mintTournamentTrophies(raw);
+  return sendJSON(res, 200, { tournament: gameStore.getTournament(body.tournamentId) });
+}
+
 /** Coin-age floor a buyer must respect for a listing: the newest of their funding coins' nTimes. */
 async function maxCoinTime(outpoints) {
   let maxT = 0;
@@ -1965,6 +2100,11 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/game/tournaments' && req.method === 'GET') return await handleGameTournaments(res);
     if (p === '/api/game/tournament/join' && req.method === 'POST') return await handleGameTournamentJoin(req, res);
     if (p === '/api/game/tournament/submit' && req.method === 'POST') return await handleGameTournamentSubmit(req, res);
+    if (p === '/api/game/admin/tournament/create' && req.method === 'POST') return await handleGameAdminCreate(req, res);
+    if (p === '/api/game/admin/tournament/start' && req.method === 'POST') return await handleGameAdminStart(req, res);
+    if (p === '/api/game/admin/tournament/resolve' && req.method === 'POST') return await handleGameAdminResolve(req, res);
+    if (p === '/api/game/admin/tournament/trophy' && req.method === 'POST') return await handleGameAdminTrophy(req, res);
+    if (p === '/api/game/admin/tournament/mint-trophies' && req.method === 'POST') return await handleGameAdminMintTrophies(req, res);
     { let m; if ((m = p.match(/^\/api\/game\/duel\/([A-Za-z0-9_]+)$/)) && req.method === 'GET') return await handleGameDuelStatus(res, m[1]); }
     { let m; if ((m = p.match(/^\/api\/game\/tournament\/([A-Za-z0-9_]+)$/)) && req.method === 'GET') return await handleGameTournament(res, m[1]); }
     if (p === '/api/market/listings' && req.method === 'GET') return await handleMarketListings(res);

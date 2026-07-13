@@ -283,7 +283,7 @@ class GameStore {
       id, name: name || `Arena Cup ${id}`, size, status: 'registering',
       createdAt: this.now(), startedAt: null, endedAt: null,
       participants: [], rounds: [], currentRound: 0,
-      championAddress: null, trophyInscriptionId: null,
+      championAddress: null, trophies: { champion: null, runnerUp: null },
     };
     this.state.tournaments[id] = t;
     this._save();
@@ -426,11 +426,13 @@ class GameStore {
     return this.getTournament(id);
   }
 
-  /** Record the trophy inscription id once the treasury has minted it to the champion. */
-  setTrophy(id, inscriptionId) {
+  /** Record a trophy inscription id once the treasury has minted it. place: 'champion'|'runnerUp'. */
+  setTrophy(id, place, inscriptionId) {
     const t = this.state.tournaments[id];
     if (!t) throw new Error('no such tournament');
-    t.trophyInscriptionId = inscriptionId;
+    if (!t.trophies) t.trophies = { champion: null, runnerUp: null };
+    if (place !== 'champion' && place !== 'runnerUp') throw new Error("place must be 'champion' or 'runnerUp'");
+    t.trophies[place] = inscriptionId;
     this._save();
     return this.getTournament(id);
   }
@@ -456,7 +458,8 @@ class GameStore {
     return {
       id: t.id, name: t.name, size: t.size, status: t.status,
       createdAt: t.createdAt, startedAt: t.startedAt, endedAt: t.endedAt,
-      currentRound: t.currentRound, championAddress: t.championAddress, trophyInscriptionId: t.trophyInscriptionId,
+      currentRound: t.currentRound, championAddress: t.championAddress,
+      trophies: t.trophies || { champion: null, runnerUp: null },
       participants: t.participants.map((p) => ({ address: p.address, verginal: p.verginal, house: p.house, eliminatedRound: p.eliminatedRound })),
       rounds,
     };

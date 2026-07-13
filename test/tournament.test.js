@@ -135,8 +135,8 @@ test('setTrophy records the champion inscription id', () => {
   fill(s, t0.id, 8);
   s.startTournament(t0.id, BEACON);
   for (let i = 0; i < 3; i++) { submitAll(s, t0.id); s.resolveTournamentRound(t0.id, BEACON); }
-  const t = s.setTrophy(t0.id, 'abc123i0');
-  assert.strictEqual(t.trophyInscriptionId, 'abc123i0');
+  const t = s.setTrophy(t0.id, 'champion', 'abc123i0');
+  assert.strictEqual(t.trophies.champion, 'abc123i0');
 });
 
 test('tournament state survives a reload', () => {

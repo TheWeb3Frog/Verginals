@@ -1,128 +1,98 @@
 #!/usr/bin/env node
 'use strict';
-// Verginals Arena admin CLI: create/start/resolve tournaments off the public HTTP surface (run on
-// the server over SSH, the same trust model as launchpad curation). The provably-fair beacon is a
-// real Verge block hash; anyone can re-derive a round's result from (beacon, submitted loadouts).
+// Verginals Arena admin CLI: a thin HTTP client for the running server's admin endpoints. The
+// server is the SOLE writer of the game store, so tournament create/start/resolve go through it
+// (never a process that writes game.json behind the server's back). Run on the VPS over SSH; the
+// admin token gates every mutation.
 //
+//   VERGINALS_GAME_ADMIN_TOKEN=... node src/gamecli.js tournament create <8|16|32> [name...]
 //   node src/gamecli.js tournament list
 //   node src/gamecli.js tournament show <id>
-//   node src/gamecli.js tournament create <8|16|32> [name...]
-//   node src/gamecli.js tournament start <id>       # beacon = current best block hash
-//   node src/gamecli.js tournament resolve <id>     # resolve the current round with a fresh beacon
-//   node src/gamecli.js tournament trophy <id> <inscriptionId>
+//   ... tournament start <id>            # beacon = current best block hash (server-side)
+//   ... tournament resolve <id>          # resolves a round; auto-mints trophies on the final
+//   ... tournament mint-trophies <id>    # re-run trophy minting (e.g. after funding the promo wallet)
+//   ... tournament trophy <id> <champion|runnerUp> <inscriptionId>   # record a hand-minted trophy
+//   ... tournament trophy-art <id> [outdir]   # write the trophy SVGs locally for preview
 //
-// HARDENING TODO (not blocking): commit a FUTURE block height when a round is scheduled and use
-// that block's hash, so the operator cannot pick resolution timing. The store already accepts any
-// beacon, so this is a source swap with no logic change.
+// Env: VERGINALS_GAME_URL (default http://127.0.0.1:3400), VERGINALS_GAME_ADMIN_TOKEN,
+// VERGINALS_COLLECTION_DIR (for trophy-art image embedding).
 
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
-const { RpcClient, VergeChain } = require('./rpc');
-const { GameStore } = require('./gamestore');
 const { MintController } = require('./mint');
 const { buildTrophySVG } = require('./trophy');
 
-const NETWORK = (process.env.VERGINALS_NETWORK || 'mainnet') === 'testnet' ? 'testnet' : 'mainnet';
-const DATA_DIR = process.env.VERGINALS_DATA_DIR || path.join(__dirname, '..', 'data');
+const BASE = process.env.VERGINALS_GAME_URL || 'http://127.0.0.1:3400';
+const TOKEN = process.env.VERGINALS_GAME_ADMIN_TOKEN || '';
 const COLLECTION_DIR = process.env.VERGINALS_COLLECTION_DIR || path.join(__dirname, '..', 'verginals');
 
-function loadRpcCreds() {
-  let user = process.env.VERGINALS_RPC_USER;
-  let pass = process.env.VERGINALS_RPC_PASS;
-  const host = process.env.VERGINALS_RPC_HOST || '127.0.0.1';
-  const port = Number(process.env.VERGINALS_RPC_PORT || (NETWORK === 'mainnet' ? 20103 : 20102));
-  if (!user || !pass) {
-    const defaultConf = NETWORK === 'mainnet'
-      ? path.join(os.homedir(), 'Library', 'Application Support', 'VERGE', 'VERGE.conf')
-      : path.join(os.homedir(), 'verge-testnet', '.VERGE', 'VERGE.conf');
-    const conf = process.env.VERGINALS_RPC_CONF || defaultConf;
-    try {
-      const text = fs.readFileSync(conf, 'utf8');
-      const grab = (k) => (text.match(new RegExp('^' + k + '=(.*)$', 'm')) || [])[1];
-      user = user || grab('rpcuser');
-      pass = pass || grab('rpcpassword');
-    } catch (_) { /* leave undefined */ }
+async function api(method, p, body, admin) {
+  const headers = { 'content-type': 'application/json' };
+  if (admin) {
+    if (!TOKEN) throw new Error('set VERGINALS_GAME_ADMIN_TOKEN for admin commands');
+    headers.authorization = `Bearer ${TOKEN}`;
   }
-  return { host, port, user, pass };
-}
-
-function openStore() {
-  const gdir = path.join(DATA_DIR, 'game');
-  fs.mkdirSync(gdir, { recursive: true });
-  return new GameStore({ dataDir: gdir }).load();
-}
-
-/** The current best block hash, used as the round beacon. */
-async function bestBlockBeacon() {
-  const chain = new VergeChain(new RpcClient(loadRpcCreds()));
-  const height = await chain.getBlockCount();
-  const hash = await chain.getBlockHash(height);
-  return { height, hash };
+  const res = await fetch(BASE + p, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `${res.status} ${res.statusText}`);
+  return data;
 }
 
 async function main() {
   const [, , group, cmd, ...args] = process.argv;
   if (group !== 'tournament') {
-    console.error('usage: node src/gamecli.js tournament <list|show|create|start|resolve|trophy> ...');
+    console.error('usage: node src/gamecli.js tournament <list|show|create|start|resolve|mint-trophies|trophy|trophy-art> ...');
     process.exit(2);
   }
-  const store = openStore();
 
   if (cmd === 'list') {
-    for (const t of store.listTournaments()) console.log(`${t.id}  ${t.status.padEnd(12)} ${t.players}/${t.size}  ${t.name}${t.championAddress ? '  champion=' + t.championAddress : ''}`);
+    const { tournaments } = await api('GET', '/api/game/tournaments');
+    for (const t of tournaments) console.log(`${t.id}  ${t.status.padEnd(12)} ${t.players}/${t.size}  ${t.name}${t.championAddress ? '  champion=' + t.championAddress : ''}`);
     return;
   }
   if (cmd === 'show') {
-    console.log(JSON.stringify(store.getTournament(args[0]), null, 2));
+    const { tournament } = await api('GET', `/api/game/tournament/${args[0]}`);
+    console.log(JSON.stringify(tournament, null, 2));
     return;
   }
   if (cmd === 'create') {
-    const size = Number(args[0]);
-    const name = args.slice(1).join(' ') || undefined;
-    const t = store.createTournament({ name, size });
-    console.log(`created ${t.id} (${t.size} players, registering): ${t.name}`);
+    const t = await api('POST', '/api/game/admin/tournament/create', { size: Number(args[0]), name: args.slice(1).join(' ') || undefined }, true);
+    console.log(`created ${t.id} (${t.size} players, ${t.status}): ${t.name}`);
     return;
   }
   if (cmd === 'start') {
-    const { height, hash } = await bestBlockBeacon();
-    const t = store.startTournament(args[0], hash);
-    console.log(`started ${t.id} with beacon block ${height} (${hash.slice(0, 16)}...), round 1 of ${t.rounds.length ? Math.log2(t.size) : '?'} laid out`);
+    const r = await api('POST', '/api/game/admin/tournament/start', { tournamentId: args[0] }, true);
+    console.log(`started ${r.tournament.id} with beacon block ${r.beaconHeight}, round 1 laid out`);
     return;
   }
   if (cmd === 'resolve') {
-    const { height, hash } = await bestBlockBeacon();
-    const before = store.getTournament(args[0]);
-    if (!before) { console.error('no such tournament'); process.exit(1); }
-    const t = store.resolveTournamentRound(args[0], hash);
-    if (t.status === 'ended') console.log(`resolved final with beacon block ${height}: CHAMPION = ${t.championAddress}`);
-    else console.log(`resolved round ${before.currentRound} with beacon block ${height}; now on round ${t.currentRound}`);
+    const r = await api('POST', '/api/game/admin/tournament/resolve', { tournamentId: args[0] }, true);
+    const t = r.tournament;
+    if (t.status === 'ended') console.log(`resolved final (beacon block ${r.beaconHeight}): CHAMPION = ${t.championAddress}; trophies = ${JSON.stringify(t.trophies)}`);
+    else console.log(`resolved a round (beacon block ${r.beaconHeight}); now on round ${t.currentRound}`);
+    return;
+  }
+  if (cmd === 'mint-trophies') {
+    const r = await api('POST', '/api/game/admin/tournament/mint-trophies', { tournamentId: args[0] }, true);
+    console.log(`trophies: ${JSON.stringify(r.tournament.trophies)}`);
     return;
   }
   if (cmd === 'trophy') {
-    const t = store.setTrophy(args[0], args[1]);
-    console.log(`trophy for ${t.id} set to ${t.trophyInscriptionId}`);
+    const r = await api('POST', '/api/game/admin/tournament/trophy', { tournamentId: args[0], place: args[1], inscriptionId: args[2] }, true);
+    console.log(`recorded ${args[1]} trophy: ${JSON.stringify(r.trophies)}`);
     return;
   }
   if (cmd === 'trophy-art') {
-    const t = store.getTournament(args[0]);
-    if (!t) { console.error('no such tournament'); process.exit(1); }
-    if (t.status !== 'ended' || !t.championAddress) { console.error('tournament has no champion yet'); process.exit(1); }
+    const { tournament: t } = await api('GET', `/api/game/tournament/${args[0]}`);
+    if (!t || t.status !== 'ended' || !t.championAddress) { console.error('tournament has no champion yet'); process.exit(1); }
     const finalRound = t.rounds[t.rounds.length - 1];
     const fm = finalRound && finalRound.matches[0];
     const runnerUpAddr = fm ? (fm.winner === fm.p1 ? fm.p2 : fm.p1) : null;
-
-    const mint = new MintController({ collectionDir: COLLECTION_DIR, dataDir: path.join(DATA_DIR, 'mint') }).load();
+    const mint = new MintController({ collectionDir: COLLECTION_DIR, dataDir: path.join(__dirname, '..', 'data', 'mint') }).load();
     const dateISO = new Date(t.endedAt || Date.now()).toISOString().slice(0, 10);
-    const outdir = path.join(DATA_DIR, 'game', 'trophies');
+    const outdir = args[1] || path.join(__dirname, '..', 'data', 'game', 'trophies');
     fs.mkdirSync(outdir, { recursive: true });
-
-    // Champion (gold) and runner-up (silver). Both get a trophy per the tournament setup.
-    const winners = [
-      { place: 'CHAMPION', address: t.championAddress, suffix: 'champion' },
-      { place: 'RUNNER-UP', address: runnerUpAddr, suffix: 'runner-up' },
-    ];
-    for (const w of winners) {
+    for (const w of [{ place: 'CHAMPION', address: t.championAddress, suffix: 'champion' }, { place: 'RUNNER-UP', address: runnerUpAddr, suffix: 'runner-up' }]) {
       if (!w.address) continue;
       const part = t.participants.find((p) => p.address === w.address);
       if (!part || part.verginal == null) { console.warn(`skip ${w.place}: no Verginal on record`); continue; }
@@ -130,18 +100,11 @@ async function main() {
       if (!item) { console.warn(`skip ${w.place}: Verginal #${part.verginal} not in the collection`); continue; }
       const img = fs.readFileSync(path.join(COLLECTION_DIR, 'images', item.filename));
       const mime = item.filename.endsWith('.png') ? 'image/png' : item.filename.endsWith('.gif') ? 'image/gif' : 'image/webp';
-      const svg = buildTrophySVG({
-        number: part.verginal, house: part.house || item.house,
-        imageDataUri: `data:${mime};base64,${img.toString('base64')}`,
-        tournamentName: t.name, dateISO, place: w.place,
-      });
+      const svg = buildTrophySVG({ number: part.verginal, house: part.house || item.house, imageDataUri: `data:${mime};base64,${img.toString('base64')}`, tournamentName: t.name, dateISO, place: w.place });
       const out = path.join(outdir, `${t.id}-${w.suffix}.svg`);
       fs.writeFileSync(out, svg);
-      console.log(`${w.place}: ${out} (${Buffer.byteLength(svg)} bytes) -> inscribe to ${w.address} (Verginals #${part.verginal})`);
+      console.log(`${w.place}: ${out} (${Buffer.byteLength(svg)} bytes) -> ${w.address} (Verginals #${part.verginal})`);
     }
-    console.log('\nTo mint: open the site Inscribe tab, upload the SVG, set the destination to the winner address above,');
-    console.log('create the payment request, and pay the total from the promo wallet. Then record it:');
-    console.log(`  node src/gamecli.js tournament trophy ${t.id} <revealTxid>i0`);
     return;
   }
   console.error(`unknown command: ${cmd}`);

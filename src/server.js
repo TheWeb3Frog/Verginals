@@ -1054,6 +1054,34 @@ async function maxCoinTime(outpoints) {
   return maxT;
 }
 
+// XVG spot price in USD, cached so we hit the upstream at most once every few minutes no matter
+// how many visitors ask. Best-effort: on any failure we keep serving the last good value (or null),
+// the site just falls back to showing plain XVG.
+let priceCache = { usd: null, at: 0 };
+const PRICE_TTL = 5 * 60 * 1000;
+
+async function xvgUsd() {
+  const now = Date.now();
+  if (priceCache.usd != null && now - priceCache.at < PRICE_TTL) return priceCache.usd;
+  try {
+    const r = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=verge&vs_currencies=usd', {
+      signal: AbortSignal.timeout(4000),
+      headers: { accept: 'application/json' },
+    });
+    const j = await r.json();
+    const usd = j && j.verge && typeof j.verge.usd === 'number' ? j.verge.usd : null;
+    if (usd != null) priceCache = { usd, at: now };
+  } catch (_) {
+    // network hiccup or rate limit: keep the stale value, don't disturb the caller
+  }
+  return priceCache.usd;
+}
+
+async function handlePrice(res) {
+  const usd = await xvgUsd();
+  sendJSON(res, 200, { usd, at: priceCache.at || null });
+}
+
 async function handleMarketListings(res) {
   if (!orderbook) return sendJSON(res, 404, { error: 'marketplace disabled' });
   sendJSON(res, 200, { listings: await orderbook.listings() });
@@ -1727,6 +1755,7 @@ const server = http.createServer(async (req, res) => {
       if ((m = p.match(/^\/api\/launchpad\/([a-z0-9-]{3,32})\/rarity$/)) && req.method === 'GET') return handleLaunchpadRarity(res, m[1]);
       if ((m = p.match(/^\/api\/launchpad\/([a-z0-9-]{3,32})\/mint$/)) && req.method === 'POST') return await handleLaunchpadMint(req, res, m[1]);
     }
+    if (p === '/api/price' && req.method === 'GET') return await handlePrice(res);
     if (p === '/api/market/listings' && req.method === 'GET') return await handleMarketListings(res);
     if (p === '/api/market/list' && req.method === 'POST') return await handleMarketList(req, res);
     if (p === '/api/market/bid' && req.method === 'POST') return await handleMarketBid(req, res);

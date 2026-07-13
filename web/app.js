@@ -595,6 +595,30 @@ const MKT_COIN = 1_000_000;
 const toUnits = (xvg) => Math.round(Number(xvg) * MKT_COIN);
 const nameOf = (ins) => (ins.collectionNumber != null ? `Verginals #${ins.collectionNumber}` : 'this Verginal');
 
+// Spot XVG/USD, fetched once on load and refreshed lazily. Purely indicative: prices are always
+// paid in XVG, the dollar figure is a convenience and is simply hidden when we have no rate.
+let XVG_USD = null;
+async function loadPrice() {
+  try {
+    const p = await api('/api/price');
+    if (p && typeof p.usd === 'number') XVG_USD = p.usd;
+  } catch (_) { /* leave XVG_USD null, the UI falls back to plain XVG */ }
+}
+/** Format an XVG amount as a "≈ $x.xx" string, or '' when no rate is available. */
+function usdStr(xvg) {
+  if (XVG_USD == null || !(xvg > 0)) return '';
+  const v = xvg * XVG_USD;
+  const digits = v >= 100 ? 0 : v >= 1 ? 2 : 4;
+  return '≈ $' + v.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
+/** Live-update a "≈ $x" hint under a price/offer input as the user types. */
+function liveUsd(input, target) {
+  if (!input || !target) return;
+  const upd = () => { target.textContent = usdStr(Number(input.value)); };
+  input.addEventListener('input', upd);
+  upd();
+}
+
 /** Render the buy/sell/offer panel inside the open detail view for one inscription. */
 async function renderDetailMarket(ins) {
   const box = $('#detail-market');
@@ -636,39 +660,55 @@ async function renderDetailMarket(ins) {
   // The listed price is always shown (read-only); actions only when the wallet can trade.
   if (item.listed) {
     const price = item.priceUnits;
+    const xvg = price / MKT_COIN;
+    const usd = usdStr(xvg);
     const head = document.createElement('div');
     head.className = 'mk-price';
-    head.innerHTML = `For sale: <b>${fmt(price / MKT_COIN)} XVG</b>`;
+    head.innerHTML = `For sale: <b>${fmt(xvg)} XVG</b>${usd ? ` <span class="mk-usd">${usd}</span>` : ''}`;
     wrap.appendChild(head);
     if (canTrade && isOwner) {
       wrap.appendChild(btn('Cancel listing', 'ghost', () => run('Cancelling', () => M.cancel(carrier))));
     } else if (canTrade && !isOwner) {
-      wrap.appendChild(btn(`Buy now for ${fmt(price / MKT_COIN)} XVG`, 'primary', () => run('Buying', () => M.buy(carrier, price, name))));
+      wrap.appendChild(btn(`Buy now for ${fmt(xvg)} XVG`, 'primary', () => run('Buying', () => M.buy(carrier, price, name))));
     }
   } else if (canTrade && isOwner) {
-    const row = document.createElement('div');
-    row.className = 'mk-listrow';
-    row.innerHTML = `<input type="number" min="0" step="0.1" id="mk-price" placeholder="price in XVG" />`;
-    row.appendChild(btn('List for sale', 'primary', () => {
+    const form = document.createElement('div');
+    form.className = 'mk-form';
+    form.innerHTML = `
+      <label class="mk-label" for="mk-price">Set your price</label>
+      <div class="mk-field">
+        <input type="number" inputmode="decimal" min="0" step="0.1" id="mk-price" placeholder="0.00" />
+        <span class="mk-suffix">XVG</span>
+      </div>
+      <div class="mk-usd" id="mk-price-usd"></div>`;
+    liveUsd(form.querySelector('#mk-price'), form.querySelector('#mk-price-usd'));
+    form.appendChild(btn('List for sale', 'primary block', () => {
       const xvg = Number($('#mk-price').value);
       if (!(xvg > 0)) { status.textContent = '✗ Enter a price.'; return; }
       run('Listing', () => M.list(carrier, toUnits(xvg), name));
     }));
-    wrap.appendChild(row);
+    wrap.appendChild(form);
   }
 
   // Anyone who is not the owner can make an offer (when their wallet supports it).
   if (canTrade && !isOwner) {
-    const row = document.createElement('div');
-    row.className = 'mk-listrow';
-    row.innerHTML = `<input type="number" min="0" step="0.1" id="mk-offer" placeholder="your offer in XVG" />`;
-    row.appendChild(btn('Make an offer', 'ghost', () => {
+    const form = document.createElement('div');
+    form.className = 'mk-form';
+    form.innerHTML = `
+      <label class="mk-label" for="mk-offer">Make an offer</label>
+      <div class="mk-field">
+        <input type="number" inputmode="decimal" min="0" step="0.1" id="mk-offer" placeholder="0.00" />
+        <span class="mk-suffix">XVG</span>
+      </div>
+      <div class="mk-usd" id="mk-offer-usd"></div>`;
+    liveUsd(form.querySelector('#mk-offer'), form.querySelector('#mk-offer-usd'));
+    form.appendChild(btn('Send offer', 'ghost block', () => {
       const xvg = Number($('#mk-offer').value);
       if (!(xvg > 0)) { status.textContent = '✗ Enter an offer.'; return; }
       if (item.carrierValue == null) { status.textContent = '✗ Cannot read the item right now.'; return; }
       run('Offering', () => M.offer(carrier, item.ownerAddress, item.carrierValue, toUnits(xvg), name));
     }));
-    wrap.appendChild(row);
+    wrap.appendChild(form);
   }
 
   // Offers on this item are always visible; the owner can accept one if their wallet supports it.
@@ -679,7 +719,8 @@ async function renderDetailMarket(ins) {
     item.bids.forEach((bid) => {
       const r = document.createElement('div');
       r.className = 'mk-offer';
-      r.innerHTML = `<span><b>${fmt(bid.priceUnits / MKT_COIN)} XVG</b> from ${esc(short(bid.buyerAddress))}</span>`;
+      const bxvg = bid.priceUnits / MKT_COIN, busd = usdStr(bxvg);
+      r.innerHTML = `<span><b>${fmt(bxvg)} XVG</b>${busd ? ` <span class="mk-usd">${busd}</span>` : ''} from ${esc(short(bid.buyerAddress))}</span>`;
       if (canTrade && isOwner) r.appendChild(btn('Accept', 'primary sm', () => run('Accepting', () => M.accept(carrier, bid.buyerAddress, bid.priceUnits, name))));
       ob.appendChild(r);
     });
@@ -733,9 +774,10 @@ async function loadMarket() {
         ? `<img src="/api/content/${esc(ins.txid)}" loading="lazy" alt="" />`
         : '<div class="blob">🏷️</div>';
       const label = ins && ins.collectionNumber != null ? `#${ins.collectionNumber}` : 'Verginal';
+      const xvg = l.priceUnits / MKT_COIN, usd = usdStr(xvg);
       c.innerHTML = `<div class="ins-media">${img}</div>
         <div class="ins-body"><div class="num">${label}</div>
-        <div class="mk-price">${fmt(l.priceUnits / MKT_COIN)} XVG</div></div>`;
+        <div class="mk-price">${fmt(xvg)} XVG</div>${usd ? `<div class="mk-usd">${usd}</div>` : ''}</div>`;
       if (ins) c.addEventListener('click', () => openDetail(ins));
       g.appendChild(c);
     });
@@ -1495,6 +1537,7 @@ function renderDonateQR() {
   }
   loadMintStatus(); // reveals the Mint tab only when the server has a collection loaded
   loadLatestStrip();
+  loadPrice(); // spot XVG/USD for the indicative dollar figures across the marketplace
 
   // Shareable deep links: /v/<number|txid> opens one Verginal, /gallery/<address> a holder
   // page, /launchpad[/<slug>] the community launchpad.

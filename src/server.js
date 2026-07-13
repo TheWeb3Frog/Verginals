@@ -1204,6 +1204,42 @@ async function handleGameLeaderboard(res) {
   return sendJSON(res, 200, { season: gameStore.state.season, top: gameStore.leaderboard(), houses: gameStore.houseStandings() });
 }
 
+async function handleGameTournaments(res) {
+  if (!gameStore) return sendJSON(res, 404, { error: 'the Arena is not enabled on this server' });
+  return sendJSON(res, 200, { tournaments: gameStore.listTournaments() });
+}
+
+async function handleGameTournament(res, id) {
+  if (!gameStore) return sendJSON(res, 404, { error: 'the Arena is not enabled on this server' });
+  const t = gameStore.getTournament(id);
+  if (!t) return sendJSON(res, 404, { error: 'no such tournament' });
+  return sendJSON(res, 200, { tournament: t });
+}
+
+async function handleGameTournamentJoin(req, res) {
+  const address = gamePlayer(req);
+  if (!address) return sendJSON(res, 401, { error: 'not signed in' });
+  if (!gameStore) return sendJSON(res, 404, { error: 'the Arena is not enabled on this server' });
+  if (!allowQuote(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
+  let body;
+  try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); } catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+  const fr = await fighterForVerginal(address, body.verginal);
+  if (fr.error) return sendJSON(res, 400, { error: fr.error });
+  try { return sendJSON(res, 200, gameStore.joinTournament(body.tournamentId, fr.fighter)); }
+  catch (e) { return sendJSON(res, 400, { error: e.message }); }
+}
+
+async function handleGameTournamentSubmit(req, res) {
+  const address = gamePlayer(req);
+  if (!address) return sendJSON(res, 401, { error: 'not signed in' });
+  if (!gameStore) return sendJSON(res, 404, { error: 'the Arena is not enabled on this server' });
+  if (!allowQuote(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
+  let body;
+  try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); } catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+  try { return sendJSON(res, 200, gameStore.submitTournamentLoadout(body.tournamentId, address, normalizeLoadout(body.loadout))); }
+  catch (e) { return sendJSON(res, 400, { error: e.message }); }
+}
+
 /** Coin-age floor a buyer must respect for a listing: the newest of their funding coins' nTimes. */
 async function maxCoinTime(outpoints) {
   let maxT = 0;
@@ -1926,7 +1962,11 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/game/duel/queue' && req.method === 'POST') return await handleGameDuel(req, res, 'queue');
     if (p === '/api/game/duel/bot' && req.method === 'POST') return await handleGameDuel(req, res, 'bot');
     if (p === '/api/game/leaderboard' && req.method === 'GET') return await handleGameLeaderboard(res);
+    if (p === '/api/game/tournaments' && req.method === 'GET') return await handleGameTournaments(res);
+    if (p === '/api/game/tournament/join' && req.method === 'POST') return await handleGameTournamentJoin(req, res);
+    if (p === '/api/game/tournament/submit' && req.method === 'POST') return await handleGameTournamentSubmit(req, res);
     { let m; if ((m = p.match(/^\/api\/game\/duel\/([A-Za-z0-9_]+)$/)) && req.method === 'GET') return await handleGameDuelStatus(res, m[1]); }
+    { let m; if ((m = p.match(/^\/api\/game\/tournament\/([A-Za-z0-9_]+)$/)) && req.method === 'GET') return await handleGameTournament(res, m[1]); }
     if (p === '/api/market/listings' && req.method === 'GET') return await handleMarketListings(res);
     if (p === '/api/market/list' && req.method === 'POST') return await handleMarketList(req, res);
     if (p === '/api/market/bid' && req.method === 'POST') return await handleMarketBid(req, res);

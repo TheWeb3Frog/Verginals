@@ -13,7 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const {
-  ELEMENTS, DEFAULT_CONFIG, resolveMatch, combineSeed, serverSeedHash, updateElo,
+  ELEMENTS, DEFAULT_CONFIG, resolveMatch, combineSeed, serverSeedHash, updateElo, beaconSeed, rngFromSeed,
 } = require('./game');
 
 const START_ELO = 1200;
@@ -28,6 +28,11 @@ const PARTICIPATION_BADGES = [
   { key: 'veteran', when: (p) => p.matches >= 50 },
   { key: 'relentless', when: (p) => p.matches >= 100 },
 ];
+
+// Tournaments run as single-elimination brackets on power-of-two fields. A player "entering" a
+// round of N survivors earns the badge for that field size, so progress is rewarded live.
+const TOURNAMENT_SIZES = [8, 16, 32];
+const FIELD_BADGE = { 32: 'top_32', 16: 'top_16', 8: 'top_8', 4: 'top_4', 2: 'finalist' };
 
 /** Turn one player's loadout into the three per-round move objects the engine consumes. */
 function loadoutSide(loadout) {
@@ -86,10 +91,12 @@ class GameStore {
         houses: {},         // house -> { points, wins }
         waiting: null,      // a single open 1v1 loadout awaiting an opponent
         matches: [],        // recent resolved matches (bounded)
+        tournaments: {},    // id -> tournament record
         seq: 0,
       };
       this._save();
     }
+    if (!this.state.tournaments) this.state.tournaments = {}; // migrate older files
     return this;
   }
 
@@ -259,6 +266,208 @@ class GameStore {
     return this.state.matches.find((m) => m.id === id) || null;
   }
 
+  // --- tournaments (single-elimination, block-hash beacon per round) --------------------------
+
+  /** Grant a badge to a player (creating their record if needed). Returns true if newly granted. */
+  _grantBadge(address, key, house) {
+    const p = this._player(address, house);
+    if (!p.badges.includes(key)) { p.badges.push(key); return true; }
+    return false;
+  }
+
+  /** Create a registering tournament. size must be one of TOURNAMENT_SIZES. Returns the record. */
+  createTournament({ name, size }) {
+    if (!TOURNAMENT_SIZES.includes(size)) throw new Error(`size must be one of ${TOURNAMENT_SIZES.join('/')}`);
+    const id = this._id('t');
+    const t = {
+      id, name: name || `Arena Cup ${id}`, size, status: 'registering',
+      createdAt: this.now(), startedAt: null, endedAt: null,
+      participants: [], rounds: [], currentRound: 0,
+      championAddress: null, trophyInscriptionId: null,
+    };
+    this.state.tournaments[id] = t;
+    this._save();
+    return this.getTournament(id);
+  }
+
+  /** Join a registering tournament with a fighter (already ownership-checked by the caller). */
+  joinTournament(id, fighter) {
+    const t = this.state.tournaments[id];
+    if (!t) throw new Error('no such tournament');
+    if (t.status !== 'registering') throw new Error('registration is closed');
+    if (t.participants.length >= t.size) throw new Error('tournament is full');
+    if (t.participants.some((p) => p.address === fighter.address)) throw new Error('you already joined this tournament');
+    t.participants.push({ address: fighter.address, verginal: fighter.verginal ?? null, house: fighter.house || null, fighter, eliminatedRound: null });
+    this._grantBadge(fighter.address, 'tournament_debut', fighter.house);
+    this._save();
+    return { joined: true, count: t.participants.length, size: t.size };
+  }
+
+  /**
+   * Start a full tournament: shuffle the field with the beacon and lay out round 1. `beacon` is a
+   * Verge block hash committed before it existed (the caller announces the height in advance).
+   */
+  startTournament(id, beacon) {
+    const t = this.state.tournaments[id];
+    if (!t) throw new Error('no such tournament');
+    if (t.status !== 'registering') throw new Error('already started');
+    if (t.participants.length !== t.size) throw new Error(`need ${t.size} players, have ${t.participants.length}`);
+    if (!beacon) throw new Error('a beacon (block hash) is required to seed the bracket');
+
+    const order = t.participants.map((p) => p.address);
+    // Deterministic Fisher-Yates shuffle from the beacon so the seeding is verifiable.
+    const rng = rngFromSeed(beaconSeed(beacon, id, 'bracket'));
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    t.seedOrder = order;
+    t.status = 'running';
+    t.startedAt = this.now();
+    t.currentRound = 1;
+    this._layoutRound(t, 1, order);
+    this._save();
+    return this.getTournament(id);
+  }
+
+  /** Create the pending matches for a round from an ordered list of survivor addresses. */
+  _layoutRound(t, round, order) {
+    const field = order.length; // survivors entering this round
+    const matches = [];
+    for (let i = 0; i < order.length; i += 2) {
+      matches.push({
+        id: `${t.id}-r${round}-m${i / 2}`, round,
+        p1: order[i], p2: order[i + 1],
+        l1: null, l2: null, winner: null, seed: null, status: 'pending',
+      });
+    }
+    t.rounds.push({ round, field, beacon: null, matches });
+    // Award the field-size badge to everyone who reached this round.
+    const badge = FIELD_BADGE[field];
+    if (badge) order.forEach((addr) => this._grantBadge(addr, badge, this._participant(t, addr) && this._participant(t, addr).house));
+  }
+
+  _participant(t, address) {
+    return t.participants.find((p) => p.address === address) || null;
+  }
+
+  _currentMatchFor(t, address) {
+    const round = t.rounds[t.currentRound - 1];
+    if (!round) return null;
+    return round.matches.find((m) => m.status === 'pending' && (m.p1 === address || m.p2 === address)) || null;
+  }
+
+  /** Submit a loadout for your current-round match. Opponents never see it until the round resolves. */
+  submitTournamentLoadout(id, address, loadout) {
+    const t = this.state.tournaments[id];
+    if (!t) throw new Error('no such tournament');
+    if (t.status !== 'running') throw new Error('tournament is not running');
+    const match = this._currentMatchFor(t, address);
+    if (!match) throw new Error('you have no pending match in this round');
+    const side = match.p1 === address ? 'l1' : 'l2';
+    if (match[side]) throw new Error('you already submitted this round');
+    validateLoadout(this._participant(t, address).fighter, loadout);
+    match[side] = loadout;
+    this._save();
+    return { submitted: true, matchId: match.id };
+  }
+
+  /**
+   * Resolve the current round with a committed block-hash beacon. A player who did not submit
+   * forfeits; if neither did, the beacon breaks the tie. Winners advance; the final crowns a
+   * champion. Returns the public tournament view.
+   */
+  resolveTournamentRound(id, beacon) {
+    const t = this.state.tournaments[id];
+    if (!t) throw new Error('no such tournament');
+    if (t.status !== 'running') throw new Error('tournament is not running');
+    if (!beacon) throw new Error('a beacon (block hash) is required');
+    const round = t.rounds[t.currentRound - 1];
+    if (!round) throw new Error('no current round');
+    round.beacon = beacon;
+
+    const winners = [];
+    for (const m of round.matches) {
+      if (m.status === 'resolved') { winners.push(m.winner); continue; }
+      const seed = beaconSeed(beacon, id, m.id);
+      m.seed = seed;
+      let winner;
+      if (m.l1 && m.l2) {
+        const p1 = this._participant(t, m.p1).fighter;
+        const p2 = this._participant(t, m.p2).fighter;
+        const sideA = loadoutSide(m.l1);
+        const sideB = loadoutSide(m.l2);
+        const moves = [0, 1, 2].map((i) => ({ p1: sideA[i], p2: sideB[i] }));
+        winner = resolveMatch({ p1, p2, moves, seed, config: this.config }).winner;
+      } else if (m.l1) winner = m.p1;
+      else if (m.l2) winner = m.p2;
+      else winner = rngFromSeed(seed)() < 0.5 ? m.p1 : m.p2; // double no-show: beacon decides
+      m.winner = winner;
+      m.status = 'resolved';
+      const loser = winner === m.p1 ? m.p2 : m.p1;
+      const lp = this._participant(t, loser);
+      if (lp) lp.eliminatedRound = round.round;
+      winners.push(winner);
+    }
+
+    if (winners.length === 1) {
+      t.championAddress = winners[0];
+      t.status = 'ended';
+      t.endedAt = this.now();
+      const finalMatch = round.matches[0];
+      const runnerUp = finalMatch.winner === finalMatch.p1 ? finalMatch.p2 : finalMatch.p1;
+      this._grantBadge(t.championAddress, 'champion', this._participant(t, t.championAddress) && this._participant(t, t.championAddress).house);
+      this._grantBadge(runnerUp, 'runner_up', this._participant(t, runnerUp) && this._participant(t, runnerUp).house);
+    } else {
+      t.currentRound += 1;
+      this._layoutRound(t, t.currentRound, winners);
+    }
+    this._save();
+    return this.getTournament(id);
+  }
+
+  /** Record the trophy inscription id once the treasury has minted it to the champion. */
+  setTrophy(id, inscriptionId) {
+    const t = this.state.tournaments[id];
+    if (!t) throw new Error('no such tournament');
+    t.trophyInscriptionId = inscriptionId;
+    this._save();
+    return this.getTournament(id);
+  }
+
+  /**
+   * Public view of a tournament. Loadouts of still-pending matches are redacted to a submitted
+   * flag, so an opponent cannot peek before the round resolves (anti-cheat).
+   */
+  getTournament(id) {
+    const t = this.state.tournaments[id];
+    if (!t) return null;
+    const rounds = t.rounds.map((r) => ({
+      round: r.round, field: r.field, beacon: r.beacon,
+      matches: r.matches.map((m) => {
+        const done = m.status === 'resolved';
+        return {
+          id: m.id, p1: m.p1, p2: m.p2, winner: m.winner, seed: m.seed, status: m.status,
+          p1Submitted: !!m.l1, p2Submitted: !!m.l2,
+          l1: done ? m.l1 : undefined, l2: done ? m.l2 : undefined,
+        };
+      }),
+    }));
+    return {
+      id: t.id, name: t.name, size: t.size, status: t.status,
+      createdAt: t.createdAt, startedAt: t.startedAt, endedAt: t.endedAt,
+      currentRound: t.currentRound, championAddress: t.championAddress, trophyInscriptionId: t.trophyInscriptionId,
+      participants: t.participants.map((p) => ({ address: p.address, verginal: p.verginal, house: p.house, eliminatedRound: p.eliminatedRound })),
+      rounds,
+    };
+  }
+
+  listTournaments() {
+    return Object.values(this.state.tournaments)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .map((t) => ({ id: t.id, name: t.name, size: t.size, status: t.status, players: t.participants.length, championAddress: t.championAddress }));
+  }
+
   /** Is this address the one currently waiting for an opponent? Returns the safe public view. */
   waitingFor(address) {
     const w = this.state.waiting;
@@ -267,4 +476,4 @@ class GameStore {
   }
 }
 
-module.exports = { GameStore, loadoutSide, validateLoadout, START_ELO };
+module.exports = { GameStore, loadoutSide, validateLoadout, START_ELO, TOURNAMENT_SIZES };

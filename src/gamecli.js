@@ -20,9 +20,12 @@ const fs = require('fs');
 const os = require('os');
 const { RpcClient, VergeChain } = require('./rpc');
 const { GameStore } = require('./gamestore');
+const { MintController } = require('./mint');
+const { buildTrophySVG } = require('./trophy');
 
 const NETWORK = (process.env.VERGINALS_NETWORK || 'mainnet') === 'testnet' ? 'testnet' : 'mainnet';
 const DATA_DIR = process.env.VERGINALS_DATA_DIR || path.join(__dirname, '..', 'data');
+const COLLECTION_DIR = process.env.VERGINALS_COLLECTION_DIR || path.join(__dirname, '..', 'verginals');
 
 function loadRpcCreds() {
   let user = process.env.VERGINALS_RPC_USER;
@@ -99,6 +102,31 @@ async function main() {
   if (cmd === 'trophy') {
     const t = store.setTrophy(args[0], args[1]);
     console.log(`trophy for ${t.id} set to ${t.trophyInscriptionId}`);
+    return;
+  }
+  if (cmd === 'trophy-art') {
+    const t = store.getTournament(args[0]);
+    if (!t) { console.error('no such tournament'); process.exit(1); }
+    if (t.status !== 'ended' || !t.championAddress) { console.error('tournament has no champion yet'); process.exit(1); }
+    const champ = t.participants.find((p) => p.address === t.championAddress);
+    if (!champ || champ.verginal == null) { console.error('champion has no Verginal on record'); process.exit(1); }
+    const mint = new MintController({ collectionDir: COLLECTION_DIR, dataDir: path.join(DATA_DIR, 'mint') }).load();
+    const item = mint.byNumber.get(Number(champ.verginal));
+    if (!item) { console.error(`Verginal #${champ.verginal} not found in the collection`); process.exit(1); }
+    const img = fs.readFileSync(path.join(COLLECTION_DIR, 'images', item.filename));
+    const mime = item.filename.endsWith('.png') ? 'image/png' : item.filename.endsWith('.gif') ? 'image/gif' : 'image/webp';
+    const svg = buildTrophySVG({
+      number: champ.verginal, house: champ.house || item.house,
+      imageDataUri: `data:${mime};base64,${img.toString('base64')}`,
+      tournamentName: t.name, seasonName: store.state.season.name,
+      dateISO: new Date(t.endedAt || Date.now()).toISOString().slice(0, 10), place: 'CHAMPION',
+    });
+    const outdir = path.join(DATA_DIR, 'game', 'trophies');
+    fs.mkdirSync(outdir, { recursive: true });
+    const out = args[1] || path.join(outdir, `${t.id}.svg`);
+    fs.writeFileSync(out, svg);
+    console.log(`trophy art written to ${out} (${Buffer.byteLength(svg)} bytes) for champion ${t.championAddress}, Verginals #${champ.verginal}`);
+    console.log('review it, then inscribe it to the champion with the treasury (see the mint step).');
     return;
   }
   console.error(`unknown command: ${cmd}`);

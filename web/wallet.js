@@ -367,4 +367,17 @@
       return provider.transferInscription({ outpoint, to: me });
     },
   };
+
+  // Arena bridge: connect, read the address, and sign a login challenge. signMessage exists in every
+  // shipped wallet, so the Arena works even on the pre-marketplace 0.9.x build.
+  window.VerginalsArena = {
+    installed: hasProvider,
+    supported: () => { const p = activeProvider(); return !!(p && typeof p.signMessage === 'function'); },
+    address: () => address,
+    connect: ensureConnected,
+    async signMessage(message) {
+      await ensureConnected();
+      return provider.signMessage(message);
+    },
+  };
 })();

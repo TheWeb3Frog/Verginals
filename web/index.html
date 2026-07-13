@@ -40,6 +40,7 @@
     <button class="tab hidden" data-tab="mint" id="tab-mint">Mint ✦</button>
     <button class="tab" data-tab="explore">Explore</button>
     <button class="tab" data-tab="market">Market</button>
+    <button class="tab" data-tab="arena">Arena ⚔️</button>
     <button class="tab" data-tab="launchpad">Launchpad 🚀</button>
     <button class="tab hidden" data-tab="stats" id="tab-stats">Stats</button>
     <button class="tab" data-tab="wallet">My Wallet</button>
@@ -275,6 +276,48 @@
       </div>
       <p class="hint">Trustless peer-to-peer trading. Every sale settles in a single Verge transaction: the seller is paid and the buyer receives the Verginal at the same instant, with no middleman ever holding either side. This site is only a notice board; your keys stay in your wallet. No service fee.</p>
       <div class="gallery" id="market-gallery"><div class="empty">Loading…</div></div>
+    </section>
+
+    <!-- ============ ARENA ============ -->
+    <section class="panel" id="panel-arena">
+      <div class="explore-head">
+        <h2>Verginals Arena ⚔️</h2>
+        <span class="hint" id="arena-status"></span>
+      </div>
+      <p class="hint">Free to play. Duel other holders with your Verginal in an elemental best-of-three, climb the ladder, score for your House, and win a champion trophy in tournaments. No stake, no fee: entry is free and the project pays for the trophy inscription. Your keys never leave your wallet.</p>
+
+      <div class="arena-grid">
+        <div class="card arena-play">
+          <div id="arena-gate"><div class="empty">Loading…</div></div>
+          <div id="arena-fight" class="hidden">
+            <h3>Choose your fighter</h3>
+            <div class="arena-fighters" id="arena-fighters"></div>
+            <h3>Compose your loadout</h3>
+            <p class="hint">Pick an element for each of the three rounds. Fire beats Earth beats Water beats Fire. Optionally spend one poison (wins the round unless answered by a potion) and, if your Verginal has a rare RUNE, one shield (that round cannot be lost).</p>
+            <div class="arena-loadout" id="arena-loadout"></div>
+            <div class="arena-actions">
+              <button class="btn primary" id="arena-bot">Practice vs a bot</button>
+              <button class="btn" id="arena-queue">Find an opponent</button>
+            </div>
+            <div class="mk-status" id="arena-result"></div>
+          </div>
+        </div>
+
+        <div class="arena-side">
+          <div class="card">
+            <h3>Ladder</h3>
+            <div id="arena-leaderboard"><div class="empty">No duels yet.</div></div>
+          </div>
+          <div class="card">
+            <h3>House Wars</h3>
+            <div id="arena-houses"><div class="empty">No scores yet.</div></div>
+          </div>
+          <div class="card">
+            <h3>Tournaments</h3>
+            <div id="arena-tournaments"><div class="empty">None yet.</div></div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- ============ STATS ============ -->

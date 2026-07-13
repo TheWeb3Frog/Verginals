@@ -42,6 +42,7 @@ $$('.tab').forEach((t) => t.addEventListener('click', () => {
   if (t.dataset.tab === 'stats') loadStats();
   if (t.dataset.tab === 'launchpad') loadLaunchpad();
   if (t.dataset.tab === 'market') loadMarket();
+  if (t.dataset.tab === 'arena') loadArena();
   if (t.dataset.tab === 'support') renderDonateQR();
 }));
 
@@ -1524,6 +1525,204 @@ function renderDonateQR() {
   show(0);
   start();
 })();
+
+// --- Arena (the game): pick a Verginal, compose a loadout, duel, climb the ladder ------------
+const Arena = {
+  token: null,
+  address: null,
+  fighters: [],
+  selected: null,
+  loadout: { attacks: ['fire', 'fire', 'fire'], poisonRound: null, potionRound: null, shieldRound: null },
+};
+const ARENA_ELEMENTS = ['fire', 'water', 'earth'];
+const ELEMENT_ICON = { fire: '🔥', water: '💧', earth: '🌍' };
+
+/** Fetch helper that carries the Arena session token. */
+async function arenaApi(path, body) {
+  const headers = { 'content-type': 'application/json' };
+  if (Arena.token) headers.authorization = 'Bearer ' + Arena.token;
+  return api(path, { method: body ? 'POST' : 'GET', headers, body: body ? JSON.stringify(body) : undefined });
+}
+
+/** Obtain a session token: challenge -> sign in the wallet -> session. Cached for the page life. */
+async function arenaAuth() {
+  if (Arena.token) return Arena.token;
+  const A = window.VerginalsArena;
+  const address = await A.connect();
+  Arena.address = address;
+  const ch = await api('/api/game/challenge?address=' + encodeURIComponent(address));
+  const signature = await A.signMessage(ch.challenge);
+  const r = await api('/api/game/session', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ address, nonce: ch.nonce, signature }),
+  });
+  Arena.token = r.token;
+  return Arena.token;
+}
+
+async function loadArena() {
+  loadArenaLadder();
+  loadArenaTournaments();
+  const A = window.VerginalsArena;
+  const gate = $('#arena-gate');
+  const fight = $('#arena-fight');
+  if (!A || !A.installed()) {
+    fight.classList.add('hidden');
+    gate.innerHTML = 'Install the <a class="link" href="/verginalswallet" target="_blank" rel="noopener noreferrer">Verginals Wallet</a> and hold at least one Verginal to enter the Arena.';
+    return;
+  }
+  const addr = A.address();
+  if (!addr) {
+    fight.classList.add('hidden');
+    gate.innerHTML = '';
+    gate.appendChild(btn('Connect wallet to play', 'primary', async () => {
+      try { await arenaAuth(); loadArena(); } catch (e) { gate.append(' ' + e.message); }
+    }));
+    return;
+  }
+  Arena.address = addr;
+  gate.innerHTML = `Signed in as <code>${esc(short(addr))}</code>`;
+  fight.classList.remove('hidden');
+  renderLoadout();
+  loadArenaFighters();
+}
+
+async function loadArenaFighters() {
+  const box = $('#arena-fighters');
+  box.innerHTML = '<div class="empty">Loading your Verginals…</div>';
+  try {
+    const data = await api('/api/inscriptions?owner=' + encodeURIComponent(Arena.address));
+    const mine = data.inscriptions.filter((i) => i.collectionNumber != null && i.location && /^[0-9a-f]{64}:\d+$/.test(i.location));
+    Arena.fighters = mine;
+    if (!mine.length) {
+      box.innerHTML = '<div class="empty">You hold no Verginals yet. Mint or buy one to enter the Arena.</div>';
+      return;
+    }
+    if (!Arena.selected || !mine.some((m) => m.location === Arena.selected)) Arena.selected = mine[0].location;
+    box.innerHTML = '';
+    mine.forEach((i) => {
+      const c = document.createElement('button');
+      c.className = 'arena-fighter' + (i.location === Arena.selected ? ' sel' : '');
+      c.innerHTML = `<img src="/api/content/${esc(i.txid)}" loading="lazy" alt=""><span>#${i.collectionNumber}</span>`;
+      c.addEventListener('click', () => { Arena.selected = i.location; loadArenaFighters(); });
+      box.appendChild(c);
+    });
+  } catch (e) {
+    box.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderLoadout() {
+  const box = $('#arena-loadout');
+  const L = Arena.loadout;
+  box.innerHTML = '';
+  for (let r = 0; r < 3; r++) {
+    const row = document.createElement('div');
+    row.className = 'arena-round';
+    const label = document.createElement('span');
+    label.className = 'arena-round-n';
+    label.textContent = 'Round ' + (r + 1);
+    row.appendChild(label);
+    ARENA_ELEMENTS.forEach((el) => {
+      const b = document.createElement('button');
+      b.className = 'arena-el' + (L.attacks[r] === el ? ' on' : '');
+      b.innerHTML = `${ELEMENT_ICON[el]}<span>${el}</span>`;
+      b.addEventListener('click', () => { L.attacks[r] = el; renderLoadout(); });
+      row.appendChild(b);
+    });
+    box.appendChild(row);
+  }
+  // Special-charge round pickers (none / R1 / R2 / R3).
+  const specials = [['poisonRound', 'Poison 💀'], ['potionRound', 'Potion 🧪'], ['shieldRound', 'Shield 🛡️']];
+  specials.forEach(([key, name]) => {
+    const row = document.createElement('div');
+    row.className = 'arena-round';
+    const label = document.createElement('span');
+    label.className = 'arena-round-n';
+    label.textContent = name;
+    row.appendChild(label);
+    [null, 0, 1, 2].forEach((v) => {
+      const b = document.createElement('button');
+      b.className = 'arena-el sm' + (L[key] === v ? ' on' : '');
+      b.textContent = v == null ? 'none' : 'R' + (v + 1);
+      b.addEventListener('click', () => { L[key] = L[key] === v ? null : v; renderLoadout(); });
+      row.appendChild(b);
+    });
+    box.appendChild(row);
+  });
+}
+
+function randomClientSeed() {
+  const a = new Uint8Array(16);
+  (window.crypto || {}).getRandomValues ? window.crypto.getRandomValues(a) : a.forEach((_, i) => (a[i] = Math.floor(Math.random() * 256)));
+  return Array.from(a, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function arenaDuel(mode) {
+  const out = $('#arena-result');
+  if (!Arena.selected) { out.textContent = '✗ Pick a Verginal first.'; return; }
+  $('#arena-bot').disabled = true;
+  $('#arena-queue').disabled = true;
+  out.textContent = 'Signing in…';
+  try {
+    await arenaAuth();
+    out.textContent = mode === 'bot' ? 'Fighting…' : 'Looking for an opponent…';
+    const r = await arenaApi('/api/game/duel/' + mode, {
+      verginal: Arena.selected, loadout: Arena.loadout, clientSeed: randomClientSeed(),
+    });
+    if (r.status === 'waiting') {
+      out.innerHTML = '⏳ You are in the queue. The duel resolves as soon as another player joins. Come back and check the ladder.';
+    } else {
+      showArenaResult(r.match || r);
+    }
+    loadArenaLadder();
+    loadArenaFighters();
+  } catch (e) {
+    out.textContent = '✗ ' + e.message;
+  } finally {
+    $('#arena-bot').disabled = false;
+    $('#arena-queue').disabled = false;
+  }
+}
+
+function showArenaResult(match) {
+  const out = $('#arena-result');
+  const won = match.winner === Arena.address;
+  const rounds = (match.rounds || []).map((r) => {
+    const mine = r.winner === (match.p1 === Arena.address ? 'p1' : 'p2');
+    return `<span class="arena-rr ${mine ? 'win' : 'loss'}">R${r.round} ${mine ? 'W' : 'L'} <em>${esc(r.reason)}</em></span>`;
+  }).join('');
+  out.innerHTML = `<div class="arena-verdict ${won ? 'win' : 'loss'}">${won ? 'VICTORY' : 'DEFEAT'}</div>
+    <div class="arena-rounds">${rounds}</div>
+    <div class="hint">Provably fair: seed <code>${esc(short(match.seed || ''))}</code></div>`;
+}
+
+async function loadArenaLadder() {
+  try {
+    const d = await api('/api/game/leaderboard');
+    const lb = $('#arena-leaderboard');
+    lb.innerHTML = d.top.length
+      ? d.top.map((p, i) => `<div class="arena-rank"><span>${i + 1}. <code>${esc(short(p.address))}</code></span><b>${p.elo}</b></div>`).join('')
+      : '<div class="empty">No duels yet.</div>';
+    const hs = $('#arena-houses');
+    hs.innerHTML = d.houses.length
+      ? d.houses.map((h) => `<div class="arena-rank"><span>${ELEMENT_ICON[h.house] || ''} ${esc(h.house)}</span><b>${h.points}</b></div>`).join('')
+      : '<div class="empty">No scores yet.</div>';
+  } catch (_) { /* leave placeholders */ }
+}
+
+async function loadArenaTournaments() {
+  try {
+    const d = await api('/api/game/tournaments');
+    const box = $('#arena-tournaments');
+    box.innerHTML = d.tournaments.length
+      ? d.tournaments.map((t) => `<div class="arena-rank"><span>${esc(t.name)}</span><b>${t.status === 'registering' ? `${t.players}/${t.size}` : t.status}</b></div>`).join('')
+      : '<div class="empty">None yet.</div>';
+  } catch (_) { /* leave placeholder */ }
+}
+
+$('#arena-bot').addEventListener('click', () => arenaDuel('bot'));
+$('#arena-queue').addEventListener('click', () => arenaDuel('queue'));
 
 // --- boot --------------------------------------------------------------------------------
 (async () => {

@@ -52,6 +52,8 @@ const { Launchpad } = require('./launchpad');
 const { OrderBook } = require('./orderbook');
 const { GameAuth } = require('./gameauth');
 const { verifyMessage } = require('./message');
+const { GameStore } = require('./gamestore');
+const { deriveFighter, ELEMENTS: GAME_ELEMENTS } = require('./game');
 const cbor = require('./cbor');
 
 const PORT = Number(process.env.PORT || 3400);
@@ -1105,11 +1107,101 @@ async function handleGameSession(req, res) {
   return sendJSON(res, 200, { token: gameAuth.issueToken(address), address });
 }
 
-/** Whoami for the client after it holds a token: confirms the session and echoes the address. */
+let gameStore = null;
+function initGame() {
+  const gdir = path.join(DATA_DIR, 'game');
+  try { fs.mkdirSync(gdir, { recursive: true }); } catch (_) { /* already there */ }
+  gameStore = new GameStore({ dataDir: gdir }).load();
+}
+
+/**
+ * Build a combat fighter from a Verginal the caller holds. Verifies live ownership, resolves the
+ * Alpha collection number, and derives the combat traits from the rarity engine. Returns
+ * { fighter } or { error }. Only Alpha Verginals play for now (launchpad collections come later).
+ */
+async function fighterForVerginal(address, carrierKey) {
+  if (!/^[0-9a-f]{64}:\d+$/.test(carrierKey || '')) return { error: 'a Verginal outpoint (txid:vout) is required' };
+  const [txid, voutStr] = carrierKey.split(':');
+  const info = await carrierOwner(txid, Number(voutStr));
+  if (!info || info.spent) return { error: 'that Verginal outpoint has been spent' };
+  if (info.address !== address) return { error: 'you do not currently hold that Verginal' };
+  if (!info.inscription) return { error: 'that outpoint does not carry a Verginal' };
+  const c = collectionMintMap().get(txid);
+  if (!c || c.slug !== null) return { error: 'only Alpha Verginals can enter the Arena right now' };
+  const r = getRarity();
+  const entry = r && r.byNumber.get(c.number);
+  if (!entry) return { error: 'could not read that Verginal traits' };
+  const attributes = (entry.traits || []).map((t) => ({ trait_type: t.trait_type, value: t.value }));
+  const rune = (entry.traits || []).find((t) => String(t.trait_type).toLowerCase() === 'rune');
+  const fighter = deriveFighter({ attributes }, { rarityScore: entry.score, runePct: rune ? rune.pct : 100 });
+  fighter.address = address;
+  fighter.verginal = c.number;
+  return { fighter };
+}
+
+/** Coerce a client loadout into the normalised shape gamestore expects (attacks lowercased, ints). */
+function normalizeLoadout(l) {
+  const slot = (v) => (v == null || v === '' ? null : Number(v));
+  return {
+    attacks: Array.isArray(l && l.attacks) ? l.attacks.map((e) => String(e).toLowerCase()) : [],
+    poisonRound: slot(l && l.poisonRound),
+    potionRound: slot(l && l.potionRound),
+    shieldRound: slot(l && l.shieldRound),
+  };
+}
+
+/** A demo opponent: a random House and a random loadout. Never affects the ladder (bot mode). */
+function makeBot() {
+  const pick = () => GAME_ELEMENTS[Math.floor(Math.random() * GAME_ELEMENTS.length)];
+  const maybeRound = () => (Math.random() < 0.5 ? Math.floor(Math.random() * 3) : null);
+  return {
+    botFighter: { address: 'bot', house: pick(), rarityScore: 100, comeback: false, shield: false, verginal: null },
+    botLoadout: { attacks: [pick(), pick(), pick()], poisonRound: maybeRound(), potionRound: null, shieldRound: null },
+  };
+}
+
+/** Whoami plus the player's profile once the client holds a token. */
 async function handleGameMe(req, res) {
   const address = gamePlayer(req);
   if (!address) return sendJSON(res, 401, { error: 'not signed in' });
-  return sendJSON(res, 200, { address });
+  const profile = gameStore ? gameStore.player(address) : null;
+  const waiting = gameStore ? gameStore.waitingFor(address) : null;
+  return sendJSON(res, 200, { address, profile, waiting });
+}
+
+/** POST /api/game/duel/queue or /bot: submit a loadout for a real or demo duel. */
+async function handleGameDuel(req, res, mode) {
+  const address = gamePlayer(req);
+  if (!address) return sendJSON(res, 401, { error: 'not signed in' });
+  if (!gameStore) return sendJSON(res, 404, { error: 'the Arena is not enabled on this server' });
+  if (!allowQuote(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
+  let body;
+  try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); } catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+  const fr = await fighterForVerginal(address, body.verginal);
+  if (fr.error) return sendJSON(res, 400, { error: fr.error });
+  const loadout = normalizeLoadout(body.loadout);
+  const clientSeed = typeof body.clientSeed === 'string' ? body.clientSeed.slice(0, 128) : '';
+  try {
+    if (mode === 'bot') {
+      const { botFighter, botLoadout } = makeBot();
+      return sendJSON(res, 200, { status: 'resolved', match: gameStore.playBot(fr.fighter, loadout, botFighter, botLoadout, clientSeed) });
+    }
+    return sendJSON(res, 200, gameStore.enqueueOrMatch(fr.fighter, loadout, clientSeed));
+  } catch (e) {
+    return sendJSON(res, 400, { error: e.message });
+  }
+}
+
+async function handleGameDuelStatus(res, id) {
+  if (!gameStore) return sendJSON(res, 404, { error: 'the Arena is not enabled on this server' });
+  const match = gameStore.getMatch(id);
+  if (!match) return sendJSON(res, 404, { error: 'no such match' });
+  return sendJSON(res, 200, { match });
+}
+
+async function handleGameLeaderboard(res) {
+  if (!gameStore) return sendJSON(res, 404, { error: 'the Arena is not enabled on this server' });
+  return sendJSON(res, 200, { season: gameStore.state.season, top: gameStore.leaderboard(), houses: gameStore.houseStandings() });
 }
 
 /** Coin-age floor a buyer must respect for a listing: the newest of their funding coins' nTimes. */
@@ -1831,6 +1923,10 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/game/challenge' && req.method === 'GET') return await handleGameChallenge(res, url.searchParams.get('address') || '');
     if (p === '/api/game/session' && req.method === 'POST') return await handleGameSession(req, res);
     if (p === '/api/game/me' && req.method === 'GET') return await handleGameMe(req, res);
+    if (p === '/api/game/duel/queue' && req.method === 'POST') return await handleGameDuel(req, res, 'queue');
+    if (p === '/api/game/duel/bot' && req.method === 'POST') return await handleGameDuel(req, res, 'bot');
+    if (p === '/api/game/leaderboard' && req.method === 'GET') return await handleGameLeaderboard(res);
+    { let m; if ((m = p.match(/^\/api\/game\/duel\/([A-Za-z0-9_]+)$/)) && req.method === 'GET') return await handleGameDuelStatus(res, m[1]); }
     if (p === '/api/market/listings' && req.method === 'GET') return await handleMarketListings(res);
     if (p === '/api/market/list' && req.method === 'POST') return await handleMarketList(req, res);
     if (p === '/api/market/bid' && req.method === 'POST') return await handleMarketBid(req, res);
@@ -1897,6 +1993,7 @@ initParent();
 initPromo();
 initLaunchpad();
 initOrderBook();
+initGame();
 
 server.listen(PORT, HOST, () => {
   console.log(`Verginals web UI  →  http://${HOST}:${PORT}`);

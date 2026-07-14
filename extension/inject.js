@@ -28,7 +28,17 @@
   function call(method, params) {
     const id = `${Date.now()}-${++seq}`;
     return new Promise((resolve, reject) => {
-      pending.set(id, { resolve, reject });
+      // Never hang forever: if the background never answers (e.g. the MV3 service worker was
+      // suspended mid-op), reject with a clear message instead of leaving the dApp stuck.
+      const timer = setTimeout(() => {
+        if (!pending.has(id)) return;
+        pending.delete(id);
+        reject(new Error('the wallet did not respond in time. If you approved the action, it may still have gone through — check My Wallet before retrying.'));
+      }, 120000);
+      pending.set(id, {
+        resolve: (r) => { clearTimeout(timer); resolve(r); },
+        reject: (e) => { clearTimeout(timer); reject(e); },
+      });
       window.postMessage({ channel: REQ, id, method, params: params || {} }, window.location.origin);
     });
   }

@@ -510,9 +510,20 @@ export class Wallet {
   async buyListing({ carrierOutpoint, expectedPriceUnits, broadcast = true }) {
     this._requireUnlocked();
     const { sorted } = await this._marketCoins(null);
-    if (sorted.length < 2) throw new Error('need at least two spendable coins (a small dummy + funds)');
+    if (sorted.length < 2) throw new Error('You need a second coin to buy: open Send, send yourself a small amount (e.g. 0.5 XVG), wait for it to confirm, then try again.');
     const coinParam = sorted.map((u) => `${u.txid}:${u.vout}`).join(',');
-    const { variant } = await this._get(`/api/market/buy/${carrierOutpoint}?coins=${encodeURIComponent(coinParam)}`);
+    let variant;
+    try {
+      ({ variant } = await this._get(`/api/market/buy/${carrierOutpoint}?coins=${encodeURIComponent(coinParam)}`));
+    } catch (e) {
+      if (/variant|usable|coins/i.test(e.message || '')) {
+        throw new Error('Your coins are too recent for an instant buy on this listing. Wait a few minutes, or use "Make an offer" instead (offers work right away).');
+      }
+      throw e;
+    }
+    if (variant.sellerAddress && variant.sellerAddress === this._address) {
+      throw new Error("This is your own listing, so you can't buy it. Connect a different wallet as the buyer.");
+    }
     // Never pay more than the user approved: the seller-signed price is immutable, but guard anyway.
     if (expectedPriceUnits != null && variant.priceUnits !== expectedPriceUnits) {
       throw new Error('the listed price changed since you opened it; cancel and try again');
@@ -541,8 +552,9 @@ export class Wallet {
   async placeBid({ carrierOutpoint, sellerAddress, carrierValue, priceUnits }) {
     this._requireUnlocked();
     if (!(priceUnits > 0)) throw new Error('price must be positive');
+    if (sellerAddress && sellerAddress === this._address) throw new Error("This is your own listing, so you can't make an offer on it.");
     const { sorted } = await this._marketCoins(null);
-    if (sorted.length < 2) throw new Error('need at least two spendable coins (a small dummy + funds)');
+    if (sorted.length < 2) throw new Error('You need a second coin to make an offer: open Send, send yourself a small amount (e.g. 0.5 XVG), wait for it to confirm, then try again.');
     const dummy = sorted[0];
     const feeUnits = 300000;
     const need = priceUnits + feeUnits;

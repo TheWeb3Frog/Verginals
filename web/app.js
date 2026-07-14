@@ -1725,15 +1725,21 @@ function sfx(kind) {
   } catch (_) { /* audio optional */ }
 }
 
-/** Play the deterministic match as a canvas cinematic, then resolve and show the text verdict. */
-function playArenaBattle(match) {
-  const meSide = match.p1 === Arena.address ? 'p1' : 'p2';
+/**
+ * Play the deterministic match as a canvas cinematic, then resolve. For a participant the finale
+ * reads VICTORY/DEFEAT; for a spectator (a shared replay) it reads "#N WINS" neutrally.
+ */
+function playArenaBattle(match, opts = {}) {
+  const viewer = opts.viewer !== undefined ? opts.viewer : Arena.address;
+  const isParticipant = !!viewer && (match.p1 === viewer || match.p2 === viewer);
+  const meSide = match.p2 === viewer ? 'p2' : 'p1';
   const oppSide = meSide === 'p1' ? 'p2' : 'p1';
   const meNum = match[meSide + 'Verginal'];
   const oppNum = match[oppSide + 'Verginal'];
   const rounds = match.rounds || [];
   const moves = match.moves || [];
-  const won = match.winner === Arena.address;
+  const winnerSide = match.winner === match.p1 ? 'p1' : 'p2';
+  const won = isParticipant && match.winner === viewer;
 
   $('#arena-result').textContent = '';
   const stage = $('#arena-stage');
@@ -1830,12 +1836,14 @@ function playArenaBattle(match) {
         if (beat.k === 'finale') {
           ctx.fillStyle = 'rgba(6,10,16,' + (0.55 * easeOut(Math.min(1, p * 2))) + ')';
           ctx.fillRect(-20, -20, W + 40, H + 40);
-          if (!firedVerdict) { firedVerdict = true; sfx(won ? 'victory' : 'defeat'); }
+          if (!firedVerdict) { firedVerdict = true; sfx(isParticipant && !won ? 'defeat' : 'victory'); }
           const pulse = 1 + Math.sin(t / 140) * 0.04;
+          const winNum = winnerSide === 'p1' ? match.p1Verginal : match.p2Verginal;
+          const finaleText = isParticipant ? (won ? 'VICTORY' : 'DEFEAT') : (winNum != null ? '#' + winNum + ' WINS' : 'WINNER');
           ctx.save(); ctx.translate(W / 2, H * 0.42); ctx.scale(pulse, pulse);
           ctx.textAlign = 'center'; ctx.font = '800 52px -apple-system, sans-serif';
-          ctx.fillStyle = won ? '#38d39f' : '#ff6b6b';
-          ctx.fillText(won ? 'VICTORY' : 'DEFEAT', 0, 0);
+          ctx.fillStyle = isParticipant && !won ? '#ff6b6b' : '#38d39f';
+          ctx.fillText(finaleText, 0, 0);
           ctx.restore();
           ctx.fillStyle = '#aebccb'; ctx.font = '16px sans-serif'; ctx.textAlign = 'center';
           ctx.fillText(`${match.score[meSide === 'p1' ? 0 : 1]} - ${match.score[meSide === 'p1' ? 1 : 0]}`, W / 2, H * 0.42 + 46);
@@ -1877,16 +1885,76 @@ function verdictTag(ctx, x, y, letter, good) {
   ctx.fillText(letter, x, y);
 }
 
-function showArenaResult(match) {
-  const out = $('#arena-result');
-  const won = match.winner === Arena.address;
+function showArenaResult(match, opts = {}) {
+  const viewer = opts.viewer !== undefined ? opts.viewer : Arena.address;
+  const isParticipant = !!viewer && (match.p1 === viewer || match.p2 === viewer);
+  const meSide = match.p2 === viewer ? 'p2' : 'p1';
+  const won = isParticipant && match.winner === viewer;
+  const winnerSide = match.winner === match.p1 ? 'p1' : 'p2';
+  const winNum = winnerSide === 'p1' ? match.p1Verginal : match.p2Verginal;
   const rounds = (match.rounds || []).map((r) => {
-    const mine = r.winner === (match.p1 === Arena.address ? 'p1' : 'p2');
+    const mine = r.winner === meSide;
     return `<span class="arena-rr ${mine ? 'win' : 'loss'}">R${r.round} ${mine ? 'W' : 'L'} <em>${esc(r.reason)}</em></span>`;
   }).join('');
-  out.innerHTML = `<div class="arena-verdict ${won ? 'win' : 'loss'}">${won ? 'VICTORY' : 'DEFEAT'}</div>
+  const verdict = isParticipant ? (won ? 'VICTORY' : 'DEFEAT') : (winNum != null ? '#' + winNum + ' WINS' : 'WINNER');
+  const out = $('#arena-result');
+  out.innerHTML = `<div class="arena-verdict ${isParticipant && !won ? 'loss' : 'win'}">${verdict}</div>
     <div class="arena-rounds">${rounds}</div>
     <div class="hint">Provably fair: seed <code>${esc(short(match.seed || ''))}</code></div>`;
+  const share = btn('Copy replay link 🔗', 'ghost sm', () => {
+    navigator.clipboard.writeText(location.origin + replayPath(match));
+    share.textContent = 'Copied ✓';
+    setTimeout(() => { share.textContent = 'Copy replay link 🔗'; }, 1400);
+  });
+  share.style.marginTop = '10px';
+  out.appendChild(share);
+}
+
+// --- shareable replays: pack a match into a URL blob and rerun the cinematic for anyone ----------
+function b64urlEncode(s) { return btoa(unescape(encodeURIComponent(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+function b64urlDecode(b) { return decodeURIComponent(escape(atob(b.replace(/-/g, '+').replace(/_/g, '/')))); }
+const packMove = (mv = {}) => ({ e: mv.element, p: mv.poison ? 1 : undefined, o: mv.potion ? 1 : undefined, h: mv.shield ? 1 : undefined });
+const unpackMove = (o = {}) => ({ element: o.e, poison: !!o.p, potion: !!o.o, shield: !!o.h });
+
+/** Compact URL path that reruns this exact duel for anyone: /arena/replay/<blob>. */
+function replayPath(match) {
+  const winnerSide = match.winner === match.p1 ? 'p1' : 'p2';
+  const o = {
+    v: 1, a: match.p1Verginal, b: match.p2Verginal, s: match.seed, w: winnerSide, sc: match.score,
+    r: (match.rounds || []).map((x) => [x.round, x.winner === 'p1' ? 0 : 1, x.reason]),
+    m: (match.moves || []).map((x) => [packMove(x.p1), packMove(x.p2)]),
+  };
+  return '/arena/replay/' + b64urlEncode(JSON.stringify(o));
+}
+
+function decodeReplay(blob) {
+  const o = JSON.parse(b64urlDecode(blob));
+  if (o.v !== 1) throw new Error('unsupported replay');
+  return {
+    p1: 'p1', p2: 'p2', winner: o.w, p1Verginal: o.a, p2Verginal: o.b, seed: o.s, score: o.sc,
+    rounds: (o.r || []).map(([round, w, reason]) => ({ round, winner: w ? 'p2' : 'p1', reason })),
+    moves: (o.m || []).map(([a, b]) => ({ p1: unpackMove(a), p2: unpackMove(b) })),
+  };
+}
+
+/** Open a shared replay: switch to the Arena, hide the interactive controls, and play it. */
+async function showArenaReplay(blob) {
+  $$('.tab').forEach((x) => x.classList.remove('active'));
+  $$('.panel').forEach((x) => x.classList.remove('active'));
+  document.querySelector('.tab[data-tab="arena"]').classList.add('active');
+  $('#panel-arena').classList.add('active');
+  window.scrollTo({ top: 0 });
+  loadArenaLadder();
+  loadArenaTournaments();
+  $('#arena-gate').innerHTML = '<b>Replay</b> of a Verginals Arena duel. <a class="link" href="/arena" onclick="event.preventDefault();document.querySelector(\'.tab[data-tab=arena]\').click()">Play your own →</a>';
+  const fight = $('#arena-fight');
+  fight.classList.remove('hidden');
+  fight.querySelectorAll('h3, p.hint, #arena-fighters, #arena-loadout, .arena-actions').forEach((el) => (el.style.display = 'none'));
+  try {
+    await playArenaBattle(decodeReplay(blob), { viewer: null });
+  } catch (_) {
+    $('#arena-result').textContent = '✗ This replay link is invalid.';
+  }
 }
 
 async function loadArenaLadder() {
@@ -1935,6 +2003,7 @@ $('#arena-queue').addEventListener('click', () => arenaDuel('queue'));
   const v = location.pathname.match(/^\/v\/([A-Za-z0-9]+)$/);
   const gal = location.pathname.match(/^\/gallery\/([a-km-zA-HJ-NP-Z1-9]{25,40})$/);
   const lp = location.pathname.match(/^\/launchpad(?:\/([a-z0-9-]{3,32}))?$/);
+  const rep = location.pathname.match(/^\/arena\/replay\/([A-Za-z0-9_-]+)$/);
   if (v) {
     activateTab('explore');
     openDetailByKey(v[1]);
@@ -1943,5 +2012,9 @@ $('#arena-queue').addEventListener('click', () => arenaDuel('queue'));
   } else if (lp) {
     activateTab('launchpad');
     if (lp[1]) openLaunchpadCollection(lp[1], false);
+  } else if (rep) {
+    showArenaReplay(rep[1]);
+  } else if (location.pathname === '/arena') {
+    activateTab('arena');
   }
 })();

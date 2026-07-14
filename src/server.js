@@ -2065,7 +2065,7 @@ const server = http.createServer(async (req, res) => {
     }
     // Shareable deep links (a Verginal's detail view, a holder's gallery, a launchpad
     // collection): same app shell, the frontend reads the path on boot and opens the right view.
-    if (req.method === 'GET' && (/^\/v\/[A-Za-z0-9]{1,64}$/.test(p) || /^\/gallery\/[a-km-zA-HJ-NP-Z1-9]{25,40}$/.test(p) || /^\/launchpad(\/[a-z0-9-]{3,32})?$/.test(p))) {
+    if (req.method === 'GET' && (/^\/v\/[A-Za-z0-9]{1,64}$/.test(p) || /^\/gallery\/[a-km-zA-HJ-NP-Z1-9]{25,40}$/.test(p) || /^\/launchpad(\/[a-z0-9-]{3,32})?$/.test(p) || /^\/arena(\/replay\/[A-Za-z0-9_-]{1,4096})?$/.test(p))) {
       return serveStatic(res, 'index.html');
     }
     if (req.method === 'GET' && (p === '/app.js' || p === '/wallet.js' || p === '/style.css')) return serveStatic(res, p.slice(1));

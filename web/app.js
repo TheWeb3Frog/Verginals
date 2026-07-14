@@ -1829,6 +1829,8 @@ function playArenaBattle(match, opts = {}) {
         if (now < hitStopUntil) { frozen += dt; dt = 0; }
         lastNow = now;
         const clock = Math.min(total, (now - startWall) - frozen);
+        let crashed = false;
+        try {
         updateParts(dt);
         flash = Math.max(0, flash - dt / 260); shake = Math.max(0, shake - dt / 55);
 
@@ -1916,7 +1918,8 @@ function playArenaBattle(match, opts = {}) {
           ctx.fillText(`${match.score[meSide === 'p1' ? 0 : 1]} - ${match.score[meSide === 'p1' ? 1 : 0]}`, cx, H * 0.86 + 32);
         }
 
-        if ((now - startWall) - frozen < total) requestAnimationFrame(frame);
+        } catch (e) { console.error('Arena cinematic error:', e); crashed = true; }
+        if (!crashed && (now - startWall) - frozen < total) requestAnimationFrame(frame);
         else { ctx.setTransform(1, 0, 0, 1, 0, 0); resolve(); showArenaResult(match, opts); }
       }
       requestAnimationFrame(frame);

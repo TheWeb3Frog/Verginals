@@ -454,6 +454,8 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 .arena-rr em { color: var(--muted); font-style: normal; }
 .arena-rr.win { border-color: var(--ok); }
 .arena-rr.loss { border-color: var(--danger); }
+.arena-stage { margin-top: 16px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #0a0f16; }
+.arena-stage canvas { display: block; width: 100%; height: auto; }
 .arena-side { display: flex; flex-direction: column; gap: 16px; }
 .arena-side .card { padding: 16px; margin: 0; }
 .arena-side h3 { margin: 0 0 10px; font-size: 15px; }

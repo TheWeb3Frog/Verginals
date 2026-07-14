@@ -1673,7 +1673,7 @@ async function arenaDuel(mode) {
     if (r.status === 'waiting') {
       out.innerHTML = '⏳ You are in the queue. The duel resolves as soon as another player joins. Come back and check the ladder.';
     } else {
-      showArenaResult(r.match || r);
+      await playArenaBattle(r.match || r);
     }
     loadArenaLadder();
     loadArenaFighters();
@@ -1683,6 +1683,198 @@ async function arenaDuel(mode) {
     $('#arena-bot').disabled = false;
     $('#arena-queue').disabled = false;
   }
+}
+
+// --- battle cinematic: a self-contained canvas replay of the deterministic result ------------
+const ELEMENT_COLOR = { fire: '#e87040', water: '#40a0e8', earth: '#60c040' };
+const easeOut = (p) => 1 - Math.pow(1 - p, 3);
+const easeInOut = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
+
+function loadImg(src) {
+  return new Promise((resolve) => {
+    if (!src) return resolve(null);
+    const im = new Image();
+    im.onload = () => resolve(im);
+    im.onerror = () => resolve(null);
+    im.src = src;
+  });
+}
+
+// Tiny synthesized sound effects (no assets). Created on the play click, so autoplay policy is met.
+let arenaAudio = null;
+function sfx(kind) {
+  try {
+    arenaAudio = arenaAudio || new (window.AudioContext || window.webkitAudioContext)();
+    const ac = arenaAudio;
+    const o = ac.createOscillator();
+    const g = ac.createGain();
+    o.connect(g); g.connect(ac.destination);
+    const now = ac.currentTime;
+    const conf = {
+      cast: [520, 0.12, 'triangle'], impact: [110, 0.18, 'square'],
+      victory: [660, 0.4, 'sawtooth'], defeat: [180, 0.4, 'sawtooth'],
+    }[kind] || [440, 0.1, 'sine'];
+    o.type = conf[2];
+    o.frequency.setValueAtTime(conf[0], now);
+    if (kind === 'victory') o.frequency.exponentialRampToValueAtTime(conf[0] * 2, now + conf[1]);
+    if (kind === 'defeat') o.frequency.exponentialRampToValueAtTime(conf[0] / 2, now + conf[1]);
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(0.18, now + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + conf[1]);
+    o.start(now); o.stop(now + conf[1] + 0.02);
+  } catch (_) { /* audio optional */ }
+}
+
+/** Play the deterministic match as a canvas cinematic, then resolve and show the text verdict. */
+function playArenaBattle(match) {
+  const meSide = match.p1 === Arena.address ? 'p1' : 'p2';
+  const oppSide = meSide === 'p1' ? 'p2' : 'p1';
+  const meNum = match[meSide + 'Verginal'];
+  const oppNum = match[oppSide + 'Verginal'];
+  const rounds = match.rounds || [];
+  const moves = match.moves || [];
+  const won = match.winner === Arena.address;
+
+  $('#arena-result').textContent = '';
+  const stage = $('#arena-stage');
+  stage.classList.remove('hidden');
+  const canvas = $('#arena-canvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  return loadImg(meNum != null ? '/api/collection/image/' + meNum : null)
+    .then((meImg) => Promise.all([meImg, loadImg(oppNum != null ? '/api/collection/image/' + oppNum : null)]))
+    .then(([meImg, oppImg]) => new Promise((resolve) => {
+      const beats = [{ k: 'intro', d: 600 }];
+      rounds.forEach((_, i) => beats.push({ k: 'windup', i, d: 420 }, { k: 'clash', i, d: 480 }, { k: 'settle', i, d: 560 }));
+      beats.push({ k: 'finale', d: 1800 });
+      const total = beats.reduce((s, b) => s + b.d, 0);
+      const meX = W * 0.24, oppX = W * 0.76, baseY = H * 0.52, S = 132;
+      let firedCast = -1, firedImpact = -1, firedVerdict = false;
+
+      const scoreBefore = (idx) => {
+        let me = 0, op = 0;
+        for (let j = 0; j < idx; j++) (rounds[j].winner === meSide ? me++ : op++);
+        return [me, op];
+      };
+      const drawSprite = (img, x, y, s, glow, dim) => {
+        ctx.save();
+        if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = 26; }
+        ctx.globalAlpha = dim ? 0.4 : 1;
+        roundRectPath(ctx, x - s / 2, y - s / 2, s, s, 12);
+        ctx.fillStyle = '#0a0f16'; ctx.fill();
+        ctx.clip();
+        if (img) { ctx.imageSmoothingEnabled = false; ctx.drawImage(img, x - s / 2, y - s / 2, s, s); }
+        else { ctx.fillStyle = '#1a2634'; ctx.fillRect(x - s / 2, y - s / 2, s, s); ctx.globalAlpha = 1; ctx.fillStyle = '#5a6b7c'; ctx.font = 'bold 28px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('BOT', x, y + 10); }
+        ctx.restore();
+      };
+      const pips = (x, n, won3) => {
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath(); ctx.arc(x + i * 18, 30, 6, 0, 7);
+          ctx.fillStyle = i < n ? (won3 ? '#38d39f' : '#ff6b6b') : '#26323f'; ctx.fill();
+        }
+      };
+
+      function draw(now) {
+        const t = now - start;
+        let acc = 0, beat = beats[beats.length - 1], p = 1;
+        for (const b of beats) { if (t < acc + b.d) { beat = b; p = (t - acc) / b.d; break; } acc += b.d; }
+
+        let shake = 0;
+        if (beat.k === 'clash' && p > 0.55) shake = (1 - easeOut((p - 0.55) / 0.45)) * 10;
+        ctx.setTransform(1, 0, 0, 1, (Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+
+        const bg = ctx.createLinearGradient(0, 0, 0, H);
+        bg.addColorStop(0, '#111d29'); bg.addColorStop(1, '#0a0f16');
+        ctx.fillStyle = bg; ctx.fillRect(-20, -20, W + 40, H + 40);
+
+        const [meW, opW] = scoreBefore(beat.i == null ? rounds.length : beat.i + (beat.k === 'settle' && p > 0.35 ? 1 : 0));
+        pips(24, meW, true); ctx.save(); ctx.translate(W - 24 - 36, 0); pips(0, opW, false); ctx.restore();
+
+        let meDX = 0, opDX = 0, meGlow = null, opGlow = null, meDim = false, opDim = false;
+        const intro = beat.k === 'intro' ? easeOut(p) : 1;
+
+        if (beat.k === 'windup') {
+          const el = moves[beat.i] && moves[beat.i][meSide] ? moves[beat.i][meSide].element : null;
+          const oel = moves[beat.i] && moves[beat.i][oppSide] ? moves[beat.i][oppSide].element : null;
+          meGlow = ELEMENT_COLOR[el]; opGlow = ELEMENT_COLOR[oel];
+          meDX = -easeInOut(p) * 14; opDX = easeInOut(p) * 14;
+          if (p > 0.6 && firedCast !== beat.i) { firedCast = beat.i; sfx('cast'); }
+          roundLabel(ctx, W, 'ROUND ' + (beat.i + 1));
+        } else if (beat.k === 'clash') {
+          const el = moves[beat.i] && moves[beat.i][meSide] ? moves[beat.i][meSide].element : 'fire';
+          const oel = moves[beat.i] && moves[beat.i][oppSide] ? moves[beat.i][oppSide].element : 'fire';
+          meGlow = ELEMENT_COLOR[el]; opGlow = ELEMENT_COLOR[oel];
+          const mid = (meX + oppX) / 2;
+          const fly = Math.min(1, p / 0.6);
+          orb(ctx, meX + (S / 2), baseY, mid, baseY, easeIn(fly), ELEMENT_COLOR[el]);
+          orb(ctx, oppX - (S / 2), baseY, mid, baseY, easeIn(fly), ELEMENT_COLOR[oel]);
+          if (p >= 0.6) {
+            burst(ctx, mid, baseY, (p - 0.6) / 0.4, rounds[beat.i].winner === meSide ? ELEMENT_COLOR[el] : ELEMENT_COLOR[oel]);
+            if (firedImpact !== beat.i) { firedImpact = beat.i; sfx('impact'); }
+          }
+          roundLabel(ctx, W, 'ROUND ' + (beat.i + 1));
+        } else if (beat.k === 'settle') {
+          const meWon = rounds[beat.i].winner === meSide;
+          meGlow = meWon ? '#38d39f' : null; opGlow = meWon ? null : '#38d39f';
+          meDim = !meWon; opDim = meWon;
+          verdictTag(ctx, meX, baseY - S / 2 - 18, meWon ? 'W' : 'L', meWon);
+          verdictTag(ctx, oppX, baseY - S / 2 - 18, meWon ? 'L' : 'W', !meWon);
+          ctx.fillStyle = '#8ea0b2'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center';
+          ctx.fillText(rounds[beat.i].reason, W / 2, baseY + S / 2 + 34);
+        }
+
+        drawSprite(meImg, meX + meDX, baseY + (1 - intro) * 40, S * intro, meGlow, meDim);
+        drawSprite(oppImg, oppX + opDX, baseY - (1 - intro) * 40, S * intro, opGlow, opDim);
+
+        if (beat.k === 'finale') {
+          ctx.fillStyle = 'rgba(6,10,16,' + (0.55 * easeOut(Math.min(1, p * 2))) + ')';
+          ctx.fillRect(-20, -20, W + 40, H + 40);
+          if (!firedVerdict) { firedVerdict = true; sfx(won ? 'victory' : 'defeat'); }
+          const pulse = 1 + Math.sin(t / 140) * 0.04;
+          ctx.save(); ctx.translate(W / 2, H * 0.42); ctx.scale(pulse, pulse);
+          ctx.textAlign = 'center'; ctx.font = '800 52px -apple-system, sans-serif';
+          ctx.fillStyle = won ? '#38d39f' : '#ff6b6b';
+          ctx.fillText(won ? 'VICTORY' : 'DEFEAT', 0, 0);
+          ctx.restore();
+          ctx.fillStyle = '#aebccb'; ctx.font = '16px sans-serif'; ctx.textAlign = 'center';
+          ctx.fillText(`${match.score[meSide === 'p1' ? 0 : 1]} - ${match.score[meSide === 'p1' ? 1 : 0]}`, W / 2, H * 0.42 + 46);
+        }
+
+        if (t < total) requestAnimationFrame(draw);
+        else { ctx.setTransform(1, 0, 0, 1, 0, 0); resolve(); showArenaResult(match); }
+      }
+      const start = performance.now();
+      requestAnimationFrame(draw);
+    }));
+}
+
+const easeIn = (p) => p * p;
+function roundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function orb(ctx, x0, y0, x1, y1, p, color) {
+  const x = x0 + (x1 - x0) * p, y = y0 + (y1 - y0) * p;
+  const g = ctx.createRadialGradient(x, y, 0, x, y, 20);
+  g.addColorStop(0, color); g.addColorStop(1, 'transparent');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 20, 0, 7); ctx.fill();
+}
+function burst(ctx, x, y, p, color) {
+  const r = easeOut(p) * 70;
+  ctx.strokeStyle = color; ctx.globalAlpha = 1 - p; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.stroke();
+  for (let i = 0; i < 8; i++) { const a = (i / 8) * 7; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); ctx.stroke(); }
+  ctx.globalAlpha = 1;
+}
+function roundLabel(ctx, W, txt) {
+  ctx.fillStyle = '#6a7c8c'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText(txt, W / 2, 34);
+}
+function verdictTag(ctx, x, y, letter, good) {
+  ctx.fillStyle = good ? '#38d39f' : '#ff6b6b'; ctx.font = '800 22px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText(letter, x, y);
 }
 
 function showArenaResult(match) {

@@ -1758,7 +1758,7 @@ function playArenaBattle(match, opts = {}) {
       const meX = W * 0.24, oppX = W * 0.76, baseY = H * 0.54, S = Math.min(168, H * 0.34), mid = (meX + oppX) / 2;
       const winnerX = winnerSide === meSide ? meX : oppX;
       const parts = [], shocks = [];
-      let flash = 0, flashColor = '#ffffff', shake = 0, hitStop = 0;
+      let flash = 0, flashColor = '#ffffff', shake = 0;
       let firedCast = -1, firedImpact = -1, firedVerdict = false;
 
       const rnd = (a, b) => a + Math.random() * (b - a);
@@ -1819,11 +1819,17 @@ function playArenaBattle(match, opts = {}) {
         for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(x + i * 22, 30, 7, 0, 7); if (i < n) { ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 10; ctx.fill(); ctx.shadowBlur = 0; } else { ctx.fillStyle = '#26323f'; ctx.fill(); } }
       }
 
-      let last = performance.now(), clock = 0;
+      // Wall-clock driven: clock = real time elapsed minus any hit-stop freeze. Because wall time
+      // always advances, the animation is guaranteed to reach `total` and end (no stuck accumulator).
+      const startWall = performance.now();
+      let lastNow = startWall, frozen = 0, hitStopUntil = 0, frameNow = startWall;
       function frame(now) {
-        let dt = Math.min(60, now - last); last = now;
-        if (hitStop > 0) { hitStop -= dt; dt = 0; }
-        clock += dt; updateParts(dt);
+        frameNow = now;
+        let dt = Math.min(60, now - lastNow);
+        if (now < hitStopUntil) { frozen += dt; dt = 0; }
+        lastNow = now;
+        const clock = Math.min(total, (now - startWall) - frozen);
+        updateParts(dt);
         flash = Math.max(0, flash - dt / 260); shake = Math.max(0, shake - dt / 55);
 
         let acc = 0, beat = beats[beats.length - 1], p = 1;
@@ -1860,7 +1866,7 @@ function playArenaBattle(match, opts = {}) {
           if (p >= impactAt && firedImpact !== beat.i) {
             firedImpact = beat.i; sfx('impact');
             const wc = ELEMENT_COLOR[winEl(beat.i)];
-            flash = 0.9; flashColor = wc; shake = 18; hitStop = 90;
+            flash = 0.9; flashColor = wc; shake = 18; hitStopUntil = frameNow + 90;
             spawnBurst(mid, baseY, wc, 46, 10); spawnBurst(mid, baseY, '#ffffff', 16, 6);
             shocks.push({ x: mid, y: baseY, t: 0, dur: 620, max: 150, color: wc }, { x: mid, y: baseY, t: -90, dur: 620, max: 210, color: '#ffffff' });
           }
@@ -1910,7 +1916,7 @@ function playArenaBattle(match, opts = {}) {
           ctx.fillText(`${match.score[meSide === 'p1' ? 0 : 1]} - ${match.score[meSide === 'p1' ? 1 : 0]}`, cx, H * 0.86 + 32);
         }
 
-        if (clock < total) requestAnimationFrame(frame);
+        if ((now - startWall) - frozen < total) requestAnimationFrame(frame);
         else { ctx.setTransform(1, 0, 0, 1, 0, 0); resolve(); showArenaResult(match, opts); }
       }
       requestAnimationFrame(frame);

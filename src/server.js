@@ -1481,7 +1481,11 @@ async function handleMarketBuy(req, res, carrierKey) {
   if (!variant) {
     return sendJSON(res, 409, { error: 'no listing variant is usable for these coins yet. Try older coins, or place an offer instead.' });
   }
-  sendJSON(res, 200, { variant });
+  // The inscription's unit offset in the carrier: the wallet needs it to reset the Verginal onto a
+  // fresh constant-postage output (swap.completeListing). Immutable while the carrier is unspent.
+  const stored = orderbook.getListing(carrierKey);
+  const carrierOffset = (stored && stored.carrierOffset) || 0;
+  sendJSON(res, 200, { variant, carrierOffset });
 }
 
 /** Return the full signed bid a seller needs to accept (they sign the carrier and broadcast). */
@@ -1950,11 +1954,16 @@ function inscriptionLocationMap() {
   for (const i of indexer.list()) {
     if (i.location && i.location.includes(':')) {
       const mint = mints.get(i.id.replace(/i0$/, ''));
+      // The inscribed sat's unit offset inside its carrier output: a buyer needs it to build a
+      // swap that resets the inscription to offset 0 on a fresh constant-postage carrier (swap.js).
+      const here = indexer.locations.get(i.location);
+      const entry = here && here.find((e) => e.id === i.id);
       map.set(i.location, {
         id: i.id,
         contentType: i.contentType,
         number: i.number,
         collectionNumber: mint ? mint.number : null,
+        offset: entry ? entry.offset : 0,
       });
     }
   }

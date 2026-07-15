@@ -64,7 +64,7 @@ class OrderBook {
    * owner; the price is sane. Throws with a clear message otherwise. Never broadcasts.
    */
   async addListing(listing) {
-    if (!listing || listing.kind !== 'verginals-listing-v1') throw new Error('not a listing');
+    if (!listing || listing.kind !== 'verginals-listing-v2') throw new Error('not a listing');
     const carrier = listing.carrier || {};
     if (!OUTPOINT_RE.test(`${carrier.txid}:${carrier.vout}`)) throw new Error('bad carrier outpoint');
     if (!(listing.priceUnits > 0)) throw new Error('price must be positive');
@@ -86,7 +86,10 @@ class OrderBook {
     if (Object.keys(this.state.listings).length >= MAX_LISTINGS && !this.state.listings[this._key(carrier)]) {
       throw new Error('the order book is full');
     }
-    const stored = Object.assign({}, listing, { at: this.now(), carrierValue: info.valueUnits });
+    // Record the carrier's current value and the inscription's unit offset so a buyer can build a
+    // constant-postage completion without re-deriving them (swap.completeListing needs both).
+    const carrierOffset = (info.inscription && info.inscription.offset) || 0;
+    const stored = Object.assign({}, listing, { at: this.now(), carrierValue: info.valueUnits, carrierOffset });
     this.state.listings[this._key(carrier)] = stored;
     this._save();
     return { listed: true, carrier: this._key(carrier), variants: listing.variants.length };
@@ -117,7 +120,7 @@ class OrderBook {
    * the carrier so a seller can list the offers on their Verginal.
    */
   async addBid(bid) {
-    if (!bid || bid.kind !== 'verginals-bid-v1') throw new Error('not a bid');
+    if (!bid || bid.kind !== 'verginals-bid-v2') throw new Error('not a bid');
     const carrier = bid.carrier || {};
     const key = `${carrier.txid}:${carrier.vout}`;
     if (!OUTPOINT_RE.test(key)) throw new Error('bad carrier outpoint');

@@ -473,7 +473,7 @@ export class Wallet {
 
   // --- marketplace (trustless swaps; the site is only an order book, keys stay here) ----------
 
-  /** The active account's coins split into { carrier, dummy, funds }; a carrier check is enforced. */
+  /** The active account's coins split into { carrier, clean, sorted }; a carrier check is enforced. */
   async _marketCoins(carrierOutpoint) {
     const utxos = await this.getUtxos();
     let carrier = null;
@@ -483,9 +483,88 @@ export class Wallet {
     }
     // Spendable, non-inscription coins only (never an untagged Verginal).
     const clean = utxos.filter((u) => u.inscription === null);
-    // A dummy is a small clean coin used to pad output 0; prefer the smallest.
+    // Two of these become the swap pads (padded output 0); prefer the smallest as pads.
     const sorted = clean.slice().sort((a, b) => a.value - b.value);
     return { carrier, clean, sorted };
+  }
+
+  /**
+   * The inscribed sat's unit offset inside a carrier output, from our indexer. A swap needs it to
+   * reset the Verginal onto a fresh constant-postage carrier (swap.completeListing / buildBid).
+   * Returns 0 if the outpoint carries no known inscription (fresh mints are always offset 0).
+   */
+  async _carrierOffset(carrierOutpoint) {
+    try {
+      const { inscriptions } = await this._post('/api/inscriptions/at', { outpoints: [carrierOutpoint] });
+      const hit = inscriptions && inscriptions[carrierOutpoint];
+      return hit && typeof hit.offset === 'number' ? hit.offset : 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /**
+   * A transaction's Verge nTime, read from its raw serialization ([int32 version][uint32 nTime]…).
+   * A swap must be stamped no earlier than every coin it spends (rule R1), so a pad-split must
+   * inherit the age of its source coins; this gives us that age.
+   */
+  async _txTime(txid) {
+    const hex = await this.electrum.getTransaction(txid, false);
+    const b = verge.hexToBytes(hex.slice(8, 16)); // 4 bytes at byte offset 4
+    return (b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24)) >>> 0;
+  }
+
+  /**
+   * Guarantee two dust pads plus funding coins for a swap, creating them automatically when the
+   * wallet lacks them. The pads pad output 0 so the Verginal resets onto a fresh constant postage.
+   * If we already hold three usable clean coins we spend them as-is (no extra transaction);
+   * otherwise we split the clean coins into [pad, pad, change] in one transaction and use those.
+   *
+   * The split is stamped at the age of its source coins (rule R1: a transaction's nTime must be
+   * >= every input's), so the new pads are no younger than the coins they came from and a
+   * fixed-price buy on an older listing variant still validates.
+   * @returns {{ pads: Array, funds: Array }}
+   */
+  async _ensurePads(sorted, need) {
+    const PAD = swap.POSTAGE_UNITS; // 0.1 XVG, the minimum relayable dust
+    // Fast path: three or more clean coins already, two as pads and the rest covering need. The two
+    // pads must sum to at least one dust so the padding-out (pads + offset) is itself relayable;
+    // otherwise fall through and split, which mints dust-sized pads on purpose.
+    if (sorted.length >= 3 && sorted[0].value + sorted[1].value >= PAD) {
+      const rest = sorted.slice(2);
+      const restSum = rest.reduce((s, u) => s + u.value, 0);
+      if (restSum >= need) {
+        return {
+          pads: sorted.slice(0, 2).map((u) => ({ txid: u.txid, vout: u.vout, value: u.value })),
+          funds: rest.map((u) => ({ txid: u.txid, vout: u.vout, value: u.value })),
+        };
+      }
+    }
+    // Otherwise carve the pads out of the wallet's clean coins with a single split transaction.
+    const total = sorted.reduce((s, u) => s + u.value, 0);
+    const estSize = 14 + sorted.length * 148 + 3 * 34;
+    const splitFee = Math.max(200000, Math.ceil((estSize / 1000) * 200000));
+    const change = total - 2 * PAD - splitFee;
+    if (change < need) {
+      throw new Error('Not enough spendable XVG for this swap plus fees. Top up this wallet and try again.');
+    }
+    const times = await Promise.all(sorted.map((u) => this._txTime(u.txid).catch(() => Math.floor(Date.now() / 1000))));
+    const splitTime = Math.max(...times); // >= every source coin's nTime, so R1 holds for the split
+    const built = await verge.buildAndSignP2PKH({
+      inputs: sorted.map((u) => ({ txid: u.txid, vout: u.vout, value: u.value, privateKey: this._priv })),
+      outputs: [
+        { address: this._address, value: PAD },
+        { address: this._address, value: PAD },
+        { address: this._address, value: change },
+      ],
+      time: splitTime,
+    });
+    const { txid } = await this.broadcast(built.hex);
+    const stxid = txid || built.txid;
+    return {
+      pads: [{ txid: stxid, vout: 0, value: PAD }, { txid: stxid, vout: 1, value: PAD }],
+      funds: [{ txid: stxid, vout: 2, value: change }],
+    };
   }
 
   /**
@@ -510,11 +589,13 @@ export class Wallet {
   async buyListing({ carrierOutpoint, expectedPriceUnits, broadcast = true }) {
     this._requireUnlocked();
     const { sorted } = await this._marketCoins(null);
-    if (sorted.length < 2) throw new Error('You need a second coin to buy: open Send, send yourself a small amount (e.g. 0.5 XVG), wait for it to confirm, then try again.');
+    if (!sorted.length) throw new Error('This wallet has no spendable XVG. Top it up, wait for the deposit to confirm, then try again.');
+    // The pads a split would create inherit the age of these coins, so the coin-age floor is the
+    // same whether or not we split: pick the variant with the current coins before touching them.
     const coinParam = sorted.map((u) => `${u.txid}:${u.vout}`).join(',');
-    let variant;
+    let variant, carrierOffset;
     try {
-      ({ variant } = await this._get(`/api/market/buy/${carrierOutpoint}?coins=${encodeURIComponent(coinParam)}`));
+      ({ variant, carrierOffset } = await this._get(`/api/market/buy/${carrierOutpoint}?coins=${encodeURIComponent(coinParam)}`));
     } catch (e) {
       if (/variant|usable|coins/i.test(e.message || '')) {
         throw new Error('Your coins are too recent for an instant buy on this listing. Wait a few minutes, or use "Make an offer" instead (offers work right away).');
@@ -529,19 +610,12 @@ export class Wallet {
       throw new Error('the listed price changed since you opened it; cancel and try again');
     }
 
-    const dummy = sorted[0];
-    const feeUnits = 300000; // ~0.3 XVG, a 3-input swap is small
-    const need = variant.priceUnits + feeUnits;
-    const funds = [];
-    let sum = 0;
-    for (const u of sorted.slice(1)) { funds.push(u); sum += u.value; if (sum >= need) break; }
-    if (sum < need) throw new Error('insufficient spendable funds for price + fee');
-
+    const feeUnits = 300000; // ~0.3 XVG, a small padded swap
+    const { pads, funds } = await this._ensurePads(sorted, variant.priceUnits + feeUnits);
     const built = await swap.completeListing({
-      variant,
-      dummy: { txid: dummy.txid, vout: dummy.vout, value: dummy.value },
-      funds: funds.map((u) => ({ txid: u.txid, vout: u.vout, value: u.value })),
+      variant, pads, funds,
       buyerAddress: this._address, priv: this._priv, feeUnits,
+      carrierOffset: carrierOffset || 0,
     });
     if (!broadcast) return built;
     const { txid } = await this.broadcast(built.hex);
@@ -554,21 +628,16 @@ export class Wallet {
     if (!(priceUnits > 0)) throw new Error('price must be positive');
     if (sellerAddress && sellerAddress === this._address) throw new Error("This is your own listing, so you can't make an offer on it.");
     const { sorted } = await this._marketCoins(null);
-    if (sorted.length < 2) throw new Error('You need a second coin to make an offer: open Send, send yourself a small amount (e.g. 0.5 XVG), wait for it to confirm, then try again.');
-    const dummy = sorted[0];
+    if (!sorted.length) throw new Error('This wallet has no spendable XVG. Top it up, wait for the deposit to confirm, then try again.');
     const feeUnits = 300000;
-    const need = priceUnits + feeUnits;
-    const funds = [];
-    let sum = 0;
-    for (const u of sorted.slice(1)) { funds.push(u); sum += u.value; if (sum >= need) break; }
-    if (sum < need) throw new Error('insufficient spendable funds for the offer + fee');
+    const { pads, funds } = await this._ensurePads(sorted, priceUnits + feeUnits);
     const [ct, cv] = carrierOutpoint.split(':');
+    const carrierOffset = await this._carrierOffset(carrierOutpoint);
     const bid = await swap.buildBid({
       carrier: { txid: ct, vout: Number(cv), value: carrierValue },
-      priceUnits, sellerAddress,
-      dummy: { txid: dummy.txid, vout: dummy.vout, value: dummy.value },
-      funds: funds.map((u) => ({ txid: u.txid, vout: u.vout, value: u.value })),
+      priceUnits, sellerAddress, pads, funds,
       buyerAddress: this._address, priv: this._priv, feeUnits,
+      carrierOffset,
     });
     return this._post('/api/market/bid', bid);
   }
@@ -583,7 +652,7 @@ export class Wallet {
       throw new Error('the offer changed since you opened it; refresh and try again');
     }
     // The bid's payout address must be OUR active address, or we would be handing over the Verginal
-    // for a payment that goes elsewhere. buildBid always pays vout[1] to sellerAddress; verify it.
+    // for a payment that goes elsewhere. buildBid always pays vout[2] to sellerAddress; verify it.
     if (bid.sellerAddress !== this._address) throw new Error('this offer does not pay your wallet');
     const built = await swap.acceptBid({ bid, priv: this._priv });
     if (!broadcast) return built;

@@ -3,14 +3,17 @@
 // spec/MARKETPLACE-SPEC-v0.md for the transaction layout and the two Verge timestamp rules.
 //
 // The seller half-signs their carrier input with SIGHASH_SINGLE|ANYONECANPAY (commits only
-// "vout[1] pays me my price"); the buyer completes with a dummy at vin[0], funds and change.
-// Bids invert it: the buyer builds and SIGHASH_ALL-signs the whole transaction, the seller
-// accepts by signing the carrier input.
+// "vout[2] pays me my price"); the buyer completes with two dust pads at vin[0..1], funds and
+// change. Two pads push the carrier to input index 2 so SIGHASH_SINGLE pairs it with the price;
+// vout[0] swallows the pads plus the carrier's pre-inscription sats so the inscribed sat becomes
+// the first unit of vout[1], a fresh constant-POSTAGE carrier. Bids invert it: the buyer builds
+// and SIGHASH_ALL-signs the whole transaction, the seller accepts by signing the carrier input.
 
 import * as V from './verge.js';
 
-export const SELLER_INDEX = 1;
+export const SELLER_INDEX = 2;
 export const LISTING_SIGHASH = V.SIGHASH_SINGLE | V.SIGHASH_ANYONECANPAY;
+export const POSTAGE_UNITS = 100000; // 0.1 XVG: the constant value a Verginal-bearing carrier holds
 export const DEFAULT_SCHEDULE = [0, 900, 3600, 14400, 43200, 86400, 172800, 345600, 604800, 1209600, 2592000];
 
 const ZERO_TXID = '00'.repeat(32);
@@ -34,8 +37,16 @@ export async function signListingVariant({ carrier, priceUnits, sellerAddress, p
   const carrierScript = await V.p2pkhScript(await V.addressFromPubkey(pub));
   const tx = {
     version: 1, time, locktime: 0,
-    vin: [{ txid: ZERO_TXID, vout: 0 }, { txid: carrier.txid, vout: carrier.vout }],
-    vout: [{ value: 0, script: new Uint8Array(0) }, { value: priceUnits, script: await V.p2pkhScript(sellerAddress) }],
+    vin: [
+      { txid: ZERO_TXID, vout: 0 },
+      { txid: ZERO_TXID, vout: 1 },
+      { txid: carrier.txid, vout: carrier.vout },
+    ],
+    vout: [
+      { value: 0, script: new Uint8Array(0) },
+      { value: 0, script: new Uint8Array(0) },
+      { value: priceUnits, script: await V.p2pkhScript(sellerAddress) },
+    ],
   };
   const sighash = await V.legacySighash(tx, SELLER_INDEX, carrierScript, LISTING_SIGHASH);
   const sig = await V.signHashWith(sighash, priv, LISTING_SIGHASH);
@@ -49,7 +60,7 @@ export async function buildListing({ carrier, priceUnits, sellerAddress, priv, s
   const variants = [];
   for (const off of sched) variants.push(await signListingVariant({ carrier, priceUnits, sellerAddress, priv, time: t0 + off }));
   return {
-    kind: 'verginals-listing-v1',
+    kind: 'verginals-listing-v2',
     carrier: { txid: carrier.txid, vout: carrier.vout, value: carrier.value },
     priceUnits, sellerAddress, version: 1, locktime: 0,
     startTime: t0, expiresAt: t0 + sched[sched.length - 1], variants,
@@ -62,22 +73,32 @@ export async function buildListing({ carrier, priceUnits, sellerAddress, priv, s
  * malicious variant can never spend the buyer's coins.
  * @returns {{ hex, txid, outputs }}
  */
-export async function completeListing({ variant, dummy, funds, buyerAddress, priv, feeUnits }) {
+export async function completeListing({ variant, pads, funds, buyerAddress, priv, feeUnits, carrierOffset, postage }) {
+  if (!Array.isArray(pads) || pads.length !== SELLER_INDEX) throw new Error(`a swap needs exactly ${SELLER_INDEX} small pad coins`);
+  const g = carrierOffset || 0;
+  const post = postage == null ? POSTAGE_UNITS : postage;
+  const carrierValue = variant.carrier.value;
+  if (carrierValue - g < post) throw new Error('carrier is too small to reset the inscription onto a fresh postage');
+
   const buyerScript = await V.p2pkhScript(buyerAddress);
   const sellerScript = await V.p2pkhScript(variant.sellerAddress);
+  const padTotal = pads.reduce((s, u) => s + u.value, 0);
   const fundsTotal = funds.reduce((s, u) => s + u.value, 0);
-  const change = fundsTotal - variant.priceUnits - feeUnits;
+  const totalIn = padTotal + carrierValue + fundsTotal;
+  const padOut = padTotal + g;
+  const change = totalIn - padOut - post - variant.priceUnits - feeUnits;
   if (change < 0) throw new Error('funds do not cover price + fee');
 
   const vout = [
-    { value: dummy.value + variant.carrier.value, script: buyerScript },
+    { value: padOut, script: buyerScript },
+    { value: post, script: buyerScript },
     { value: variant.priceUnits, script: sellerScript },
   ];
   if (change > 0) vout.push({ value: change, script: buyerScript });
 
   const sellerScriptSig = hexToBytes(variant.scriptSig);
   const vin = [
-    { txid: dummy.txid, vout: dummy.vout, sequence: 0xffffffff, script: new Uint8Array(0) },
+    ...pads.map((u) => ({ txid: u.txid, vout: u.vout, sequence: 0xffffffff, script: new Uint8Array(0) })),
     { txid: variant.carrier.txid, vout: variant.carrier.vout, sequence: 0xffffffff, script: sellerScriptSig },
     ...funds.map((u) => ({ txid: u.txid, vout: u.vout, sequence: 0xffffffff, script: new Uint8Array(0) })),
   ];
@@ -97,24 +118,32 @@ export async function completeListing({ variant, dummy, funds, buyerAddress, pri
 }
 
 /** Build a bid: the buyer signs the whole transaction, leaving the carrier input for the seller. */
-export async function buildBid({ carrier, priceUnits, sellerAddress, dummy, funds, buyerAddress, priv, feeUnits, feeOutput, time }) {
+export async function buildBid({ carrier, priceUnits, sellerAddress, pads, funds, buyerAddress, priv, feeUnits, feeOutput, carrierOffset, postage, time }) {
+  if (!Array.isArray(pads) || pads.length !== SELLER_INDEX) throw new Error(`a bid needs exactly ${SELLER_INDEX} small pad coins`);
+  const g = carrierOffset || 0;
+  const post = postage == null ? POSTAGE_UNITS : postage;
+  if (carrier.value - g < post) throw new Error('carrier is too small to reset the inscription onto a fresh postage');
   const nTime = time == null ? Math.floor(Date.now() / 1000) : time;
   const buyerScript = await V.p2pkhScript(buyerAddress);
   const sellerScript = await V.p2pkhScript(sellerAddress);
   const fee = feeOutput ? feeOutput.value : 0;
+  const padTotal = pads.reduce((s, u) => s + u.value, 0);
   const fundsTotal = funds.reduce((s, u) => s + u.value, 0);
-  const change = fundsTotal - priceUnits - feeUnits - fee;
+  const totalIn = padTotal + carrier.value + fundsTotal;
+  const padOut = padTotal + g;
+  const change = totalIn - padOut - post - priceUnits - feeUnits - fee;
   if (change < 0) throw new Error('funds do not cover price + fee');
 
   const vout = [
-    { value: dummy.value + carrier.value, script: buyerScript },
+    { value: padOut, script: buyerScript },
+    { value: post, script: buyerScript },
     { value: priceUnits, script: sellerScript },
   ];
   if (feeOutput) vout.push({ value: feeOutput.value, script: await V.p2pkhScript(feeOutput.address) });
   if (change > 0) vout.push({ value: change, script: buyerScript });
 
   const vin = [
-    { txid: dummy.txid, vout: dummy.vout, sequence: 0xffffffff, script: new Uint8Array(0) },
+    ...pads.map((u) => ({ txid: u.txid, vout: u.vout, sequence: 0xffffffff, script: new Uint8Array(0) })),
     { txid: carrier.txid, vout: carrier.vout, sequence: 0xffffffff, script: new Uint8Array(0) },
     ...funds.map((u) => ({ txid: u.txid, vout: u.vout, sequence: 0xffffffff, script: new Uint8Array(0) })),
   ];
@@ -122,7 +151,7 @@ export async function buildBid({ carrier, priceUnits, sellerAddress, dummy, fund
   const scriptSigs = await signBuyerInputs(tx, priv, SELLER_INDEX);
 
   return {
-    kind: 'verginals-bid-v1',
+    kind: 'verginals-bid-v2',
     carrier: { txid: carrier.txid, vout: carrier.vout, value: carrier.value },
     priceUnits, sellerAddress, buyerAddress, time: nTime, version: 1, locktime: 0,
     vin: vin.map((v) => ({ txid: v.txid, vout: v.vout })),
@@ -156,7 +185,7 @@ export function pickVariant(listing, { now, maxCoinTime }) {
   if (!usable.length) return null;
   const v = usable[0];
   return {
-    kind: 'verginals-listing-v1', carrier: listing.carrier, priceUnits: listing.priceUnits,
+    kind: 'verginals-listing-v2', carrier: listing.carrier, priceUnits: listing.priceUnits,
     sellerAddress: listing.sellerAddress, time: v.time, version: listing.version,
     locktime: listing.locktime, scriptSig: v.scriptSig,
   };

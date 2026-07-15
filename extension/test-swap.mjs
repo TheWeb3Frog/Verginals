@@ -43,25 +43,25 @@ const TIME = 1_783_000_000;
 // --- 2. a completed buy is byte-identical (same hex) -----------------------------------------
 {
   const srvListing = S.buildListing({ network, carrier, priceUnits: 150_000_000, sellerAddress: sellerAddr, sellerKey: sellerEC, time: TIME });
-  const dummy = { txid: H('b'), vout: 1, value: 150_000 };
+  const pads = [{ txid: H('b'), vout: 1, value: 150_000 }, { txid: H('d'), vout: 3, value: 120_000 }];
   const funds = [{ txid: H('c'), vout: 0, value: 200_000_000 }];
-  const srvDone = S.completeListing({ network, listing: srvListing, dummy, funds, buyerAddress: buyerAddr, buyerKey: buyerEC, feeUnits: 200_000 });
+  const srvDone = S.completeListing({ network, listing: srvListing, pads, funds, buyerAddress: buyerAddr, buyerKey: buyerEC, feeUnits: 200_000, carrierOffset: 0 });
   const brwVariant = { ...srvListing, time: TIME, scriptSig: srvListing.scriptSig };
-  const brwDone = await B.completeListing({ variant: brwVariant, dummy, funds, buyerAddress: buyerAddr, priv: buyerPriv, feeUnits: 200_000 });
+  const brwDone = await B.completeListing({ variant: brwVariant, pads, funds, buyerAddress: buyerAddr, priv: buyerPriv, feeUnits: 200_000, carrierOffset: 0 });
   ok('completed buy transaction hex matches the server', srvDone.hex === brwDone.hex);
   ok('completed buy txid matches the server', srvDone.txid === brwDone.txid);
   // and the server considers it valid (its own verify path)
   ok('the browser-built buy passes the server signature check', (() => {
-    try { S.completeListing({ network, listing: srvListing, dummy, funds, buyerAddress: buyerAddr, buyerKey: buyerEC, feeUnits: 200_000 }); return true; } catch { return false; }
+    try { S.completeListing({ network, listing: srvListing, pads, funds, buyerAddress: buyerAddr, buyerKey: buyerEC, feeUnits: 200_000, carrierOffset: 0 }); return true; } catch { return false; }
   })());
 }
 
 // --- 3. a bid + acceptance is byte-identical -------------------------------------------------
 {
-  const dummy = { txid: H('d'), vout: 1, value: 150_000 };
+  const pads = [{ txid: H('d'), vout: 1, value: 150_000 }, { txid: H('9'), vout: 4, value: 120_000 }];
   const funds = [{ txid: H('e'), vout: 0, value: 200_000_000 }];
-  const srvBid = S.buildBid({ network, carrier, priceUnits: 120_000_000, sellerAddress: sellerAddr, dummy, funds, buyerAddress: buyerAddr, buyerKey: buyerEC, feeUnits: 200_000, time: TIME });
-  const brwBid = await B.buildBid({ carrier, priceUnits: 120_000_000, sellerAddress: sellerAddr, dummy, funds, buyerAddress: buyerAddr, priv: buyerPriv, feeUnits: 200_000, time: TIME });
+  const srvBid = S.buildBid({ network, carrier, priceUnits: 120_000_000, sellerAddress: sellerAddr, pads, funds, buyerAddress: buyerAddr, buyerKey: buyerEC, feeUnits: 200_000, carrierOffset: 0, time: TIME });
+  const brwBid = await B.buildBid({ carrier, priceUnits: 120_000_000, sellerAddress: sellerAddr, pads, funds, buyerAddress: buyerAddr, priv: buyerPriv, feeUnits: 200_000, carrierOffset: 0, time: TIME });
   ok('bid buyer scriptSigs match the server', JSON.stringify(srvBid.scriptSigs) === JSON.stringify(brwBid.scriptSigs));
   const srvAccept = S.acceptBid({ network, bid: srvBid, sellerKey: sellerEC });
   const brwAccept = await B.acceptBid({ bid: brwBid, priv: sellerPriv });

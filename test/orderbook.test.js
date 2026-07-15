@@ -53,9 +53,9 @@ const mkListing = () => buildListingSchedule({
 });
 const mkBid = (over = {}) => buildBid(Object.assign({
   network, carrier, priceUnits: 120_000_000, sellerAddress: addr(seller),
-  dummy: { txid: H('d'), vout: 1, value: 150_000 },
+  pads: [{ txid: H('d'), vout: 1, value: 150_000 }, { txid: H('b'), vout: 2, value: 120_000 }],
   funds: [{ txid: H('e'), vout: 0, value: 200_000_000 }],
-  buyerAddress: addr(buyer), buyerKey: buyer, feeUnits: 200_000, time: 1_999_999_500,
+  buyerAddress: addr(buyer), buyerKey: buyer, feeUnits: 200_000, carrierOffset: 0, time: 1_999_999_500,
 }, over));
 
 async function main() {

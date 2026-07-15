@@ -21,25 +21,36 @@ signs first pins `nTime` for the whole transaction. Everything below follows fro
 
 ## 1. The carrier
 
-A Verginal lives on a P2PKH UTXO (the "carrier"), value ~1-3 XVG, tracked by the Verginals
-indexer's FIFO sat model. Whoever controls the carrier's key controls the Verginal.
+A Verginal lives on a P2PKH UTXO (the "carrier"), tracked by the Verginals indexer's FIFO sat
+model. Whoever controls the carrier's key controls the Verginal. A carrier holds a **constant
+postage** of 0.1 XVG (`POSTAGE_UNITS`): every trade re-emits the Verginal onto a fresh output of
+exactly one postage, with the inscribed sat at offset 0, so the "locked" value never drifts or
+grows. Freshly minted carriers may hold more; their first trade heals them back to one postage
+and returns the excess to the buyer.
 
 ## 2. Listing (sell at a fixed price): SIGHASH_SINGLE | ANYONECANPAY
 
 The seller half-signs a transaction template committing to exactly one output: "output at my
-input's index pays me my price". Final transaction layout:
+input's index pays me my price". Final transaction layout (the padded ordinal-listing shape):
 
 ```
-vin[0]  buyer dummy (small coin)      vout[0]  dummy value + carrier value -> buyer
-vin[1]  carrier (seller-signed)       vout[1]  price -> seller           (this is what is signed)
-vin[2+] buyer funding coins           vout[2]  change -> buyer           (optional)
+vin[0]  buyer pad A (dust)        vout[0]  padA + padB + offset -> buyer   (padding-out)
+vin[1]  buyer pad B (dust)        vout[1]  POSTAGE -> buyer   (new carrier, inscription @ offset 0)
+vin[2]  carrier (seller-signed)   vout[2]  price -> seller    (this is what is signed, SELLER_INDEX=2)
+vin[3+] buyer funding coins       vout[3]  change -> buyer    (optional)
 ```
 
-- The carrier stays at index 1 because SIGHASH_SINGLE pairs an input with the output at its own
-  index. vout[0] absorbs the whole carrier, so by FIFO the inscribed sat always lands with the
-  buyer regardless of its offset inside the carrier.
-- ANYONECANPAY means only vin[1] is signed; the buyer freely adds vin[0], vin[2+] and vout[0],
-  vout[2]. The seller's signature is invariant to all of it (proven by tests).
+- The carrier sits at index 2 because SIGHASH_SINGLE pairs an input with the output at its own
+  index (the price). The two pad inputs push it there.
+- `vout[0]` is sized to swallow exactly the two pads PLUS the carrier's pre-inscription sats (its
+  `offset`, read from the indexer), so by FIFO the inscribed sat becomes the FIRST unit of
+  `vout[1]`. That resets the Verginal to offset 0 inside a fresh, constant-POSTAGE carrier; the
+  leftover carrier value flows to the buyer's change. The postage itself travels out of the
+  seller's carrier into the buyer's new one, so it stays constant across every resale.
+- ANYONECANPAY means only vin[2] is signed; the buyer freely chooses the pads, funding coins and
+  every output except vout[2]. The seller's signature is invariant to all of it (proven by tests,
+  including a FIFO simulation across repeated trades and a bloated-carrier heal).
+- The buyer needs at least three spendable coins: two small pads plus funds for the price + fee.
 
 ### 2.1 nTime variants (consequence of R1 + R2)
 

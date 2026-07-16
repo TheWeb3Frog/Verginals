@@ -1213,10 +1213,10 @@ function normalizeLoadout(l) {
 /** A demo opponent: a random House and a random loadout. Never affects the ladder (bot mode). */
 function makeBot() {
   const pick = () => GAME_ELEMENTS[Math.floor(Math.random() * GAME_ELEMENTS.length)];
-  const maybeRound = () => (Math.random() < 0.5 ? Math.floor(Math.random() * 3) : null);
+  const round = () => Math.floor(Math.random() * 3); // the bot places every power-up, like a player
   return {
     botFighter: { address: 'bot', house: pick(), rarityScore: 100, comeback: false, shield: false, verginal: null },
-    botLoadout: { attacks: [pick(), pick(), pick()], poisonRound: maybeRound(), potionRound: null, shieldRound: null },
+    botLoadout: { attacks: [pick(), pick(), pick()], poisonRound: round(), potionRound: round(), shieldRound: round() },
   };
 }
 

@@ -1707,7 +1707,7 @@ const Arena = {
   address: null,
   fighters: [],
   selected: null,
-  loadout: { attacks: ['fire', 'fire', 'fire'], poisonRound: null, potionRound: null, shieldRound: null },
+  loadout: { attacks: ['fire', 'fire', 'fire'], poisonRound: 0, potionRound: 1, shieldRound: 2 },
 };
 const ARENA_ELEMENTS = ['fire', 'water', 'earth'];
 const ELEMENT_ICON = { fire: '🔥', water: '💧', earth: '🌍' };
@@ -1807,7 +1807,7 @@ function renderLoadout() {
     });
     box.appendChild(row);
   }
-  // Special-charge round pickers (none / R1 / R2 / R3).
+  // Each power-up must be placed on a round (every fighter plays all three, so there is no "none").
   const specials = [['poisonRound', 'Poison 💀'], ['potionRound', 'Potion 🧪'], ['shieldRound', 'Shield 🛡️']];
   specials.forEach(([key, name]) => {
     const row = document.createElement('div');
@@ -1816,11 +1816,11 @@ function renderLoadout() {
     label.className = 'arena-round-n';
     label.textContent = name;
     row.appendChild(label);
-    [null, 0, 1, 2].forEach((v) => {
+    [0, 1, 2].forEach((v) => {
       const b = document.createElement('button');
       b.className = 'arena-el sm' + (L[key] === v ? ' on' : '');
-      b.textContent = v == null ? 'none' : 'R' + (v + 1);
-      b.addEventListener('click', () => { L[key] = L[key] === v ? null : v; renderLoadout(); });
+      b.textContent = 'R' + (v + 1);
+      b.addEventListener('click', () => { L[key] = v; renderLoadout(); });
       row.appendChild(b);
     });
     box.appendChild(row);

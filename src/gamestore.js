@@ -56,9 +56,7 @@ function validateLoadout(fighter, loadout) {
     const v = loadout[slot];
     if (v != null && ![0, 1, 2].includes(v)) throw new Error(`${slot} must be 0, 1, 2 or null`);
   }
-  if (loadout.shieldRound != null && !fighter.shield) {
-    throw new Error('this Verginal has no rare RUNE, so it cannot use a shield');
-  }
+  // The shield is a standard once-per-match power-up available to every fighter (no rare-RUNE gate).
 }
 
 class GameStore {

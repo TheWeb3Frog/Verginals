@@ -122,13 +122,13 @@ test('leaderboard is ordered by Elo', () => {
 });
 
 // --- validation ---
-test('validateLoadout rejects bad attacks and illegal shields', () => {
+test('validateLoadout rejects bad attacks and out-of-range slots', () => {
   assert.throws(() => validateLoadout(fighter('DA'), { attacks: ['fire', 'water'] }), /3 attacks/);
   assert.throws(() => validateLoadout(fighter('DA'), { attacks: ['fire', 'wind', 'earth'] }), /must be one of/);
   assert.throws(() => validateLoadout(fighter('DA'), { attacks: ['fire', 'water', 'earth'], poisonRound: 5 }), /poisonRound/);
-  assert.throws(() => validateLoadout(fighter('DA', { shield: false }), { attacks: ['fire', 'water', 'earth'], shieldRound: 1 }), /no rare RUNE/);
-  // a fighter WITH the rune may shield
-  validateLoadout(fighter('DA', { shield: true }), { attacks: ['fire', 'water', 'earth'], shieldRound: 1 });
+  assert.throws(() => validateLoadout(fighter('DA'), { attacks: ['fire', 'water', 'earth'], shieldRound: 5 }), /shieldRound/);
+  // the shield is a standard power-up: any fighter may use one, no rare RUNE required
+  validateLoadout(fighter('DA'), { attacks: ['fire', 'water', 'earth'], shieldRound: 1 });
 });
 
 // --- persistence ---

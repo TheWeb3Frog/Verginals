@@ -76,11 +76,11 @@ function rngFromSeed(seed) {
 
 /**
  * Normalise a collection item's on-chain traits into the fields combat cares about. Kept explicit
- * so the engine never has to understand the raw trait schema. rarityScore and runePct come from the
- * rarity engine (src/rarity.js) and are supplied by the caller.
+ * so the engine never has to understand the raw trait schema. rarityScore comes from the rarity
+ * engine (src/rarity.js) and is supplied by the caller.
  *
  * @param {{attributes:Array<{trait_type:string,value:string}>}} item
- * @param {{rarityScore?:number, runePct?:number, rareRuneMaxPct?:number}} [opts]
+ * @param {{rarityScore?:number}} [opts]
  */
 function deriveFighter(item, opts = {}) {
   const traits = {};

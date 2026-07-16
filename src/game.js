@@ -28,13 +28,14 @@ const DEFAULT_CONFIG = {
   rounds: 3,
   poisonCharges: 1, // poison plays allowed per fighter per match
   potionCharges: 1, // potion (antidote) plays allowed per fighter per match
+  shieldCharges: 1, // shield plays allowed per fighter per match
   eloK: 32,
   rarityNudgeMax: 0.1, // largest bias the rarity gap can add to a coin flip (0 = off)
   traits: {
     houseAffinity: true, // your House wins same-element ties when that element was played
     faceComeback: true,  // a comeback face gets a round-3 tie edge after losing round 1
     rarityNudge: true,   // the final coin flip leans toward the higher rarity score
-    runeShield: true,    // a rare RUNE grants one "cannot lose this round" shield charge
+    shield: true,        // the shield power-up ("cannot lose this round"), available to every fighter
   },
 };
 
@@ -87,13 +88,12 @@ function deriveFighter(item, opts = {}) {
     if (a && a.trait_type) traits[String(a.trait_type).toLowerCase()] = String(a.value).toLowerCase();
   });
   const house = ELEMENTS.includes(traits.house) ? traits.house : null;
-  const rareRuneMaxPct = opts.rareRuneMaxPct == null ? 5 : opts.rareRuneMaxPct;
   return {
     house,
     rarityScore: Number(opts.rarityScore) || 0,
     comeback: COMEBACK_FACES.has(traits.face),
-    // A rare RUNE (its value appears on <= rareRuneMaxPct% of the collection) grants a shield charge.
-    shield: opts.runePct != null && opts.runePct <= rareRuneMaxPct,
+    // The shield power-up is available to every fighter (see DEFAULT_CONFIG.traits.shield); it is no
+    // longer a rarity perk, so no per-fighter capability is derived here.
   };
 }
 
@@ -124,7 +124,7 @@ function validateFighterMoves(rounds, key, fighter, cfg) {
   });
   if (poison > cfg.poisonCharges) throw new Error(`${key} used ${poison} poison, max ${cfg.poisonCharges}`);
   if (potion > cfg.potionCharges) throw new Error(`${key} used ${potion} potion, max ${cfg.potionCharges}`);
-  const shieldMax = cfg.traits.runeShield && fighter.shield ? 1 : 0;
+  const shieldMax = cfg.traits.shield ? cfg.shieldCharges : 0;
   if (shield > shieldMax) throw new Error(`${key} used ${shield} shield, max ${shieldMax}`);
 }
 

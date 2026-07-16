@@ -157,7 +157,7 @@ test('pure-skill config (all traits off) is an unbiased flip on ties', () => {
   const p1 = plain('P1', { house: 'fire', rarityScore: 999, comeback: true });
   const p2 = plain('P2', { house: 'water', rarityScore: 1 });
   const mv = rounds('fire', 'fire', 'water', 'water', 'earth', 'earth');
-  const cfg = { traits: { houseAffinity: false, faceComeback: false, rarityNudge: false, runeShield: false } };
+  const cfg = { traits: { houseAffinity: false, faceComeback: false, rarityNudge: false, shield: false } };
   let p1wins = 0;
   const N = 400;
   for (let i = 0; i < N; i++) {
@@ -182,13 +182,21 @@ test('rejects too many poison charges', () => {
   assert.throws(() => resolveMatch({ p1: plain('P1'), p2: plain('P2'), moves: mv, seed: SEED }), /poison/);
 });
 
-test('rejects a shield from a fighter without the rare RUNE', () => {
-  const mv = [
+test('every fighter may play one shield, but not two', () => {
+  const oneShield = [
     { p1: { element: 'fire', shield: true }, p2: { element: 'fire' } },
     { p1: { element: 'water' }, p2: { element: 'water' } },
     { p1: { element: 'earth' }, p2: { element: 'earth' } },
   ];
-  assert.throws(() => resolveMatch({ p1: plain('P1', { shield: false }), p2: plain('P2'), moves: mv, seed: SEED }), /shield/);
+  // A plain fighter (no rare RUNE) may now use one shield.
+  assert.doesNotThrow(() => resolveMatch({ p1: plain('P1'), p2: plain('P2'), moves: oneShield, seed: SEED }));
+  // But a second shield in the same match is still rejected.
+  const twoShields = [
+    { p1: { element: 'fire', shield: true }, p2: { element: 'fire' } },
+    { p1: { element: 'water', shield: true }, p2: { element: 'water' } },
+    { p1: { element: 'earth' }, p2: { element: 'earth' } },
+  ];
+  assert.throws(() => resolveMatch({ p1: plain('P1'), p2: plain('P2'), moves: twoShields, seed: SEED }), /shield/);
 });
 
 test('rejects the wrong number of rounds', () => {
@@ -196,24 +204,22 @@ test('rejects the wrong number of rounds', () => {
 });
 
 // --- deriveFighter ---
-test('deriveFighter reads House, comeback face, and rare-RUNE shield from traits', () => {
+test('deriveFighter reads House, comeback face and rarity from traits', () => {
   const item = { attributes: [
     { trait_type: 'HOUSE', value: 'Earth' },
     { trait_type: 'FACE', value: 'Crying' },
     { trait_type: 'RUNE', value: 'Stone White' },
   ] };
-  const f = deriveFighter(item, { rarityScore: 178.31, runePct: 1.29 });
+  const f = deriveFighter(item, { rarityScore: 178.31 });
   assert.strictEqual(f.house, 'earth');
   assert.strictEqual(f.comeback, true);
-  assert.strictEqual(f.shield, true); // 1.29% <= 5% default rare threshold
   assert.strictEqual(f.rarityScore, 178.31);
 });
 
-test('deriveFighter: common rune gives no shield, non-elemental House is null', () => {
+test('deriveFighter: a non-elemental House is null', () => {
   const item = { attributes: [{ trait_type: 'House', value: 'Gold' }, { trait_type: 'Rune', value: 'Plain' }] };
-  const f = deriveFighter(item, { runePct: 50 });
+  const f = deriveFighter(item, {});
   assert.strictEqual(f.house, null);
-  assert.strictEqual(f.shield, false);
 });
 
 // --- seeds ---

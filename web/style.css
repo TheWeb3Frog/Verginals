@@ -537,33 +537,65 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 .arena-matchup { font-size: 14px; color: var(--muted); margin: 2px 0 6px; text-align: center; }
 
 /* Tournament knockout bracket */
+:root { --brkc: #3a4b5c; --brk-gap: 22px; --brk-colw: 128px; }
 .arena-bracket-wrap { margin-top: 6px; }
 .bracket-topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 #arena-bracket-actions { display: flex; align-items: center; gap: 8px; }
+.bk-joined { font-size: 13px; color: var(--ok); }
 #arena-bracket-head h2 { margin: 0 0 4px; }
 .bk-meta { font-size: 13px; color: var(--muted); }
 .bk-status { text-transform: uppercase; font-size: 11px; font-weight: 700; letter-spacing: .04em; padding: 2px 8px; border-radius: 999px; background: var(--bg2); color: var(--muted); }
 .bk-status.running { background: rgba(76, 194, 241, .16); color: var(--accent); }
 .bk-status.ended { background: rgba(56, 211, 159, .16); color: var(--ok); }
-.bk-champion { margin-top: 8px; font-size: 15px; color: var(--txt); }
-#arena-bracket-scroll { overflow-x: auto; padding: 14px 2px 6px; }
-.bracket { display: flex; gap: 26px; align-items: stretch; min-width: min-content; }
-.bracket.registering { flex-direction: column; align-items: stretch; }
-.bk-registering { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 8px; margin-bottom: 10px; }
-.bk-col { display: flex; flex-direction: column; min-width: 148px; }
-.bk-round { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); text-align: center; margin-bottom: 8px; font-weight: 700; }
-.bk-col-in { flex: 1; display: flex; flex-direction: column; justify-content: space-around; gap: 12px; }
-.bk-match { background: var(--card); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
-.bk-match.champ { border-color: var(--ok); }
+#arena-bracket-scroll { overflow: auto; padding: 18px 8px; }
+
+/* registering: a simple grid of the fighters who have joined */
+.bracket.registering { display: block; }
+.bk-registering { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; margin-bottom: 10px; }
+
+/* running / ended: two half-brackets converging on a centre Grand Final */
+.bracket { display: flex; align-items: center; justify-content: center; min-width: min-content; }
+.brk { display: flex; align-items: stretch; }
+.brk-round { display: flex; flex-direction: column; width: var(--brk-colw); flex: 0 0 auto; }
+.side-l .brk-round { padding-right: var(--brk-gap); }
+.side-r .brk-round { padding-left: var(--brk-gap); }
+.bk-slot { flex: 1 1 0; position: relative; display: flex; align-items: center; padding: 5px 0; }
+.bk-match { width: 100%; background: var(--card); border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.bk-match.done { border-color: #2f4152; }
+.bk-match.tbd { opacity: .5; }
+
+/* connectors: horizontal ticks at each match centre + a vertical line joining a pair */
+.side-l .brk-round:not(:last-child) .bk-slot::after,
+.side-r .brk-round:not(:first-child) .bk-slot::after { content: ''; position: absolute; width: var(--brk-gap); }
+.side-l .brk-round:not(:last-child) .bk-slot::after { left: 100%; border-right: 2px solid var(--brkc); }
+.side-r .brk-round:not(:first-child) .bk-slot::after { right: 100%; border-left: 2px solid var(--brkc); }
+.side-l .brk-round:not(:last-child) .bk-slot:nth-child(odd)::after,
+.side-r .brk-round:not(:first-child) .bk-slot:nth-child(odd)::after { top: 50%; bottom: 0; border-top: 2px solid var(--brkc); }
+.side-l .brk-round:not(:last-child) .bk-slot:nth-child(even)::after,
+.side-r .brk-round:not(:first-child) .bk-slot:nth-child(even)::after { top: 0; bottom: 50%; border-bottom: 2px solid var(--brkc); }
+/* the single semi-final on each side feeds straight into the final: a plain horizontal */
+.side-l .brk-round:last-child .bk-slot::after { content: ''; position: absolute; left: 100%; width: var(--brk-gap); top: 50%; border-top: 2px solid var(--brkc); }
+.side-r .brk-round:first-child .bk-slot::after { content: ''; position: absolute; right: 100%; width: var(--brk-gap); top: 50%; border-top: 2px solid var(--brkc); }
+
+/* centre grand final: the match stays vertically centred (aligned with both semi-finals); the
+   badge and champion float above/below it so they do not shift its centre. */
+.brk-final { display: flex; align-items: center; justify-content: center; width: 184px; flex: 0 0 auto; padding: 0 8px; }
+.brk-final-inner { position: relative; width: 100%; }
+.brk-final .bk-slot { flex: 0 0 auto; width: 100%; padding: 0; }
+.brk-final-badge { position: absolute; bottom: 100%; left: 0; right: 0; margin-bottom: 10px; display: flex; flex-direction: column; align-items: center; color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: .1em; }
+.brk-swords { font-size: 24px; }
+.brk-final .bk-match { border-color: var(--accent); box-shadow: 0 0 22px rgba(76, 194, 241, .18); }
+.brk-champ { position: absolute; top: 100%; left: 0; right: 0; margin-top: 10px; font-size: 14px; color: var(--txt); text-align: center; }
+
+/* fighter rows inside a match box */
 .bk-f { display: flex; align-items: center; gap: 7px; padding: 5px 8px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
 .bk-f:last-child { border-bottom: none; }
-.bk-f img, .bk-av { width: 22px; height: 22px; border-radius: 4px; object-fit: cover; background: var(--bg2); display: inline-grid; place-items: center; flex: 0 0 auto; }
+.bk-f img, .bk-av { width: 20px; height: 20px; border-radius: 4px; object-fit: cover; background: var(--bg2); display: inline-grid; place-items: center; flex: 0 0 auto; font-size: 11px; }
 .bk-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bk-f.win { color: var(--txt); background: rgba(56, 211, 159, .10); font-weight: 600; }
+.bk-f.win { color: var(--txt); background: rgba(56, 211, 159, .12); font-weight: 600; }
 .bk-f.win .bk-name::after { content: ' ✓'; color: var(--ok); }
 .bk-f.me .bk-name { color: var(--accent); }
 .bk-f.tbd { color: var(--muted); opacity: .6; }
-@media (max-width: 640px) { .bk-col { min-width: 130px; } }
 
 /* ============ Alpha collection page ============ */
 .coll-hero { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; margin-bottom: 18px; }

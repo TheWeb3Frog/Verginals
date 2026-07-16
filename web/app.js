@@ -2237,23 +2237,27 @@ function bracketFighter(addr, partMap, isWinner) {
   return `<div class="bk-f${isWinner ? ' win' : ''}${mine}">${media}<span class="bk-name">${esc(label)}</span></div>`;
 }
 
+/** One match box (two fighters) wrapped in its bracket slot. */
+function bracketMatch(m, partMap) {
+  if (!m) return '<div class="bk-slot"><div class="bk-match tbd"><div class="bk-f tbd"><span>TBD</span></div><div class="bk-f tbd"><span>TBD</span></div></div></div>';
+  return `<div class="bk-slot"><div class="bk-match ${m.status === 'resolved' ? 'done' : ''}">
+    ${bracketFighter(m.p1, partMap, m.winner === m.p1)}
+    ${bracketFighter(m.p2, partMap, m.winner === m.p2)}
+  </div></div>`;
+}
+
+/** One column of a half-bracket: the matches of one round on one side. */
+function bracketColumn(matches, partMap) {
+  return `<div class="brk-round">${matches.map((m) => bracketMatch(m, partMap)).join('')}</div>`;
+}
+
 function renderBracket(t) {
   const partMap = {};
   (t.participants || []).forEach((p) => { partMap[p.address] = p; });
 
-  // Header: name, status, champion + trophies when finished.
   const head = $('#arena-bracket-head');
-  let champHtml = '';
-  if (t.status === 'ended' && t.championAddress) {
-    const c = partMap[t.championAddress];
-    const cnum = c && c.verginal != null ? '#' + c.verginal : short(t.championAddress);
-    const tr = t.trophies || {};
-    champHtml = `<div class="bk-champion">🏆 Champion: <b>${esc(cnum)}</b>${tr.champion ? ` · <a class="link" href="/v/${esc(tr.champion.replace(/i0$/, ''))}" target="_blank" rel="noopener">trophy</a>` : ''}</div>`;
-  }
   head.innerHTML = `<h2>${esc(t.name)}</h2>
-    <div class="bk-meta"><span class="bk-status ${esc(t.status)}">${esc(t.status)}</span> · ${t.size} players${t.status === 'registering' ? ` · ${(t.participants || []).length}/${t.size} joined` : ''}</div>
-    ${champHtml}`;
-
+    <div class="bk-meta"><span class="bk-status ${esc(t.status)}">${esc(t.status)}</span> · ${t.size} players${t.status === 'registering' ? ` · ${(t.participants || []).length}/${t.size} joined` : ''}</div>`;
   renderBracketActions(t);
 
   const body = $('#arena-bracket-body');
@@ -2266,20 +2270,28 @@ function renderBracket(t) {
       ${open > 0 ? `<div class="hint">Waiting for ${open} more player${open > 1 ? 's' : ''} to fill the bracket.</div>` : '<div class="hint">Bracket full, ready to start.</div>'}`;
     return;
   }
-  body.className = 'bracket';
-  const cols = t.rounds.map((r) => {
-    const matches = r.matches.map((m) => `
-      <div class="bk-match ${m.status === 'resolved' ? 'done' : ''}">
-        ${bracketFighter(m.p1, partMap, m.winner === m.p1)}
-        ${bracketFighter(m.p2, partMap, m.winner === m.p2)}
-      </div>`).join('');
-    return `<div class="bk-col"><div class="bk-round">${roundName(r.field)}</div><div class="bk-col-in">${matches}</div></div>`;
-  }).join('');
-  // A trophy column for the crowned champion.
-  const champCol = (t.status === 'ended' && t.championAddress)
-    ? `<div class="bk-col"><div class="bk-round">Champion</div><div class="bk-col-in"><div class="bk-match champ">${bracketFighter(t.championAddress, partMap, true)}</div></div></div>`
+
+  // Split each preliminary round in two: the left half feeds rightward, the right half leftward,
+  // both converging on the Grand Final in the centre (the classic knockout tree).
+  const prelim = t.rounds.slice(0, -1);
+  const finalRound = t.rounds[t.rounds.length - 1];
+  const finalMatch = finalRound.matches[0];
+  const leftCols = prelim.map((r) => bracketColumn(r.matches.slice(0, Math.ceil(r.matches.length / 2)), partMap));
+  const rightCols = prelim.map((r) => bracketColumn(r.matches.slice(Math.ceil(r.matches.length / 2)), partMap));
+
+  const champ = (t.status === 'ended' && t.championAddress) ? partMap[t.championAddress] : null;
+  const tr = t.trophies || {};
+  const champBlock = champ
+    ? `<div class="brk-champ">🏆 <b>${esc(champ.verginal != null ? '#' + champ.verginal : short(t.championAddress))}</b> wins${tr.champion ? ` · <a class="link" href="/v/${esc(tr.champion.replace(/i0$/, ''))}" target="_blank" rel="noopener">trophy</a>` : ''}</div>`
     : '';
-  body.innerHTML = cols + champCol;
+  const finalBlock = `<div class="brk-final"><div class="brk-final-inner">
+      <div class="brk-final-badge"><span class="brk-swords">⚔️</span><span>GRAND FINAL</span></div>
+      ${bracketMatch(finalMatch, partMap)}
+      ${champBlock}
+    </div></div>`;
+
+  body.className = 'bracket';
+  body.innerHTML = `<div class="brk side-l">${leftCols.join('')}</div>${finalBlock}<div class="brk side-r">${rightCols.reverse().join('')}</div>`;
 }
 
 /** Context actions on the bracket: join while registering, submit a loadout for your pending match. */
@@ -2288,9 +2300,8 @@ function renderBracketActions(t) {
   box.innerHTML = '';
   const joined = Arena.address && (t.participants || []).some((p) => p.address === Arena.address);
   if (t.status === 'registering') {
-    if (!Arena.address) { box.innerHTML = '<span class="hint">Connect and pick a fighter in the Arena to join.</span>'; return; }
-    if (joined) { box.innerHTML = '<span class="hint">You are in. Waiting for the bracket to fill.</span>'; return; }
-    box.appendChild(btn('Join with your selected fighter', 'primary sm', () => tournamentJoin(t.id)));
+    if (joined) { box.innerHTML = '<span class="bk-joined">✓ You are in. Waiting for the bracket to fill.</span>'; return; }
+    box.appendChild(btn('⚔️ Join ' + t.name, 'primary', () => tournamentJoin(t.id)));
     return;
   }
   if (t.status === 'running' && joined) {
@@ -2308,12 +2319,14 @@ function renderBracketActions(t) {
 
 async function tournamentJoin(id) {
   const box = $('#arena-bracket-actions');
-  if (!Arena.selected) { box.innerHTML = '<span class="hint">Open the Arena first and pick your fighter, then come back.</span>'; return; }
-  box.innerHTML = 'Joining…';
+  box.innerHTML = 'Connecting…';
   try {
-    await arenaAuth();
+    await arenaAuth();                      // connect + sign in (prompts the wallet)
+    if (!Arena.selected) await loadArenaFighters(); // auto-selects the first Alpha the wallet holds
+    if (!Arena.selected) { box.innerHTML = '<span class="bk-joined">You need an Alpha Verginal to enter. Grab one on the Market, then try again.</span>'; return; }
+    box.innerHTML = 'Joining…';
     await arenaApi('/api/game/tournament/join', { tournamentId: id, verginal: Arena.selected });
-    openTournament(id); // refresh
+    openTournament(id); // refresh into the joined state
   } catch (e) { box.innerHTML = '✗ ' + esc(e.message); }
 }
 

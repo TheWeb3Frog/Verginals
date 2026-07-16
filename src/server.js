@@ -54,6 +54,7 @@ const { GameAuth } = require('./gameauth');
 const { verifyMessage } = require('./message');
 const { GameStore } = require('./gamestore');
 const { deriveFighter, ELEMENTS: GAME_ELEMENTS, BADGE_DEFS } = require('./game');
+const { buildTrophySVG } = require('./trophy');
 const cbor = require('./cbor');
 
 const PORT = Number(process.env.PORT || 3400);

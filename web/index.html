@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Verginals: Inscriptions on Verge</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/style.css?v=9" />
+  <link rel="stylesheet" href="/style.css?v=10" />
 </head>
 <body>
   <header class="topbar">
@@ -344,6 +344,16 @@
         </div>
 
         <div class="arena-side">
+          <div class="card" id="arena-profile-card" hidden>
+            <h3>Your record</h3>
+            <div id="arena-profile"></div>
+            <h4 class="arena-sub">Achievements</h4>
+            <div id="arena-badges" class="arena-badges"><div class="empty">Connect to see your badges.</div></div>
+          </div>
+          <div class="card" id="arena-history-card" hidden>
+            <h3>Recent battles</h3>
+            <div id="arena-history"><div class="empty">No battles yet.</div></div>
+          </div>
           <div class="card">
             <h3>Ladder</h3>
             <div id="arena-leaderboard"><div class="empty">No duels yet.</div></div>
@@ -707,7 +717,7 @@
   </div>
 
   <script src="/vendor/qrcode.js"></script>
-  <script src="/app.js?v=9"></script>
-  <script src="/wallet.js?v=9"></script>
+  <script src="/app.js?v=10"></script>
+  <script src="/wallet.js?v=10"></script>
 </body>
 </html>

@@ -53,7 +53,7 @@ const { OrderBook } = require('./orderbook');
 const { GameAuth } = require('./gameauth');
 const { verifyMessage } = require('./message');
 const { GameStore } = require('./gamestore');
-const { deriveFighter, ELEMENTS: GAME_ELEMENTS } = require('./game');
+const { deriveFighter, ELEMENTS: GAME_ELEMENTS, BADGE_DEFS } = require('./game');
 const cbor = require('./cbor');
 
 const PORT = Number(process.env.PORT || 3400);
@@ -1229,6 +1229,21 @@ async function handleGameMe(req, res) {
   return sendJSON(res, 200, { address, profile, waiting });
 }
 
+/** GET /api/game/history: the signed-in player's recent duels (win/loss, opponent, replay id). */
+async function handleGameHistory(req, res) {
+  if (!gameStore) return sendJSON(res, 404, { error: 'the Arena is not enabled on this server' });
+  const address = gamePlayer(req);
+  if (!address) return sendJSON(res, 401, { error: 'not signed in' });
+  return sendJSON(res, 200, { history: gameStore.historyFor(address, 25) });
+}
+
+/** GET /api/game/badges: the full badge catalogue (name, description, icon), so the UI can show
+ *  earned and still-locked achievements side by side. Public: the catalogue holds no player data. */
+function handleGameBadges(res) {
+  if (!gameStore) return sendJSON(res, 404, { error: 'the Arena is not enabled on this server' });
+  return sendJSON(res, 200, { badges: BADGE_DEFS });
+}
+
 /** POST /api/game/duel/queue or /bot: submit a loadout for a real or demo duel. */
 async function handleGameDuel(req, res, mode) {
   const address = gamePlayer(req);
@@ -2168,6 +2183,8 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/game/challenge' && req.method === 'GET') return await handleGameChallenge(res, url.searchParams.get('address') || '');
     if (p === '/api/game/session' && req.method === 'POST') return await handleGameSession(req, res);
     if (p === '/api/game/me' && req.method === 'GET') return await handleGameMe(req, res);
+    if (p === '/api/game/history' && req.method === 'GET') return await handleGameHistory(req, res);
+    if (p === '/api/game/badges' && req.method === 'GET') return handleGameBadges(res);
     if (p === '/api/game/duel/queue' && req.method === 'POST') return await handleGameDuel(req, res, 'queue');
     if (p === '/api/game/duel/bot' && req.method === 'POST') return await handleGameDuel(req, res, 'bot');
     if (p === '/api/game/leaderboard' && req.method === 'GET') return await handleGameLeaderboard(res);

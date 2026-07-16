@@ -125,6 +125,37 @@ class GameStore {
     return p ? { ...p, badges: [...p.badges] } : { address, elo: START_ELO, wins: 0, losses: 0, matches: 0, house: null, streak: 0, bestStreak: 0, badges: [] };
   }
 
+  /**
+   * A player's recent resolved matches, newest first, in a compact shape for a battle-history view:
+   * how they did (win/loss), which Verginals fought, the opponent, the round score, and the match id
+   * (so the UI can link the shareable replay). Bot practice matches are included and flagged by mode.
+   */
+  historyFor(address, limit = 25) {
+    const out = [];
+    for (const m of this.state.matches) {
+      if (m.p1 !== address && m.p2 !== address) continue;
+      const mine = m.p1 === address ? 'p1' : 'p2';
+      const opp = mine === 'p1' ? 'p2' : 'p1';
+      const sc = Array.isArray(m.score) ? m.score : null;
+      out.push({
+        id: m.id,
+        at: m.at,
+        mode: m.mode,
+        result: m.winner === address ? 'win' : 'loss',
+        myVerginal: m[`${mine}Verginal`] == null ? null : m[`${mine}Verginal`],
+        oppVerginal: m[`${opp}Verginal`] == null ? null : m[`${opp}Verginal`],
+        oppAddress: m[opp],
+        myScore: sc ? sc[mine === 'p1' ? 0 : 1] : null,
+        oppScore: sc ? sc[mine === 'p1' ? 1 : 0] : null,
+        // Replay payload (no server seed): the fields replayPath() needs to rebuild a shareable link.
+        p1: m.p1, p2: m.p2, p1Verginal: m.p1Verginal, p2Verginal: m.p2Verginal,
+        winner: m.winner, seed: m.seed, score: m.score, rounds: m.rounds, moves: m.moves,
+      });
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
   _awardBadges(p) {
     const earned = [];
     for (const b of PARTICIPATION_BADGES) {

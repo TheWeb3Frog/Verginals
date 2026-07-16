@@ -1760,6 +1760,8 @@ async function loadArena() {
   fight.classList.remove('hidden');
   renderLoadout();
   loadArenaFighters();
+  loadArenaProfile();
+  loadArenaHistory();
 }
 
 async function loadArenaFighters() {
@@ -1852,6 +1854,8 @@ async function arenaDuel(mode) {
     }
     loadArenaLadder();
     loadArenaFighters();
+    loadArenaProfile();
+    loadArenaHistory();
   } catch (e) {
     out.textContent = '✗ ' + e.message;
   } finally {
@@ -1915,6 +1919,9 @@ function playArenaBattle(match, opts = {}) {
   const moves = match.moves || [];
   const winnerSide = match.winner === match.p1 ? 'p1' : 'p2';
   const won = isParticipant && match.winner === viewer;
+  // Name tags shown under each fighter: the Alpha number, or "Bot" for the practice opponent.
+  const meLabel = meNum != null ? '#' + meNum : (isParticipant ? 'You' : 'P1');
+  const oppLabel = oppNum != null ? '#' + oppNum : (match[oppSide] === 'bot' ? 'Bot' : 'P2');
 
   $('#arena-result').textContent = '';
   const stage = $('#arena-stage'); stage.classList.remove('hidden');
@@ -2057,6 +2064,8 @@ function playArenaBattle(match, opts = {}) {
             if (i >= 0) impactFx(t, i, mid, baseY, EL[winEl(i)]);
             drawFighter(meImg, meX + meDX, baseY + bob + yOff, S * meScale, meGlow, meGlowR, meDim, meLean);
             drawFighter(oppImg, oppX + opDX, baseY - bob + yOff, S * opScale, opGlow, opGlowR, opDim, opLean);
+            ctx.save(); ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#cdd8e3';
+            ctx.fillText(meLabel, meX, baseY + S / 2 + 30); ctx.fillText(oppLabel, oppX, baseY + S / 2 + 30); ctx.restore();
 
             if (flash > 0.01) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = flash * 0.8; ctx.fillStyle = flashColor; ctx.fillRect(-40, -40, W + 80, H + 80); ctx.restore(); }
           } else {
@@ -2089,8 +2098,15 @@ function showArenaResult(match, opts = {}) {
     return `<span class="arena-rr ${mine ? 'win' : 'loss'}">R${r.round} ${mine ? 'W' : 'L'} <em>${esc(r.reason)}</em></span>`;
   }).join('');
   const verdict = isParticipant ? (won ? 'VICTORY' : 'DEFEAT') : (winNum != null ? '#' + winNum + ' WINS' : 'WINNER');
+  const oppSide = meSide === 'p1' ? 'p2' : 'p1';
+  const meNum = match[meSide + 'Verginal'];
+  const oppNum = match[oppSide + 'Verginal'];
+  const meLbl = meNum != null ? '#' + meNum : 'You';
+  const oppLbl = oppNum != null ? '#' + oppNum : (match[oppSide] === 'bot' ? 'Bot' : 'Opponent');
+  const matchup = isParticipant ? `${meLbl} vs ${oppLbl}` : `#${match.p1Verginal} vs #${match.p2Verginal}`;
   const out = $('#arena-result');
   out.innerHTML = `<div class="arena-verdict ${isParticipant && !won ? 'loss' : 'win'}">${verdict}</div>
+    <div class="arena-matchup">${esc(matchup)}</div>
     <div class="arena-rounds">${rounds}</div>
     <div class="hint">Provably fair: seed <code>${esc(short(match.seed || ''))}</code></div>`;
   const share = btn('Copy replay link 🔗', 'ghost sm', () => {
@@ -2171,6 +2187,69 @@ async function loadArenaTournaments() {
       ? d.tournaments.map((t) => `<div class="arena-rank"><span>${esc(t.name)}</span><b>${t.status === 'registering' ? `${t.players}/${t.size}` : t.status}</b></div>`).join('')
       : '<div class="empty">None yet.</div>';
   } catch (_) { /* leave placeholder */ }
+}
+
+// The badge catalogue is static; fetch it once and reuse for the achievements grid.
+let arenaBadgeDefs = null;
+async function loadBadgeDefs() {
+  if (arenaBadgeDefs) return arenaBadgeDefs;
+  try { arenaBadgeDefs = (await api('/api/game/badges')).badges || []; } catch (_) { arenaBadgeDefs = []; }
+  return arenaBadgeDefs;
+}
+
+/** Your record + achievements: Elo, W/L, streak, and every badge (earned highlighted, rest locked). */
+async function loadArenaProfile() {
+  if (!Arena.token) return;
+  try {
+    const [me, defs] = await Promise.all([arenaApi('/api/game/me'), loadBadgeDefs()]);
+    const p = me.profile || {};
+    $('#arena-profile-card').hidden = false;
+    const rate = p.matches ? Math.round((p.wins / p.matches) * 100) : 0;
+    $('#arena-profile').innerHTML = `
+      <div class="arena-stats">
+        <div class="as"><b>${p.elo != null ? p.elo : '—'}</b><span>Elo</span></div>
+        <div class="as"><b>${p.wins || 0}-${p.losses || 0}</b><span>Win / Loss</span></div>
+        <div class="as"><b>${rate}%</b><span>Win rate</span></div>
+        <div class="as"><b>${p.streak || 0} 🔥</b><span>Streak (best ${p.bestStreak || 0})</span></div>
+      </div>`;
+    const earned = new Set(p.badges || []);
+    $('#arena-badges').innerHTML = defs.length
+      ? defs.map((b) => `<div class="arena-badge ${earned.has(b.badge_key) ? 'on' : 'off'}" title="${esc(b.name)}: ${esc(b.description)}"><span class="ab-icon">${b.icon || '🏅'}</span><span class="ab-name">${esc(b.name)}</span></div>`).join('')
+      : '<div class="empty">No badges yet.</div>';
+  } catch (_) { /* leave hidden */ }
+}
+
+/** Recent battles: win/loss, the two Verginals (or Bot), the round score, and a replay link. */
+async function loadArenaHistory() {
+  if (!Arena.token) return;
+  try {
+    const list = (await arenaApi("/api/game/history")).history;
+    $('#arena-history-card').hidden = false;
+    const box = $('#arena-history');
+    if (!list || !list.length) { box.innerHTML = '<div class="empty">No battles yet. Fight one!</div>'; return; }
+    box.innerHTML = '';
+    list.forEach((h) => {
+      const opp = h.oppVerginal != null ? '#' + h.oppVerginal : (h.oppAddress === 'bot' ? 'Bot' : 'opponent');
+      const mine = h.myVerginal != null ? '#' + h.myVerginal : 'you';
+      const sc = (h.myScore != null && h.oppScore != null) ? ` ${h.myScore}-${h.oppScore}` : '';
+      const row = document.createElement('div');
+      row.className = 'arena-hist ' + h.result;
+      row.innerHTML = `<span class="ah-res">${h.result === 'win' ? 'WIN' : 'LOSS'}</span>
+        <span class="ah-vs">${esc(mine)} vs ${esc(opp)}${h.mode === 'bot' ? ' <em>bot</em>' : ''}<b>${sc}</b></span>`;
+      const rep = document.createElement('a');
+      rep.className = 'ah-replay'; rep.textContent = 'replay';
+      rep.href = replayPath(h);
+      rep.addEventListener('click', (e) => { e.preventDefault(); openHistoryReplay(h); });
+      row.appendChild(rep);
+      box.appendChild(row);
+    });
+  } catch (_) { /* leave placeholder */ }
+}
+
+/** Open a stored battle in the replay viewer (reuses the shared replay renderer). */
+function openHistoryReplay(h) {
+  activateTab('arena');
+  playArenaBattle(h, { viewer: Arena.address }).catch(() => {});
 }
 
 $('#arena-bot').addEventListener('click', () => arenaDuel('bot'));

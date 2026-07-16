@@ -110,6 +110,22 @@ test('bot matches count for the human but never move Elo or House Wars', () => {
   assert.strictEqual(s.player('BOT').matches, 0);    // the bot is not tracked
 });
 
+// --- battle history ---
+test('historyFor returns the player recent matches, newest first, from their point of view', () => {
+  const s = freshStore();
+  s.playBot(fighter('DA', { house: 'fire', verginal: 194 }), WIN, fighter('BOT', { verginal: null }), LOSE, '');
+  s.playBot(fighter('DA', { house: 'fire', verginal: 194 }), LOSE, fighter('BOT', { verginal: null }), WIN, '');
+  const h = s.historyFor('DA');
+  assert.strictEqual(h.length, 2);
+  assert.strictEqual(h[0].result, 'loss');           // newest first
+  assert.strictEqual(h[1].result, 'win');
+  assert.strictEqual(h[0].myVerginal, 194);
+  assert.strictEqual(h[0].oppVerginal, null);         // bot has no Verginal
+  assert.strictEqual(h[0].oppAddress, 'BOT');
+  assert.ok(h[0].seed && Array.isArray(h[0].moves));  // enough to rebuild a replay
+  assert.strictEqual(s.historyFor('SOMEONE_ELSE').length, 0);
+});
+
 // --- leaderboard ---
 test('leaderboard is ordered by Elo', () => {
   const s = freshStore();

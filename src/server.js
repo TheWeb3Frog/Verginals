@@ -1184,16 +1184,18 @@ async function fighterForVerginal(address, carrierKey) {
   if (!info || info.spent) return { error: 'that Verginal outpoint has been spent' };
   if (info.address !== address) return { error: 'you do not currently hold that Verginal' };
   if (!info.inscription) return { error: 'that outpoint does not carry a Verginal' };
-  const c = collectionMintMap().get(txid);
-  if (!c || c.slug !== null) return { error: 'only Alpha Verginals can enter the Arena right now' };
+  // Identify the collection by the INSCRIPTION (which follows the sat through transfers and swaps),
+  // not by the carrier txid: after a Verginal is sold or moved its carrier is a fresh txid that is
+  // not the reveal, so a mint-map lookup by carrier txid would wrongly reject a traded Alpha.
+  const ins = info.inscription;
+  if (ins.collectionNumber == null || ins.collectionSlug) return { error: 'only Alpha Verginals can enter the Arena right now' };
   const r = getRarity();
-  const entry = r && r.byNumber.get(c.number);
+  const entry = r && r.byNumber.get(ins.collectionNumber);
   if (!entry) return { error: 'could not read that Verginal traits' };
   const attributes = (entry.traits || []).map((t) => ({ trait_type: t.trait_type, value: t.value }));
-  const rune = (entry.traits || []).find((t) => String(t.trait_type).toLowerCase() === 'rune');
-  const fighter = deriveFighter({ attributes }, { rarityScore: entry.score, runePct: rune ? rune.pct : 100 });
+  const fighter = deriveFighter({ attributes }, { rarityScore: entry.score });
   fighter.address = address;
-  fighter.verginal = c.number;
+  fighter.verginal = ins.collectionNumber;
   return { fighter };
 }
 

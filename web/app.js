@@ -1736,6 +1736,7 @@ async function arenaAuth() {
 }
 
 async function loadArena() {
+  closeBracket(); // re-entering the Arena always shows the play view, not a stale bracket
   loadArenaLadder();
   loadArenaTournaments();
   const A = window.VerginalsArena;
@@ -2183,11 +2184,150 @@ async function loadArenaTournaments() {
   try {
     const d = await api('/api/game/tournaments');
     const box = $('#arena-tournaments');
-    box.innerHTML = d.tournaments.length
-      ? d.tournaments.map((t) => `<div class="arena-rank"><span>${esc(t.name)}</span><b>${t.status === 'registering' ? `${t.players}/${t.size}` : t.status}</b></div>`).join('')
-      : '<div class="empty">None yet.</div>';
+    box.innerHTML = '';
+    if (!d.tournaments.length) { box.innerHTML = '<div class="empty">None yet.</div>'; return; }
+    d.tournaments.forEach((t) => {
+      const row = document.createElement('div');
+      row.className = 'arena-rank clickable';
+      const state = t.status === 'registering' ? `${t.players}/${t.size}` : t.status;
+      row.innerHTML = `<span>${esc(t.name)}</span><b>${esc(state)}</b>`;
+      row.addEventListener('click', () => openTournament(t.id));
+      box.appendChild(row);
+    });
   } catch (_) { /* leave placeholder */ }
 }
+
+// --- tournament knockout bracket -------------------------------------------------------------
+let currentTournamentId = null;
+
+/** Human label for a round from the size of its field (survivors entering it). */
+function roundName(field) {
+  if (field === 2) return 'Final';
+  if (field === 4) return 'Semi-finals';
+  if (field === 8) return 'Quarter-finals';
+  return 'Round of ' + field;
+}
+
+async function openTournament(id) {
+  currentTournamentId = id;
+  try {
+    const { tournament } = await api('/api/game/tournament/' + id);
+    renderBracket(tournament);
+    $('#arena-bracket').classList.remove('hidden');
+    const grid = document.querySelector('#panel-arena .arena-grid');
+    if (grid) grid.classList.add('hidden');
+  } catch (e) { /* keep the arena as-is on failure */ }
+}
+
+function closeBracket() {
+  $('#arena-bracket').classList.add('hidden');
+  const grid = document.querySelector('#panel-arena .arena-grid');
+  if (grid) grid.classList.remove('hidden');
+  currentTournamentId = null;
+}
+
+/** One fighter slot in a bracket match: avatar + Alpha number, winner highlighted, you marked. */
+function bracketFighter(addr, partMap, isWinner) {
+  if (!addr) return '<div class="bk-f tbd"><span>TBD</span></div>';
+  const p = partMap[addr];
+  const num = p && p.verginal != null ? p.verginal : null;
+  const media = num != null ? `<img src="/api/collection/image/${num}" loading="lazy" alt="" />` : '<span class="bk-av">?</span>';
+  const label = num != null ? '#' + num : short(addr);
+  const mine = addr === Arena.address ? ' me' : '';
+  return `<div class="bk-f${isWinner ? ' win' : ''}${mine}">${media}<span class="bk-name">${esc(label)}</span></div>`;
+}
+
+function renderBracket(t) {
+  const partMap = {};
+  (t.participants || []).forEach((p) => { partMap[p.address] = p; });
+
+  // Header: name, status, champion + trophies when finished.
+  const head = $('#arena-bracket-head');
+  let champHtml = '';
+  if (t.status === 'ended' && t.championAddress) {
+    const c = partMap[t.championAddress];
+    const cnum = c && c.verginal != null ? '#' + c.verginal : short(t.championAddress);
+    const tr = t.trophies || {};
+    champHtml = `<div class="bk-champion">🏆 Champion: <b>${esc(cnum)}</b>${tr.champion ? ` · <a class="link" href="/v/${esc(tr.champion.replace(/i0$/, ''))}" target="_blank" rel="noopener">trophy</a>` : ''}</div>`;
+  }
+  head.innerHTML = `<h2>${esc(t.name)}</h2>
+    <div class="bk-meta"><span class="bk-status ${esc(t.status)}">${esc(t.status)}</span> · ${t.size} players${t.status === 'registering' ? ` · ${(t.participants || []).length}/${t.size} joined` : ''}</div>
+    ${champHtml}`;
+
+  renderBracketActions(t);
+
+  const body = $('#arena-bracket-body');
+  if (!t.rounds || !t.rounds.length) {
+    // Registering: show the field filling up.
+    const cells = (t.participants || []).map((p) => bracketFighter(p.address, partMap, false)).join('');
+    const open = t.size - (t.participants || []).length;
+    body.className = 'bracket registering';
+    body.innerHTML = `<div class="bk-registering">${cells || '<div class="empty">No one has joined yet. Be the first!</div>'}</div>
+      ${open > 0 ? `<div class="hint">Waiting for ${open} more player${open > 1 ? 's' : ''} to fill the bracket.</div>` : '<div class="hint">Bracket full, ready to start.</div>'}`;
+    return;
+  }
+  body.className = 'bracket';
+  const cols = t.rounds.map((r) => {
+    const matches = r.matches.map((m) => `
+      <div class="bk-match ${m.status === 'resolved' ? 'done' : ''}">
+        ${bracketFighter(m.p1, partMap, m.winner === m.p1)}
+        ${bracketFighter(m.p2, partMap, m.winner === m.p2)}
+      </div>`).join('');
+    return `<div class="bk-col"><div class="bk-round">${roundName(r.field)}</div><div class="bk-col-in">${matches}</div></div>`;
+  }).join('');
+  // A trophy column for the crowned champion.
+  const champCol = (t.status === 'ended' && t.championAddress)
+    ? `<div class="bk-col"><div class="bk-round">Champion</div><div class="bk-col-in"><div class="bk-match champ">${bracketFighter(t.championAddress, partMap, true)}</div></div></div>`
+    : '';
+  body.innerHTML = cols + champCol;
+}
+
+/** Context actions on the bracket: join while registering, submit a loadout for your pending match. */
+function renderBracketActions(t) {
+  const box = $('#arena-bracket-actions');
+  box.innerHTML = '';
+  const joined = Arena.address && (t.participants || []).some((p) => p.address === Arena.address);
+  if (t.status === 'registering') {
+    if (!Arena.address) { box.innerHTML = '<span class="hint">Connect and pick a fighter in the Arena to join.</span>'; return; }
+    if (joined) { box.innerHTML = '<span class="hint">You are in. Waiting for the bracket to fill.</span>'; return; }
+    box.appendChild(btn('Join with your selected fighter', 'primary sm', () => tournamentJoin(t.id)));
+    return;
+  }
+  if (t.status === 'running' && joined) {
+    const round = t.rounds[t.currentRound - 1];
+    const mine = round && round.matches.find((m) => (m.p1 === Arena.address || m.p2 === Arena.address) && m.status !== 'resolved');
+    if (mine) {
+      const submitted = (mine.p1 === Arena.address && mine.p1Submitted) || (mine.p2 === Arena.address && mine.p2Submitted);
+      if (submitted) box.innerHTML = '<span class="hint">Loadout submitted for this round. Waiting for the round to resolve.</span>';
+      else box.appendChild(btn('Submit your Arena loadout for this round', 'primary sm', () => tournamentSubmit(t.id)));
+    } else {
+      box.innerHTML = '<span class="hint">You are still in the bracket. No pending match this round.</span>';
+    }
+  }
+}
+
+async function tournamentJoin(id) {
+  const box = $('#arena-bracket-actions');
+  if (!Arena.selected) { box.innerHTML = '<span class="hint">Open the Arena first and pick your fighter, then come back.</span>'; return; }
+  box.innerHTML = 'Joining…';
+  try {
+    await arenaAuth();
+    await arenaApi('/api/game/tournament/join', { tournamentId: id, verginal: Arena.selected });
+    openTournament(id); // refresh
+  } catch (e) { box.innerHTML = '✗ ' + esc(e.message); }
+}
+
+async function tournamentSubmit(id) {
+  const box = $('#arena-bracket-actions');
+  box.innerHTML = 'Submitting…';
+  try {
+    await arenaAuth();
+    await arenaApi('/api/game/tournament/submit', { tournamentId: id, loadout: Arena.loadout });
+    openTournament(id); // refresh
+  } catch (e) { box.innerHTML = '✗ ' + esc(e.message); }
+}
+
+$('#arena-bracket-back').addEventListener('click', closeBracket);
 
 // The badge catalogue is static; fetch it once and reuse for the achievements grid.
 let arenaBadgeDefs = null;

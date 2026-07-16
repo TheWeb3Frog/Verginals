@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Verginals: Inscriptions on Verge</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/style.css?v=10" />
+  <link rel="stylesheet" href="/style.css?v=11" />
 </head>
 <body>
   <header class="topbar">
@@ -368,6 +368,16 @@
           </div>
         </div>
       </div>
+
+      <!-- Knockout bracket view, shown when a tournament is opened -->
+      <div id="arena-bracket" class="arena-bracket-wrap hidden">
+        <div class="bracket-topbar">
+          <button class="btn ghost sm" id="arena-bracket-back">← Back to Arena</button>
+          <div id="arena-bracket-actions"></div>
+        </div>
+        <div id="arena-bracket-head"></div>
+        <div id="arena-bracket-scroll"><div id="arena-bracket-body" class="bracket"></div></div>
+      </div>
     </section>
 
     <!-- ============ STATS ============ -->
@@ -717,7 +727,7 @@
   </div>
 
   <script src="/vendor/qrcode.js"></script>
-  <script src="/app.js?v=10"></script>
-  <script src="/wallet.js?v=10"></script>
+  <script src="/app.js?v=11"></script>
+  <script src="/wallet.js?v=11"></script>
 </body>
 </html>

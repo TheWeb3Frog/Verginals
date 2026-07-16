@@ -536,6 +536,35 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 .ah-replay:hover { text-decoration: underline; }
 .arena-matchup { font-size: 14px; color: var(--muted); margin: 2px 0 6px; text-align: center; }
 
+/* Tournament knockout bracket */
+.arena-bracket-wrap { margin-top: 6px; }
+.bracket-topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+#arena-bracket-actions { display: flex; align-items: center; gap: 8px; }
+#arena-bracket-head h2 { margin: 0 0 4px; }
+.bk-meta { font-size: 13px; color: var(--muted); }
+.bk-status { text-transform: uppercase; font-size: 11px; font-weight: 700; letter-spacing: .04em; padding: 2px 8px; border-radius: 999px; background: var(--bg2); color: var(--muted); }
+.bk-status.running { background: rgba(76, 194, 241, .16); color: var(--accent); }
+.bk-status.ended { background: rgba(56, 211, 159, .16); color: var(--ok); }
+.bk-champion { margin-top: 8px; font-size: 15px; color: var(--txt); }
+#arena-bracket-scroll { overflow-x: auto; padding: 14px 2px 6px; }
+.bracket { display: flex; gap: 26px; align-items: stretch; min-width: min-content; }
+.bracket.registering { flex-direction: column; align-items: stretch; }
+.bk-registering { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 8px; margin-bottom: 10px; }
+.bk-col { display: flex; flex-direction: column; min-width: 148px; }
+.bk-round { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); text-align: center; margin-bottom: 8px; font-weight: 700; }
+.bk-col-in { flex: 1; display: flex; flex-direction: column; justify-content: space-around; gap: 12px; }
+.bk-match { background: var(--card); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
+.bk-match.champ { border-color: var(--ok); }
+.bk-f { display: flex; align-items: center; gap: 7px; padding: 5px 8px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
+.bk-f:last-child { border-bottom: none; }
+.bk-f img, .bk-av { width: 22px; height: 22px; border-radius: 4px; object-fit: cover; background: var(--bg2); display: inline-grid; place-items: center; flex: 0 0 auto; }
+.bk-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bk-f.win { color: var(--txt); background: rgba(56, 211, 159, .10); font-weight: 600; }
+.bk-f.win .bk-name::after { content: ' ✓'; color: var(--ok); }
+.bk-f.me .bk-name { color: var(--accent); }
+.bk-f.tbd { color: var(--muted); opacity: .6; }
+@media (max-width: 640px) { .bk-col { min-width: 130px; } }
+
 /* ============ Alpha collection page ============ */
 .coll-hero { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; margin-bottom: 18px; }
 .coll-logo { width: 88px; height: 88px; border-radius: 16px; object-fit: cover; border: 1px solid var(--line); background: var(--bg2); }

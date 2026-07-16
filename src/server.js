@@ -264,6 +264,8 @@ const STATIC_TYPES = {
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+  '.png': 'image/png',
 };
 
 // Modest CSP for the app shell: scripts/styles are same-origin files (no inline JS); the QR widget
@@ -2137,6 +2139,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && (p === '/app.js' || p === '/wallet.js' || p === '/style.css')) return serveStatic(res, p.slice(1));
     if (req.method === 'GET' && p === '/vendor/qrcode.js') return serveStatic(res, 'vendor/qrcode.js');
     if (req.method === 'GET' && (p === '/favicon.svg' || p === '/favicon.ico')) return serveStatic(res, 'favicon.svg');
+    if (req.method === 'GET' && p === '/alpha-avatar.webp') return serveStatic(res, 'alpha-avatar.webp');
     if (req.method === 'GET' && p === '/api/info') return await handleInfo(res);
     if (req.method === 'POST' && p === '/api/quote') return await handleQuote(req, res);
     if (req.method === 'POST' && p === '/api/mint') return await handleMint(req, res);

@@ -536,6 +536,17 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 .ah-replay:hover { text-decoration: underline; }
 .arena-matchup { font-size: 14px; color: var(--muted); margin: 2px 0 6px; text-align: center; }
 
+/* Clickable tournament row in the Arena side panel */
+.arena-tourn { display: block; width: 100%; text-align: left; background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; color: var(--txt); font: inherit; transition: border-color .15s, background .15s, transform .1s; }
+.arena-tourn:last-child { margin-bottom: 0; }
+.arena-tourn:hover { border-color: var(--accent); background: var(--card); }
+.arena-tourn:active { transform: translateY(1px); }
+.at-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.at-name { font-weight: 600; }
+.at-state { font-size: 12px; color: var(--accent); font-weight: 700; white-space: nowrap; }
+.at-cta { display: block; margin-top: 4px; font-size: 12px; color: var(--muted); }
+.arena-tourn:hover .at-cta { color: var(--accent); }
+
 /* Tournament knockout bracket */
 :root { --brkc: #3a4b5c; --brk-gap: 22px; --brk-colw: 128px; }
 .arena-bracket-wrap { margin-top: 6px; }

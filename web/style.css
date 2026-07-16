@@ -506,6 +506,12 @@ footer .hint { max-width: 980px; margin: 0 auto; }
   .lp-reveal { flex-direction: column; align-items: center; text-align: center; }
 }
 
+/* ============ Arena rules explainer ============ */
+.arena-rules { margin: 8px 0 12px; padding-left: 18px; list-style: none; }
+.arena-rules li { position: relative; font-size: 13px; color: var(--muted); line-height: 1.5; margin: 6px 0; padding-left: 4px; }
+.arena-rules li::before { content: "›"; position: absolute; left: -14px; color: var(--accent); font-weight: 700; }
+.arena-rules b { color: var(--txt); }
+
 /* ============ Alpha collection page ============ */
 .coll-hero { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; margin-bottom: 18px; }
 .coll-logo { width: 88px; height: 88px; border-radius: 16px; object-fit: cover; border: 1px solid var(--line); background: var(--bg2); }

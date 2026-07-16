@@ -377,7 +377,10 @@
     connect: ensureConnected,
     async signMessage(message) {
       await ensureConnected();
-      return provider.signMessage(message);
+      // The provider resolves { signature, address } (background.js); older builds may return the
+      // base64 signature string directly. Hand the caller the base64 signature either way.
+      const r = await provider.signMessage(message);
+      return r && typeof r === 'object' ? r.signature : r;
     },
   };
 })();

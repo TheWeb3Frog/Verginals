@@ -1921,8 +1921,10 @@ function playArenaBattle(match, opts = {}) {
   const canvas = $('#arena-canvas'); const ctx = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
 
-  return loadImg(meNum != null ? '/api/collection/image/' + meNum : null)
-    .then((meImg) => Promise.all([meImg, loadImg(oppNum != null ? '/api/collection/image/' + oppNum : null)]))
+  // A real fighter shows its Verginal; the practice bot (no Verginal number) wears the collection avatar.
+  const faceSrc = (num) => (num != null ? '/api/collection/image/' + num : '/alpha-avatar.webp');
+  return loadImg(faceSrc(meNum))
+    .then((meImg) => Promise.all([meImg, loadImg(faceSrc(oppNum))]))
     .then(([meImg, oppImg]) => new Promise((resolve) => {
       // Everything below is a PURE FUNCTION of the elapsed time t. No accumulators, no per-frame
       // state, no particle arrays: the frame at time t is fully determined by t. That makes the

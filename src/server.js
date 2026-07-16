@@ -892,20 +892,13 @@ async function handleCollectionMarket(res) {
   if (!orderbook) return sendJSON(res, 404, { error: 'marketplace disabled' });
   const s = await orderbook.stats();
   const r = getRarity();
-  const mints = collectionMintMap();
-  const holders = new Set();
-  let minted = 0;
-  for (const i of indexer.list()) {
-    const m = mints.get(i.id.replace(/i0$/, ''));
-    if (m && !m.slug && i.location && i.location !== 'burned') {
-      minted++;
-      if (i.ownerAddress) holders.add(i.ownerAddress);
-    }
-  }
+  // Minted count comes from the authoritative Alpha mint state (immediate, survives a restart). We
+  // deliberately do NOT force a full index sync here (it can block for a long time after a restart
+  // and time the request out); holder counts are derived on the client from /api/inscriptions.
+  const minted = mintCtl ? Object.keys(mintCtl.state.minted).length : 0;
   sendJSON(res, 200, {
     total: r ? r.supply : null, // full collection size (minted + still sealed)
-    minted, // Alpha items that exist on-chain (confirmed)
-    holders: holders.size,
+    minted, // Alpha items minted so far
     listedCount: s.listedCount,
     floorUnits: s.floorUnits,
     salesCount: s.salesCount,

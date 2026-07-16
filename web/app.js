@@ -822,11 +822,17 @@ async function loadCollection() {
       api('/api/market/listings').catch(() => ({ listings: [] })),
       api('/api/inscriptions').catch(() => ({ inscriptions: [] })),
     ]);
-    renderCollStats(market);
     const insByNum = new Map();
+    const owners = new Set();
     (insResp.inscriptions || []).forEach((i) => {
-      if (i.collectionNumber != null && !i.collectionSlug) insByNum.set(i.collectionNumber, i);
+      if (i.collectionNumber != null && !i.collectionSlug) {
+        insByNum.set(i.collectionNumber, i);
+        if (i.ownerAddress) owners.add(i.ownerAddress);
+      }
     });
+    // Holders are counted client-side from the inscriptions we already fetched (the server skips a
+    // costly index scan). Fall back to the server's number only if we somehow have none.
+    renderCollStats(market, owners.size);
     coll.items = itemsResp.items || [];
     coll.traits = itemsResp.traits || [];
     coll.insByNum = insByNum;
@@ -838,7 +844,7 @@ async function loadCollection() {
   }
 }
 
-function renderCollStats(m) {
+function renderCollStats(m, holders) {
   const box = $('#coll-stats');
   if (!m) { box.innerHTML = ''; return; }
   const floorXvg = m.floorUnits != null ? m.floorUnits / MKT_COIN : null;
@@ -849,7 +855,7 @@ function renderCollStats(m) {
     stat('Floor', floorXvg != null ? `${fmt(floorXvg)} XVG` : '—', floorXvg != null ? usdStr(floorXvg) : ''),
     stat('Listed', m.listedCount != null ? m.listedCount : '—'),
     stat('Items', m.minted != null ? fmt(m.minted) : '—', m.total ? `of ${fmt(m.total)}` : ''),
-    stat('Holders', m.holders != null ? fmt(m.holders) : '—'),
+    stat('Holders', holders != null ? fmt(holders) : '—'),
     stat('Volume', volXvg ? `${fmt(volXvg)} XVG` : '—', volXvg ? usdStr(volXvg) : ''),
   ].join('');
 }

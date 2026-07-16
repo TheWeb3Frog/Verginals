@@ -42,6 +42,7 @@ $$('.tab').forEach((t) => t.addEventListener('click', () => {
   if (t.dataset.tab === 'stats') loadStats();
   if (t.dataset.tab === 'launchpad') loadLaunchpad();
   if (t.dataset.tab === 'market') loadMarket();
+  if (t.dataset.tab === 'collection') loadCollection();
   if (t.dataset.tab === 'arena') loadArena();
   if (t.dataset.tab === 'support') renderDonateQR();
 }));
@@ -594,7 +595,15 @@ async function openDetailByKey(key) {
 // --- marketplace (trustless listings & offers, driven from the detail view) -----------------
 const MKT_COIN = 1_000_000;
 const toUnits = (xvg) => Math.round(Number(xvg) * MKT_COIN);
-const nameOf = (ins) => (ins.collectionNumber != null ? `Verginals #${ins.collectionNumber}` : 'this Verginal');
+const nameOf = (ins) => (ins.collectionNumber != null ? `Verginals #${ins.collectionNumber}` : (ins.number != null ? `Inscription #${ins.number}` : 'this inscription'));
+/** True for content types that render as an <img>; other inscriptions get a typed placeholder tile. */
+const isImageType = (ct) => typeof ct === 'string' && /^image\//i.test(ct);
+/** A thumbnail for any inscription: the image itself, or a small typed placeholder. */
+function thumbHtml(ins) {
+  if (ins && isImageType(ins.contentType)) return `<img src="/api/content/${esc(ins.txid)}" loading="lazy" alt="" />`;
+  const kind = ins && ins.contentType ? String(ins.contentType).split(';')[0].split('/')[1] || 'file' : 'item';
+  return `<div class="blob">${esc(kind.slice(0, 6))}</div>`;
+}
 
 // Spot XVG/USD, fetched once on load and refreshed lazily. Purely indicative: prices are always
 // paid in XVG, the dollar figure is a convenience and is simply hidden when we have no rate.
@@ -625,8 +634,8 @@ async function renderDetailMarket(ins) {
   const box = $('#detail-market');
   box.innerHTML = '';
   const carrier = ins.location && /^[0-9a-f]{64}:\d+$/.test(ins.location) ? ins.location : null;
-  const isCollectible = ins.collectionNumber != null; // only Verginals trade, not free-form text
-  if (!carrier || !isCollectible) return;
+  // Any inscription that still sits on its own carrier can be traded, not just collection mints.
+  if (!carrier) return;
 
   let item;
   try { item = await api('/api/market/item/' + carrier); } catch { return; }
@@ -771,10 +780,8 @@ async function loadMarket() {
       const ins = byLoc.get(l.carrier);
       const c = document.createElement('div');
       c.className = 'ins-card clickable';
-      const img = ins && ins.collectionNumber != null
-        ? `<img src="/api/content/${esc(ins.txid)}" loading="lazy" alt="" />`
-        : '<div class="blob">🏷️</div>';
-      const label = ins && ins.collectionNumber != null ? `#${ins.collectionNumber}` : 'Verginal';
+      const img = ins ? thumbHtml(ins) : '<div class="blob">🏷️</div>';
+      const label = ins ? (ins.collectionNumber != null ? `#${ins.collectionNumber}` : (ins.number != null ? `#${ins.number}` : 'Inscription')) : 'Inscription';
       const xvg = l.priceUnits / MKT_COIN, usd = usdStr(xvg);
       c.innerHTML = `<div class="ins-media">${img}</div>
         <div class="ins-body"><div class="num">${label}</div>
@@ -785,6 +792,168 @@ async function loadMarket() {
   } catch (e) {
     g.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`;
   }
+}
+
+// --- Alpha collection page (stats, rarity-aware item grid with trait filters + activity feed) ---
+const coll = {
+  items: [],            // minted items with rarity, from /api/collection/items
+  insByNum: new Map(),  // collection number -> inscription (txid, location, owner)
+  priceByCarrier: new Map(), // listed carrier -> priceUnits
+  traits: [],           // aggregate trait distribution (for the filter dropdown)
+  view: 'items', sort: 'price-asc', trait: '', forSaleOnly: false, bound: false,
+};
+
+function collAgo(ts) {
+  if (!ts) return '';
+  const s = Math.max(0, Math.floor(Date.now() / 1000) - ts);
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
+async function loadCollection() {
+  if (!coll.bound) bindCollControls();
+  const grid = $('#coll-items');
+  try {
+    const [market, itemsResp, listResp, insResp] = await Promise.all([
+      api('/api/collection/market').catch(() => null),
+      api('/api/collection/items').catch(() => ({ items: [], traits: [] })),
+      api('/api/market/listings').catch(() => ({ listings: [] })),
+      api('/api/inscriptions').catch(() => ({ inscriptions: [] })),
+    ]);
+    renderCollStats(market);
+    const insByNum = new Map();
+    (insResp.inscriptions || []).forEach((i) => {
+      if (i.collectionNumber != null && !i.collectionSlug) insByNum.set(i.collectionNumber, i);
+    });
+    coll.items = itemsResp.items || [];
+    coll.traits = itemsResp.traits || [];
+    coll.insByNum = insByNum;
+    coll.priceByCarrier = new Map((listResp.listings || []).map((l) => [l.carrier, l.priceUnits]));
+    buildTraitFilter();
+    renderCollView();
+  } catch (e) {
+    grid.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderCollStats(m) {
+  const box = $('#coll-stats');
+  if (!m) { box.innerHTML = ''; return; }
+  const floorXvg = m.floorUnits != null ? m.floorUnits / MKT_COIN : null;
+  const volXvg = m.volumeUnits ? m.volumeUnits / MKT_COIN : 0;
+  const stat = (label, value, sub) =>
+    `<div class="coll-stat"><span class="cs-val">${value}</span><span class="cs-lbl">${label}</span>${sub ? `<span class="cs-sub">${sub}</span>` : ''}</div>`;
+  box.innerHTML = [
+    stat('Floor', floorXvg != null ? `${fmt(floorXvg)} XVG` : '—', floorXvg != null ? usdStr(floorXvg) : ''),
+    stat('Listed', m.listedCount != null ? m.listedCount : '—'),
+    stat('Items', m.minted != null ? fmt(m.minted) : '—', m.total ? `of ${fmt(m.total)}` : ''),
+    stat('Holders', m.holders != null ? fmt(m.holders) : '—'),
+    stat('Volume', volXvg ? `${fmt(volXvg)} XVG` : '—', volXvg ? usdStr(volXvg) : ''),
+  ].join('');
+}
+
+function buildTraitFilter() {
+  const sel = $('#coll-trait');
+  if (!sel) return;
+  const cur = coll.trait;
+  let html = '<option value="">All traits</option>';
+  coll.traits.forEach((t) => {
+    const opts = (t.values || []).map((v) => `<option value="${esc(t.trait_type)}=${esc(v.value)}">${esc(t.trait_type)}: ${esc(v.value)} (${v.count})</option>`).join('');
+    html += `<optgroup label="${esc(t.trait_type)}">${opts}</optgroup>`;
+  });
+  sel.innerHTML = html;
+  sel.value = cur;
+}
+
+/** The listed price (units) for an item, via its inscription's carrier, or null if not listed. */
+function collPrice(item) {
+  const ins = coll.insByNum.get(item.number);
+  if (!ins || !ins.location) return null;
+  const p = coll.priceByCarrier.get(ins.location);
+  return p != null ? p : null;
+}
+
+function renderCollView() {
+  $('#coll-items').classList.toggle('hidden', coll.view !== 'items');
+  $('#coll-activity').classList.toggle('hidden', coll.view !== 'activity');
+  $('#coll-controls').classList.toggle('hidden', coll.view !== 'items');
+  if (coll.view === 'items') renderCollItems();
+  else renderCollActivity();
+}
+
+function renderCollItems() {
+  const grid = $('#coll-items');
+  let rows = coll.items.map((it) => ({ it, price: collPrice(it), ins: coll.insByNum.get(it.number) }));
+  if (coll.forSaleOnly) rows = rows.filter((r) => r.price != null);
+  if (coll.trait) {
+    const [tt, tv] = coll.trait.split('=');
+    rows = rows.filter((r) => (r.it.traits || []).some((x) => x.trait_type === tt && x.value === tv));
+  }
+  const rank = (r) => (r.it.rank || 1e9);
+  const priceKey = (r) => (r.price == null ? Infinity : r.price);
+  if (coll.sort === 'price-asc') rows.sort((a, b) => priceKey(a) - priceKey(b) || a.it.number - b.it.number);
+  else if (coll.sort === 'price-desc') rows.sort((a, b) => (b.price || -1) - (a.price || -1) || a.it.number - b.it.number);
+  else if (coll.sort === 'rank') rows.sort((a, b) => rank(a) - rank(b));
+  else rows.sort((a, b) => a.it.number - b.it.number);
+
+  if (!rows.length) { grid.innerHTML = '<div class="empty">No items match this filter.</div>'; return; }
+  grid.innerHTML = '';
+  rows.forEach(({ it, price, ins }) => {
+    const c = document.createElement('div');
+    c.className = 'coll-card' + (ins ? ' clickable' : '');
+    const xvg = price != null ? price / MKT_COIN : null;
+    const media = ins ? `<img src="/api/content/${esc(ins.txid)}" loading="lazy" alt="" />` : '<div class="blob">✦</div>';
+    c.innerHTML = `
+      <div class="coll-media">${media}<span class="coll-rank">#${it.rank}</span></div>
+      <div class="coll-cbody">
+        <div class="coll-cnum">Verginals #${it.number}</div>
+        ${xvg != null ? `<div class="coll-cprice">${fmt(xvg)} XVG</div>` : '<div class="coll-cunlisted">Not listed</div>'}
+      </div>`;
+    if (ins) c.addEventListener('click', () => openDetail(ins));
+    grid.appendChild(c);
+  });
+}
+
+async function renderCollActivity() {
+  const box = $('#coll-activity');
+  box.innerHTML = '<div class="empty">Loading…</div>';
+  try {
+    const { activity } = await api('/api/collection/activity?limit=50');
+    if (!activity || !activity.length) { box.innerHTML = '<div class="empty">No activity yet. Sales and listings will show here.</div>'; return; }
+    box.innerHTML = '';
+    activity.forEach((a) => {
+      const xvg = a.priceUnits / MKT_COIN;
+      const row = document.createElement('div');
+      row.className = 'coll-act';
+      const who = a.type === 'sale'
+        ? `<span class="ca-addr">${esc(short(a.sellerAddress))}</span> → <span class="ca-addr">${esc(short(a.buyerAddress))}</span>`
+        : `by <span class="ca-addr">${esc(short(a.sellerAddress))}</span>`;
+      row.innerHTML = `
+        <span class="ca-type ca-${a.type}">${a.type === 'sale' ? 'Sale' : 'Listed'}</span>
+        <span class="ca-item">${a.collectionNumber != null ? `Verginals #${a.collectionNumber}` : 'Verginal'}</span>
+        <span class="ca-price">${fmt(xvg)} XVG</span>
+        <span class="ca-who">${who}</span>
+        <span class="ca-time">${collAgo(a.at)}</span>`;
+      box.appendChild(row);
+    });
+  } catch (e) {
+    box.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function bindCollControls() {
+  coll.bound = true;
+  document.querySelectorAll('#panel-collection .subtab').forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll('#panel-collection .subtab').forEach((x) => x.classList.remove('active'));
+    b.classList.add('active');
+    coll.view = b.dataset.cview;
+    renderCollView();
+  }));
+  $('#coll-sort').addEventListener('change', (e) => { coll.sort = e.target.value; renderCollItems(); });
+  $('#coll-trait').addEventListener('change', (e) => { coll.trait = e.target.value; renderCollItems(); });
+  $('#coll-forsale').addEventListener('change', (e) => { coll.forSaleOnly = e.target.checked; renderCollItems(); });
 }
 
 // --- "show mine" owner filter (a shareable holder gallery: /gallery/<address>) ------------
@@ -1742,190 +1911,157 @@ function playArenaBattle(match, opts = {}) {
   const won = isParticipant && match.winner === viewer;
 
   $('#arena-result').textContent = '';
-  const stage = $('#arena-stage');
-  stage.classList.remove('hidden');
-  const canvas = $('#arena-canvas');
-  const ctx = canvas.getContext('2d');
+  const stage = $('#arena-stage'); stage.classList.remove('hidden');
+  const canvas = $('#arena-canvas'); const ctx = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
 
   return loadImg(meNum != null ? '/api/collection/image/' + meNum : null)
     .then((meImg) => Promise.all([meImg, loadImg(oppNum != null ? '/api/collection/image/' + oppNum : null)]))
     .then(([meImg, oppImg]) => new Promise((resolve) => {
-      const beats = [{ k: 'intro', d: 850 }];
-      rounds.forEach((_, i) => beats.push({ k: 'windup', i, d: 540 }, { k: 'clash', i, d: 640 }, { k: 'settle', i, d: 640 }));
-      beats.push({ k: 'finale', d: 2600 });
-      const total = beats.reduce((s, b) => s + b.d, 0);
-      const meX = W * 0.24, oppX = W * 0.76, baseY = H * 0.54, S = Math.min(168, H * 0.34), mid = (meX + oppX) / 2;
-      const winnerX = winnerSide === meSide ? meX : oppX;
-      const parts = [], shocks = [];
-      let flash = 0, flashColor = '#ffffff', shake = 0;
-      let firedCast = -1, firedImpact = -1, firedVerdict = false;
+      // Everything below is a PURE FUNCTION of the elapsed time t. No accumulators, no per-frame
+      // state, no particle arrays: the frame at time t is fully determined by t. That makes the
+      // animation impossible to stall and guaranteed to reach `total` and end.
+      const INTRO = 700, WIND = 480, CLASH = 580, SETTLE = 560, FINALE = 2600;
+      const ROUND = WIND + CLASH + SETTLE;
+      const roundStart = (i) => INTRO + i * ROUND;
+      const impactAt = (i) => roundStart(i) + WIND + CLASH * 0.55;
+      const finaleStart = INTRO + rounds.length * ROUND;
+      const total = finaleStart + FINALE;
+      const meX = W * 0.25, oppX = W * 0.75, baseY = H * 0.52, S = Math.min(172, H * 0.36), mid = W / 2;
+      const EL = ELEMENT_COLOR;
+      const fired = {};
+      const prand = (n) => { const x = Math.sin((n + 1) * 12.9898) * 43758.5453; return x - Math.floor(x); };
+      const elOf = (i, side) => (moves[i] && moves[i][side] ? moves[i][side].element : 'fire');
+      const winEl = (i) => elOf(i, rounds[i].winner);
 
-      const rnd = (a, b) => a + Math.random() * (b - a);
-      const roundEl = (i, side) => (moves[i] && moves[i][side] ? moves[i][side].element : 'fire');
-      const winEl = (i) => roundEl(i, rounds[i].winner);
-      const scoreBefore = (idx) => { let me = 0, op = 0; for (let j = 0; j < idx; j++) (rounds[j].winner === meSide ? me++ : op++); return [me, op]; };
+      const glowDot = (x, y, r, color) => { const g = ctx.createRadialGradient(x, y, 0, x, y, r * 2.4); g.addColorStop(0, color); g.addColorStop(0.5, color); g.addColorStop(1, 'transparent'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r * 2.4, 0, 7); ctx.fill(); };
+      const scoreUpTo = (n) => { let me = 0, op = 0; for (let j = 0; j < n; j++) (rounds[j].winner === meSide ? me++ : op++); return [me, op]; };
 
-      function spawnBurst(x, y, color, n, power) {
-        for (let i = 0; i < n; i++) { const a = rnd(0, 7), sp = rnd(power * 0.25, power); parts.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: rnd(320, 760), max: 760, size: rnd(1.6, 4.2), color, grav: 0.04 }); }
-      }
-      function spawnCharge(x, y, color) { const a = rnd(0, 7), d = rnd(46, 92); parts.push({ x: x + Math.cos(a) * d, y: y + Math.sin(a) * d, tx: x, ty: y, converge: true, life: 420, max: 420, size: rnd(1.4, 3), color }); }
-      function spawnSpark(color) { parts.push({ x: winnerX + rnd(-90, 90), y: baseY + 90, vx: rnd(-0.3, 0.3), vy: rnd(-2.4, -1.1), life: rnd(700, 1400), max: 1400, size: rnd(1.6, 3.6), color, grav: 0.015 }); }
-
-      function updateParts(dt) {
-        const f = dt / 16;
-        for (let i = parts.length - 1; i >= 0; i--) {
-          const q = parts[i]; q.life -= dt; if (q.life <= 0) { parts.splice(i, 1); continue; }
-          if (q.converge) { q.x += (q.tx - q.x) * 0.14 * f; q.y += (q.ty - q.y) * 0.14 * f; }
-          else { q.x += q.vx * f; q.y += q.vy * f; if (q.grav) q.vy += q.grav * f; q.vx *= Math.pow(0.97, f); }
-        }
-        for (let i = shocks.length - 1; i >= 0; i--) { shocks[i].t += dt; if (shocks[i].t > shocks[i].dur) shocks.splice(i, 1); }
-      }
-      const blob = (x, y, r, color) => { const g = ctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, color); g.addColorStop(0.55, color); g.addColorStop(1, 'transparent'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); };
-      function drawParts() {
-        ctx.save(); ctx.globalCompositeOperation = 'lighter';
-        for (const q of parts) { ctx.globalAlpha = Math.max(0, q.life / q.max); blob(q.x, q.y, q.size * 2.6, q.color); }
-        ctx.restore();
-      }
-      function drawShocks() {
+      function drawFighter(img, x, y, s, glow, glowR, dim, lean) {
         ctx.save();
-        for (const s of shocks) { const pr = s.t / s.dur; ctx.globalAlpha = (1 - pr) * 0.85; ctx.strokeStyle = s.color; ctx.lineWidth = (1 - pr) * 6 + 1; ctx.beginPath(); ctx.arc(s.x, s.y, easeOut(pr) * s.max, 0, 7); ctx.stroke(); }
-        ctx.restore();
-      }
-      function projectile(x0, x1, y, p, color) {
-        for (let i = 7; i >= 1; i--) { const tp = Math.max(0, p - i * 0.045); const tx = x0 + (x1 - x0) * easeIn(tp); ctx.globalAlpha = (1 - i / 8) * 0.45; blob(tx, y, 8 + (7 - i), color); }
-        ctx.globalAlpha = 1; const x = x0 + (x1 - x0) * easeIn(p); blob(x, y, 18, color);
-        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, 4.5, 0, 7); ctx.fill();
-        if (Math.random() < 0.6) parts.push({ x, y: y + rnd(-6, 6), vx: rnd(-1, 1), vy: rnd(-1, 1), life: 300, max: 300, size: rnd(1, 2.4), color });
-      }
-      function drawFighter(img, x, y, s, o) {
-        o = o || {};
-        ctx.save(); ctx.globalAlpha = 0.32; ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(x, y + s / 2 + 12, s * 0.42, 9, 0, 0, 7); ctx.fill(); ctx.restore();
-        ctx.save();
-        if (o.lean) { ctx.translate(x, y); ctx.rotate(o.lean); ctx.translate(-x, -y); }
-        if (o.glow) { ctx.shadowColor = o.glow; ctx.shadowBlur = o.glowStrength || 24; }
-        ctx.globalAlpha = o.dim ? 0.4 : 1;
+        ctx.globalAlpha = 0.3; ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(x, y + s / 2 + 12, s * 0.42, 9, 0, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
+        if (lean) { ctx.translate(x, y); ctx.rotate(lean); ctx.translate(-x, -y); }
+        if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = glowR || 22; }
+        ctx.globalAlpha = dim ? 0.4 : 1;
         roundRectPath(ctx, x - s / 2, y - s / 2, s, s, 16); ctx.fillStyle = '#0a0f16'; ctx.fill();
         ctx.save(); roundRectPath(ctx, x - s / 2, y - s / 2, s, s, 16); ctx.clip();
         if (img) { ctx.imageSmoothingEnabled = false; ctx.drawImage(img, x - s / 2, y - s / 2, s, s); }
-        else { ctx.fillStyle = '#16202c'; ctx.fillRect(x - s / 2, y - s / 2, s, s); ctx.globalAlpha = 1; ctx.fillStyle = '#5a6b7c'; ctx.font = 'bold 32px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('BOT', x, y + 11); }
-        if (o.tint) { ctx.globalAlpha = o.tintA || 0.3; ctx.fillStyle = o.tint; ctx.fillRect(x - s / 2, y - s / 2, s, s); }
+        else { ctx.fillStyle = '#16202c'; ctx.fillRect(x - s / 2, y - s / 2, s, s); ctx.globalAlpha = 1; ctx.fillStyle = '#5a6b7c'; ctx.font = 'bold 34px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('BOT', x, y + 12); }
         ctx.restore();
-        ctx.globalAlpha = o.dim ? 0.5 : 1; ctx.lineWidth = 2.5; ctx.strokeStyle = o.glow || '#2b3a49';
+        ctx.globalAlpha = dim ? 0.5 : 1; ctx.lineWidth = 3; ctx.strokeStyle = glow || '#2b3a49';
         roundRectPath(ctx, x - s / 2, y - s / 2, s, s, 16); ctx.stroke();
         ctx.restore();
       }
-      function pips(x, n, color) {
-        for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(x + i * 22, 30, 7, 0, 7); if (i < n) { ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 10; ctx.fill(); ctx.shadowBlur = 0; } else { ctx.fillStyle = '#26323f'; ctx.fill(); } }
+      const pips = (x, n, color) => { for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(x + k * 22, 30, 7, 0, 7); if (k < n) { ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 12; ctx.fill(); ctx.shadowBlur = 0; } else { ctx.fillStyle = '#26323f'; ctx.fill(); } } };
+      function projectile(x0, x1, y, f, color) {
+        const x = x0 + (x1 - x0) * easeIn(f);
+        ctx.save(); ctx.globalCompositeOperation = 'lighter';
+        for (let k = 5; k >= 1; k--) { const tf = Math.max(0, f - k * 0.06); const tx = x0 + (x1 - x0) * easeIn(tf); ctx.globalAlpha = (1 - k / 6) * 0.4; glowDot(tx, y, 7 + (5 - k), color); }
+        ctx.globalAlpha = 1; glowDot(x, y, 15, color);
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, 4, 0, 7); ctx.fill();
+        ctx.restore();
+      }
+      function impactFx(t, i, cx, cy, color) {
+        const age = t - impactAt(i); if (age < 0 || age > 560) return;
+        const pr = age / 560;
+        ctx.save();
+        ctx.globalAlpha = (1 - pr) * 0.85; ctx.strokeStyle = color; ctx.lineWidth = (1 - pr) * 6 + 1; ctx.beginPath(); ctx.arc(cx, cy, easeOut(pr) * 165, 0, 7); ctx.stroke();
+        ctx.globalAlpha = (1 - pr) * 0.5; ctx.strokeStyle = '#fff'; ctx.lineWidth = (1 - pr) * 3 + 1; ctx.beginPath(); ctx.arc(cx, cy, easeOut(pr) * 105, 0, 7); ctx.stroke();
+        ctx.globalCompositeOperation = 'lighter';
+        for (let j = 0; j < 22; j++) { const a = (j / 22) * 6.283 + i * 0.7; const d = (0.25 + prand(j + i * 10) * 0.55) * age; const x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d + 0.00025 * age * age; ctx.globalAlpha = 1 - pr; glowDot(x, y, (1 - pr) * 3 + 1, j % 4 === 0 ? '#fff' : color); }
+        ctx.restore();
+      }
+      function drawFinale(ft) {
+        const winNum = winnerSide === 'p1' ? match.p1Verginal : match.p2Verginal;
+        const winImg = winnerSide === meSide ? meImg : oppImg;
+        const wc = isParticipant && !won ? '#ff6b6b' : '#38d39f';
+        const cx = mid, cy = H * 0.44, bob = Math.sin(ft / 260) * 4;
+        if (!fired.v) { fired.v = 1; sfx(isParticipant && !won ? 'defeat' : 'victory'); }
+        ctx.fillStyle = 'rgba(5,9,14,' + (0.62 * easeOut(Math.min(1, ft / 500))) + ')'; ctx.fillRect(-40, -40, W + 80, H + 80);
+        ctx.save(); ctx.translate(cx, cy); ctx.rotate(ft / 1400); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.14 * easeOut(Math.min(1, ft / 600));
+        for (let k = 0; k < 12; k++) { ctx.rotate(0.5236); ctx.fillStyle = wc; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(W * 0.55, -24); ctx.lineTo(W * 0.55, 24); ctx.closePath(); ctx.fill(); }
+        ctx.restore();
+        if (ft < 700) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; for (let j = 0; j < 28; j++) { const a = (j / 28) * 6.283; const d = (0.3 + prand(j) * 0.55) * ft; ctx.globalAlpha = Math.max(0, 1 - ft / 700); glowDot(cx + Math.cos(a) * d, cy + Math.sin(a) * d, 2.6, j % 3 === 0 ? '#fff' : wc); } ctx.restore(); }
+        ctx.save(); ctx.globalCompositeOperation = 'lighter'; for (let j = 0; j < 16; j++) { const cyc = (ft / 1500 + prand(j)) % 1; const x = cx + (prand(j + 99) - 0.5) * W * 0.62; const y = cy + S * 0.6 - cyc * H * 0.55; ctx.globalAlpha = (1 - cyc) * 0.6; glowDot(x, y, 2, wc); } ctx.restore();
+        const ws = S * (1.12 + easeOut(Math.min(1, ft / 500)) * 0.22);
+        ctx.save(); ctx.shadowColor = wc; ctx.shadowBlur = 40; ctx.strokeStyle = wc; ctx.globalAlpha = 0.5 + Math.sin(ft / 130) * 0.2; ctx.lineWidth = 3; roundRectPath(ctx, cx - ws / 2, cy - ws / 2 + bob, ws, ws, 18); ctx.stroke(); ctx.restore();
+        drawFighter(winImg, cx, cy + bob, ws, wc, 36, false, 0);
+        const ts = easeOut(Math.min(1, ft / 450));
+        ctx.save(); ctx.translate(cx, H * 0.85); ctx.scale(ts, ts); ctx.textAlign = 'center'; ctx.font = '900 60px -apple-system, sans-serif'; ctx.shadowColor = wc; ctx.shadowBlur = 24; ctx.fillStyle = wc;
+        ctx.fillText(isParticipant ? (won ? 'VICTORY' : 'DEFEAT') : (winNum != null ? '#' + winNum + ' WINS' : 'WINNER'), 0, 0); ctx.restore();
+        ctx.fillStyle = '#aebccb'; ctx.font = 'bold 18px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(`${match.score[meSide === 'p1' ? 0 : 1]} - ${match.score[meSide === 'p1' ? 1 : 0]}`, cx, H * 0.85 + 32);
       }
 
-      // Wall-clock driven: clock = real time elapsed minus any hit-stop freeze. Because wall time
-      // always advances, the animation is guaranteed to reach `total` and end (no stuck accumulator).
-      const startWall = performance.now();
-      let lastNow = startWall, frozen = 0, hitStopUntil = 0, frameNow = startWall;
-      function frame(now) {
-        frameNow = now;
-        let dt = Math.min(60, now - lastNow);
-        if (now < hitStopUntil) { frozen += dt; dt = 0; }
-        lastNow = now;
-        const clock = Math.min(total, (now - startWall) - frozen);
-        let crashed = false;
+      const start = performance.now();
+      function frame() {
+        const t = Math.min(total, performance.now() - start);
         try {
-        updateParts(dt);
-        flash = Math.max(0, flash - dt / 260); shake = Math.max(0, shake - dt / 55);
+          let phase = 'finale', i = -1, lp = 1;
+          if (t < INTRO) { phase = 'intro'; lp = t / INTRO; }
+          else if (t < finaleStart) {
+            i = Math.floor((t - INTRO) / ROUND);
+            const rt = (t - INTRO) - i * ROUND;
+            if (rt < WIND) { phase = 'windup'; lp = rt / WIND; }
+            else if (rt < WIND + CLASH) { phase = 'clash'; lp = (rt - WIND) / CLASH; }
+            else { phase = 'settle'; lp = (rt - WIND - CLASH) / SETTLE; }
+          } else { phase = 'finale'; lp = (t - finaleStart) / FINALE; }
 
-        let acc = 0, beat = beats[beats.length - 1], p = 1;
-        for (const b of beats) { if (clock < acc + b.d) { beat = b; p = (clock - acc) / b.d; break; } acc += b.d; }
+          let shake = 0, flash = 0, flashColor = '#fff';
+          if (i >= 0) { const age = t - impactAt(i); if (age >= 0) { shake = Math.max(0, 1 - age / 320) * 16; flash = Math.max(0, 1 - age / 220); flashColor = EL[winEl(i)] || '#fff'; } }
+          ctx.setTransform(1, 0, 0, 1, (Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
 
-        ctx.setTransform(1, 0, 0, 1, (Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
-        const bg = ctx.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#0f1c28'); bg.addColorStop(1, '#070c12');
-        ctx.fillStyle = bg; ctx.fillRect(-40, -40, W + 80, H + 80);
+          const bg = ctx.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#0f1c28'); bg.addColorStop(1, '#070c12');
+          ctx.fillStyle = bg; ctx.fillRect(-40, -40, W + 80, H + 80);
+          let cg = 0.12, cgC = '#1aa3e0';
+          if (phase === 'windup') { cg = 0.12 + lp * 0.18; cgC = EL[winEl(i)]; }
+          if (phase === 'clash') { cg = 0.14 + easeIn(lp) * 0.45; cgC = EL[winEl(i)]; }
+          ctx.save(); ctx.globalAlpha = cg; glowDot(mid, baseY, W * 0.26, cgC); ctx.restore();
 
-        // Center energy glow, intensifying toward the clash.
-        let cg = 0.14, cgColor = '#1aa3e0';
-        if (beat.k === 'windup') { cg = 0.14 + p * 0.16; cgColor = ELEMENT_COLOR[winEl(beat.i)]; }
-        if (beat.k === 'clash') { cg = 0.16 + easeIn(p) * 0.5; cgColor = ELEMENT_COLOR[winEl(beat.i)]; }
-        ctx.save(); ctx.globalAlpha = cg; blob(mid, baseY, W * 0.42, cgColor); ctx.restore();
+          if (phase !== 'finale') {
+            const shown = phase === 'settle' && lp > 0.4 ? i + 1 : Math.max(0, i);
+            const [meW, opW] = scoreUpTo(shown);
+            pips(28, meW, '#38d39f'); ctx.save(); ctx.translate(W - 28 - 44, 0); pips(0, opW, '#ff6b6b'); ctx.restore();
+            if (i >= 0) { ctx.fillStyle = '#6a7c8c'; ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('ROUND ' + (i + 1), mid, 40); }
 
-        const [meW, opW] = scoreBefore(beat.i == null ? rounds.length : beat.i + (beat.k === 'settle' && p > 0.4 ? 1 : 0));
-        pips(28, meW, '#38d39f'); ctx.save(); ctx.translate(W - 28 - 44, 0); pips(0, opW, '#ff6b6b'); ctx.restore();
-        if (beat.i != null) { ctx.fillStyle = '#6a7c8c'; ctx.font = 'bold 15px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('ROUND ' + (beat.i + 1), W / 2, 38); }
+            const bob = Math.sin(t / 300) * 4;
+            let meGlow = null, opGlow = null, meGlowR = 22, opGlowR = 22, meDim = false, opDim = false, meScale = 1, opScale = 1, meDX = 0, opDX = 0, meLean = 0, opLean = 0;
+            const yOff = phase === 'intro' ? (1 - easeOut(lp)) * 70 : 0;
 
-        const intro = beat.k === 'intro' ? easeOut(p) : 1;
-        let meO = {}, opO = {}, meDX = 0, opDX = 0;
+            if (phase === 'windup') {
+              meGlow = EL[elOf(i, meSide)]; opGlow = EL[elOf(i, oppSide)]; meGlowR = 14 + lp * 24; opGlowR = 14 + lp * 24;
+              meDX = -easeInOut(lp) * 16; opDX = easeInOut(lp) * 16; meLean = -lp * 0.05; opLean = lp * 0.05;
+              if (!fired['c' + i] && lp > 0.7) { fired['c' + i] = 1; sfx('cast'); }
+            } else if (phase === 'clash') {
+              meGlow = EL[elOf(i, meSide)]; opGlow = EL[elOf(i, oppSide)];
+              const flyDur = 0.55;
+              if (lp < flyDur) { const f = lp / flyDur; projectile(meX + S / 2, mid, baseY, f, EL[elOf(i, meSide)]); projectile(oppX - S / 2, mid, baseY, f, EL[elOf(i, oppSide)]); }
+              if (!fired['i' + i] && lp >= flyDur) { fired['i' + i] = 1; sfx('impact'); }
+            } else if (phase === 'settle') {
+              const meWon = rounds[i].winner === meSide, pop = easeOut(Math.min(1, lp * 3));
+              if (meWon) { meGlow = '#38d39f'; meGlowR = 30; meScale = 1 + pop * 0.08; opDim = true; opLean = 0.12; }
+              else { opGlow = '#38d39f'; opGlowR = 30; opScale = 1 + pop * 0.08; meDim = true; meLean = -0.12; }
+              const wx = meWon ? meX : oppX;
+              ctx.save(); ctx.globalAlpha = pop; ctx.fillStyle = '#38d39f'; ctx.shadowColor = '#38d39f'; ctx.shadowBlur = 14; ctx.font = '900 ' + (20 + pop * 8) + 'px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('WON', wx, baseY - S / 2 - 22); ctx.restore();
+              ctx.globalAlpha = Math.min(1, lp * 2); ctx.fillStyle = '#9fb0c0'; ctx.font = '15px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('by ' + rounds[i].reason, mid, baseY + S / 2 + 42); ctx.globalAlpha = 1;
+            }
 
-        if (beat.k === 'windup') {
-          const c = ELEMENT_COLOR[roundEl(beat.i, meSide)], oc = ELEMENT_COLOR[roundEl(beat.i, oppSide)];
-          meO = { glow: c, glowStrength: 16 + p * 26 }; opO = { glow: oc, glowStrength: 16 + p * 26 };
-          meDX = -easeInOut(p) * 18; opDX = easeInOut(p) * 18; // anticipation: pull back
-          spawnCharge(meX, baseY, c); spawnCharge(oppX, baseY, oc);
-          if (p > 0.85 && firedCast !== beat.i) { firedCast = beat.i; sfx('cast'); }
-        } else if (beat.k === 'clash') {
-          const c = ELEMENT_COLOR[roundEl(beat.i, meSide)], oc = ELEMENT_COLOR[roundEl(beat.i, oppSide)];
-          meO = { glow: c }; opO = { glow: oc };
-          const impactAt = 0.5;
-          if (p < impactAt) { const fly = p / impactAt; projectile(meX + S / 2, mid, baseY, fly, c); projectile(oppX - S / 2, mid, baseY, fly, oc); }
-          if (p >= impactAt && firedImpact !== beat.i) {
-            firedImpact = beat.i; sfx('impact');
-            const wc = ELEMENT_COLOR[winEl(beat.i)];
-            flash = 0.9; flashColor = wc; shake = 18; hitStopUntil = frameNow + 90;
-            spawnBurst(mid, baseY, wc, 46, 10); spawnBurst(mid, baseY, '#ffffff', 16, 6);
-            shocks.push({ x: mid, y: baseY, t: 0, dur: 620, max: 150, color: wc }, { x: mid, y: baseY, t: -90, dur: 620, max: 210, color: '#ffffff' });
+            if (i >= 0) impactFx(t, i, mid, baseY, EL[winEl(i)]);
+            drawFighter(meImg, meX + meDX, baseY + bob + yOff, S * meScale, meGlow, meGlowR, meDim, meLean);
+            drawFighter(oppImg, oppX + opDX, baseY - bob + yOff, S * opScale, opGlow, opGlowR, opDim, opLean);
+
+            if (flash > 0.01) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = flash * 0.8; ctx.fillStyle = flashColor; ctx.fillRect(-40, -40, W + 80, H + 80); ctx.restore(); }
+          } else {
+            drawFinale(t - finaleStart);
           }
-        } else if (beat.k === 'settle') {
-          const meWon = rounds[beat.i].winner === meSide, pop = easeOut(Math.min(1, p * 3));
-          meO = meWon ? { glow: '#38d39f', glowStrength: 30 } : { dim: true, tint: '#0a0f16', tintA: 0.45, lean: -0.12 };
-          opO = meWon ? { dim: true, tint: '#0a0f16', tintA: 0.45, lean: 0.12 } : { glow: '#38d39f', glowStrength: 30 };
-          const wx = meWon ? meX : oppX;
-          ctx.save(); ctx.globalAlpha = pop; ctx.fillStyle = '#38d39f'; ctx.shadowColor = '#38d39f'; ctx.shadowBlur = 14;
-          ctx.font = '900 ' + (18 + pop * 8) + 'px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('WON', wx, baseY - S / 2 - 20); ctx.restore();
-          ctx.fillStyle = '#9fb0c0'; ctx.font = '14px sans-serif'; ctx.textAlign = 'center'; ctx.globalAlpha = Math.min(1, p * 2);
-          ctx.fillText('by ' + rounds[beat.i].reason, W / 2, baseY + S / 2 + 40); ctx.globalAlpha = 1;
-          if (meWon) meO.scale = 1 + pop * 0.08; else opO.scale = 1 + pop * 0.08;
-        }
+        } catch (e) { console.error('Arena cinematic error:', e); ctx.setTransform(1, 0, 0, 1, 0, 0); resolve(); showArenaResult(match, opts); return; }
 
-        drawShocks();
-        const bob = Math.sin(clock / 320) * 4;
-        if (beat.k !== 'finale') {
-          drawFighter(meImg, meX + meDX, baseY + bob + (1 - intro) * 60, S * (meO.scale || 1) * (0.6 + 0.4 * intro), meO);
-          drawFighter(oppImg, oppX + opDX, baseY - bob + (1 - intro) * 60, S * (opO.scale || 1) * (0.6 + 0.4 * intro), opO);
-        }
-        drawParts();
-
-        if (flash > 0.01) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = flash; ctx.fillStyle = flashColor; ctx.fillRect(-40, -40, W + 80, H + 80); ctx.restore(); }
-
-        if (beat.k === 'finale') {
-          if (!firedVerdict) { firedVerdict = true; sfx(isParticipant && !won ? 'defeat' : 'victory'); }
-          ctx.fillStyle = 'rgba(5,9,14,' + (0.62 * easeOut(Math.min(1, p * 2.2))) + ')'; ctx.fillRect(-40, -40, W + 80, H + 80);
-          const winNum = winnerSide === 'p1' ? match.p1Verginal : match.p2Verginal;
-          const winImg = winnerSide === meSide ? meImg : oppImg;
-          const wc = isParticipant && !won ? '#ff6b6b' : '#38d39f';
-          const cx = W / 2, cy = H * 0.46;
-          // Rotating light rays behind the winner.
-          ctx.save(); ctx.translate(cx, cy); ctx.rotate(clock / 1600); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.16 * easeOut(Math.min(1, p * 2));
-          for (let i = 0; i < 12; i++) { ctx.rotate(Math.PI / 6); ctx.fillStyle = wc; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(W * 0.5, -26); ctx.lineTo(W * 0.5, 26); ctx.closePath(); ctx.fill(); }
-          ctx.restore();
-          if (Math.random() < 0.5) spawnSpark(wc);
-          const ws = S * (1.1 + easeOut(Math.min(1, p * 1.5)) * 0.25);
-          ctx.save(); ctx.shadowColor = wc; ctx.shadowBlur = 40; ctx.strokeStyle = wc; ctx.globalAlpha = 0.5 + Math.sin(clock / 130) * 0.2; ctx.lineWidth = 3;
-          roundRectPath(ctx, cx - ws / 2, cy - ws / 2 + bob, ws, ws, 18); ctx.stroke(); ctx.restore();
-          drawFighter(winImg, cx, cy + bob, ws, { glow: wc, glowStrength: 34 });
-          const ts = easeOut(Math.min(1, p * 2.6));
-          ctx.save(); ctx.translate(cx, H * 0.86); ctx.scale(ts, ts);
-          ctx.textAlign = 'center'; ctx.font = '900 58px -apple-system, sans-serif'; ctx.shadowColor = wc; ctx.shadowBlur = 24; ctx.fillStyle = wc;
-          ctx.fillText(isParticipant ? (won ? 'VICTORY' : 'DEFEAT') : (winNum != null ? '#' + winNum + ' WINS' : 'WINNER'), 0, 0); ctx.restore();
-          ctx.fillStyle = '#aebccb'; ctx.font = 'bold 18px sans-serif'; ctx.textAlign = 'center';
-          ctx.fillText(`${match.score[meSide === 'p1' ? 0 : 1]} - ${match.score[meSide === 'p1' ? 1 : 0]}`, cx, H * 0.86 + 32);
-        }
-
-        } catch (e) { console.error('Arena cinematic error:', e); crashed = true; }
-        if (!crashed && (now - startWall) - frozen < total) requestAnimationFrame(frame);
+        if (t < total) requestAnimationFrame(frame);
         else { ctx.setTransform(1, 0, 0, 1, 0, 0); resolve(); showArenaResult(match, opts); }
       }
       requestAnimationFrame(frame);
     }));
 }
-
 const easeIn = (p) => p * p;
 function roundRectPath(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -2039,6 +2175,9 @@ $('#arena-queue').addEventListener('click', () => arenaDuel('queue'));
     $('#netinfo').innerHTML = `network <strong>${info.network}</strong><br>height ${fmt(info.tip)}`;
     // The server is pinned to one network; align the selector so the user can't pick a mismatch.
     if (info.network) $('#network').value = info.network;
+    // The Arena stays hidden until the server enables it (VERGINALS_ARENA_ENABLED); the tab and its
+    // deep link only appear once the game is live.
+    if (!info.arena) { const a = document.querySelector('.tab[data-tab="arena"]'); if (a) a.remove(); }
   } catch (e) {
     $('#netinfo').textContent = 'node unreachable';
   }

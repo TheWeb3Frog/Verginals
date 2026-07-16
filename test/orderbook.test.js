@@ -25,17 +25,24 @@ const seller = ECPair.makeRandom({ network });
 const buyer = ECPair.makeRandom({ network });
 const carrier = { txid: H('a'), vout: 0, value: 2_100_000 };
 
-// A controllable fake chain. spent[] marks outpoints as spent; carriers[] maps outpoint -> info.
+// A controllable fake chain. spent[] marks outpoints as spent; owner is the inscription's current
+// holder (controls sale-vs-cancel detection); collection identity flags Alpha vs launchpad.
 function fakeChain(over = {}) {
   const spent = new Set(over.spent || []);
   const carrierAddr = over.carrierAddr || addr(seller);
+  const ins = over.noInscription ? null : {
+    id: over.inscriptionId || 'x',
+    collectionNumber: over.collectionNumber != null ? over.collectionNumber : 7,
+    collectionSlug: over.collectionSlug || null,
+  };
   return {
     spent,
+    owner: over.owner || { address: carrierAddr, location: `${carrier.txid}:0` }, // mutate in tests
     async carrierInfo(txid, vout) {
-      if (over.noInscription) return { address: carrierAddr, valueUnits: carrier.value, spent: spent.has(`${txid}:${vout}`), inscription: null };
-      return { address: carrierAddr, valueUnits: carrier.value, spent: spent.has(`${txid}:${vout}`), inscription: { id: 'x' } };
+      return { address: carrierAddr, valueUnits: carrier.value, spent: spent.has(`${txid}:${vout}`), inscription: ins };
     },
     async outpointSpent(txid, vout) { return spent.has(`${txid}:${vout}`); },
+    async inscriptionOwner() { return this.owner; },
   };
 }
 
@@ -153,6 +160,57 @@ async function main() {
     await book.addBid(mkBid());
     const dump = JSON.stringify(await book.listings()) + JSON.stringify(await book.bidsFor(`${carrier.txid}:0`));
     assert.ok(!/scriptSig/.test(dump), 'reads must not leak scriptSigs');
+  });
+
+  await test('a spent carrier that changed owner is logged as a sale with the listed price', async () => {
+    const chain = fakeChain();
+    const book = freshBook(chain);
+    await book.addListing(mkListing());
+    chain.spent.add(`${carrier.txid}:0`);
+    chain.owner = { address: addr(buyer), location: 'ff'.repeat(32) + ':1' }; // moved to the buyer
+    await book.listings(); // triggers the prune + sale detection
+    const act = book.activity();
+    const sale = act.find((a) => a.type === 'sale');
+    assert.ok(sale, 'a sale should be recorded');
+    assert.strictEqual(sale.priceUnits, 150_000_000);
+    assert.strictEqual(sale.buyerAddress, addr(buyer));
+    assert.strictEqual(sale.sellerAddress, addr(seller));
+  });
+
+  await test('a cancel (carrier spent but still with the seller) records no sale', async () => {
+    const chain = fakeChain();
+    const book = freshBook(chain);
+    await book.addListing(mkListing());
+    chain.spent.add(`${carrier.txid}:0`);
+    chain.owner = { address: addr(seller), location: 'ee'.repeat(32) + ':0' }; // self-move / cancel
+    await book.listings();
+    assert.strictEqual(book.activity().filter((a) => a.type === 'sale').length, 0);
+  });
+
+  await test('stats report floor, listed count and lifetime volume for Alpha only', async () => {
+    const chain = fakeChain();
+    const book = freshBook(chain);
+    await book.addListing(mkListing());
+    let s = await book.stats();
+    assert.strictEqual(s.listedCount, 1);
+    assert.strictEqual(s.floorUnits, 150_000_000);
+    assert.strictEqual(s.volumeUnits, 0);
+    // sell it, then a new listing: floor updates, volume accrues
+    chain.spent.add(`${carrier.txid}:0`);
+    chain.owner = { address: addr(buyer), location: 'ff'.repeat(32) + ':1' };
+    s = await book.stats();
+    assert.strictEqual(s.listedCount, 0);
+    assert.strictEqual(s.floorUnits, null);
+    assert.strictEqual(s.salesCount, 1);
+    assert.strictEqual(s.volumeUnits, 150_000_000);
+  });
+
+  await test('launchpad listings are excluded from the Alpha collection stats', async () => {
+    const chain = fakeChain({ collectionSlug: 'kittens', collectionNumber: 3 });
+    const book = freshBook(chain);
+    await book.addListing(mkListing());
+    const s = await book.stats();
+    assert.strictEqual(s.listedCount, 0); // not Alpha
   });
 
   console.log(`\n${passed} order book tests passed`);

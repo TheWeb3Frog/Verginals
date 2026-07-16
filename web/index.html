@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Verginals: Inscriptions on Verge</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/style.css?v=2" />
+  <link rel="stylesheet" href="/style.css?v=4" />
 </head>
 <body>
   <header class="topbar">
@@ -40,6 +40,7 @@
     <button class="tab hidden" data-tab="mint" id="tab-mint">Mint ✦</button>
     <button class="tab" data-tab="explore">Explore</button>
     <button class="tab" data-tab="market">Market</button>
+    <button class="tab" data-tab="collection">Alpha Collection</button>
     <button class="tab" data-tab="arena">Arena ⚔️</button>
     <button class="tab" data-tab="launchpad">Launchpad 🚀</button>
     <button class="tab hidden" data-tab="stats" id="tab-stats">Stats</button>
@@ -276,6 +277,36 @@
       </div>
       <p class="hint">Trustless peer-to-peer trading. Every sale settles in a single Verge transaction: the seller is paid and the buyer receives the Verginal at the same instant, with no middleman ever holding either side. This site is only a notice board; your keys stay in your wallet. No service fee.</p>
       <div class="gallery" id="market-gallery"><div class="empty">Loading…</div></div>
+    </section>
+
+    <!-- ============ ALPHA COLLECTION ============ -->
+    <section class="panel" id="panel-collection">
+      <div class="coll-hero">
+        <img class="coll-logo" id="coll-logo" src="/api/collection/image/0" alt="Alpha Verginals" />
+        <div class="coll-id">
+          <h2>Alpha Verginals</h2>
+          <p class="hint">The genesis collection, inscribed forever on the Verge blockchain. Trustless peer-to-peer trading, no fees, no custody.</p>
+        </div>
+        <div class="coll-stats" id="coll-stats"></div>
+      </div>
+      <div class="coll-bar">
+        <div class="subtabs">
+          <button class="subtab active" data-cview="items">Items</button>
+          <button class="subtab" data-cview="activity">Activity</button>
+        </div>
+        <div class="coll-controls" id="coll-controls">
+          <select id="coll-sort" class="coll-select" title="Sort">
+            <option value="price-asc">Price: low to high</option>
+            <option value="price-desc">Price: high to low</option>
+            <option value="rank">Rarity: rarest first</option>
+            <option value="number">Number</option>
+          </select>
+          <select id="coll-trait" class="coll-select" title="Filter by trait"></select>
+          <label class="coll-check"><input type="checkbox" id="coll-forsale" /> For sale only</label>
+        </div>
+      </div>
+      <div id="coll-items" class="coll-grid"><div class="empty">Loading…</div></div>
+      <div id="coll-activity" class="coll-activity hidden"><div class="empty">Loading…</div></div>
     </section>
 
     <!-- ============ ARENA ============ -->
@@ -668,7 +699,7 @@
   </div>
 
   <script src="/vendor/qrcode.js"></script>
-  <script src="/app.js?v=2"></script>
-  <script src="/wallet.js?v=2"></script>
+  <script src="/app.js?v=4"></script>
+  <script src="/wallet.js?v=4"></script>
 </body>
 </html>

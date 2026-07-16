@@ -19,6 +19,7 @@ const {
 const OUTPOINT_RE = /^[0-9a-fA-F]{64}:\d+$/;
 const MAX_BIDS_PER_CARRIER = 50;
 const MAX_LISTINGS = 5000;
+const MAX_SALES = 1000; // rolling activity log
 
 class OrderBook {
   /**
@@ -33,15 +34,16 @@ class OrderBook {
     this.network = network;
     this.chain = chain;
     this.now = now || (() => Math.floor(Date.now() / 1000));
-    this.state = { listings: {}, bids: {} }; // listings: outpoint->listing ; bids: outpoint->[bid]
+    // listings: outpoint->listing ; bids: outpoint->[bid] ; sales: rolling log of detected sales
+    this.state = { listings: {}, bids: {}, sales: [] };
   }
 
   load() {
     try {
       const s = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-      this.state = { listings: s.listings || {}, bids: s.bids || {} };
+      this.state = { listings: s.listings || {}, bids: s.bids || {}, sales: s.sales || [] };
     } catch (_) {
-      this.state = { listings: {}, bids: {} };
+      this.state = { listings: {}, bids: {}, sales: [] };
     }
     return this;
   }
@@ -87,9 +89,17 @@ class OrderBook {
       throw new Error('the order book is full');
     }
     // Record the carrier's current value and the inscription's unit offset so a buyer can build a
-    // constant-postage completion without re-deriving them (swap.completeListing needs both).
-    const carrierOffset = (info.inscription && info.inscription.offset) || 0;
-    const stored = Object.assign({}, listing, { at: this.now(), carrierValue: info.valueUnits, carrierOffset });
+    // constant-postage completion without re-deriving them (swap.completeListing needs both). The
+    // inscription's identity is kept too, so a sale can be attributed (activity feed, collection
+    // stats) even after the carrier has been spent and the index has moved on.
+    const ins = info.inscription || {};
+    const carrierOffset = ins.offset || 0;
+    const stored = Object.assign({}, listing, {
+      at: this.now(), carrierValue: info.valueUnits, carrierOffset,
+      inscriptionId: ins.id || null,
+      collectionNumber: ins.collectionNumber != null ? ins.collectionNumber : null,
+      collectionSlug: ins.collectionSlug || null,
+    });
     this.state.listings[this._key(carrier)] = stored;
     this._save();
     return { listed: true, carrier: this._key(carrier), variants: listing.variants.length };
@@ -108,8 +118,64 @@ class OrderBook {
     if (!l) return false;
     if (this.now() > (l.expiresAt || 0)) { delete this.state.listings[key]; return true; }
     const [txid, vout] = key.split(':');
-    if (await this.chain.outpointSpent(txid, Number(vout))) { delete this.state.listings[key]; return true; }
+    if (await this.chain.outpointSpent(txid, Number(vout))) {
+      await this._recordSaleIfMoved(l); // a spent carrier that changed hands at the listed price = a sale
+      delete this.state.listings[key];
+      return true;
+    }
     return false;
+  }
+
+  /**
+   * When a listed carrier is spent, decide whether it was a SALE (the inscription moved to a new
+   * owner, which under a signed listing can only happen at the listed price) or a cancel/self-move,
+   * and log sales into a rolling activity feed. Best-effort: needs chain.inscriptionOwner(id); a
+   * cancel (inscription still with the seller) or an unknown owner records nothing.
+   */
+  async _recordSaleIfMoved(listing) {
+    if (!listing || !listing.inscriptionId || typeof this.chain.inscriptionOwner !== 'function') return;
+    let owner = null;
+    try { owner = await this.chain.inscriptionOwner(listing.inscriptionId); } catch (_) { return; }
+    if (!owner || !owner.address || owner.address === listing.sellerAddress) return; // cancel or self-move
+    this.state.sales.push({
+      inscriptionId: listing.inscriptionId,
+      collectionNumber: listing.collectionNumber != null ? listing.collectionNumber : null,
+      collectionSlug: listing.collectionSlug || null,
+      priceUnits: listing.priceUnits,
+      sellerAddress: listing.sellerAddress,
+      buyerAddress: owner.address,
+      at: this.now(),
+    });
+    if (this.state.sales.length > MAX_SALES) this.state.sales = this.state.sales.slice(-MAX_SALES);
+  }
+
+  /** True for an Alpha Verginal (a collection mint with no launchpad slug). */
+  static _isAlpha(x) {
+    return x && x.collectionNumber != null && !x.collectionSlug;
+  }
+
+  /**
+   * Marketplace-side numbers for the Alpha collection: how many are listed, the floor (lowest
+   * listed price), lifetime sale count and volume from the activity log. Supply and holders are
+   * chain facts the caller adds. Prunes stale listings first so the counts are live.
+   */
+  async stats() {
+    for (const key of Object.keys(this.state.listings)) await this._pruneListing(key);
+    this._save();
+    const listed = Object.values(this.state.listings).filter(OrderBook._isAlpha);
+    const floorUnits = listed.reduce((m, l) => (m == null || l.priceUnits < m ? l.priceUnits : m), null);
+    const sales = this.state.sales.filter(OrderBook._isAlpha);
+    const volumeUnits = sales.reduce((s, x) => s + (x.priceUnits || 0), 0);
+    return { listedCount: listed.length, floorUnits, salesCount: sales.length, volumeUnits };
+  }
+
+  /** Recent Alpha activity: sales and live listings, newest first, capped at `limit`. */
+  activity(limit = 50) {
+    const sales = this.state.sales.filter(OrderBook._isAlpha)
+      .map((s) => ({ type: 'sale', at: s.at, collectionNumber: s.collectionNumber, priceUnits: s.priceUnits, sellerAddress: s.sellerAddress, buyerAddress: s.buyerAddress }));
+    const lists = Object.values(this.state.listings).filter(OrderBook._isAlpha)
+      .map((l) => ({ type: 'list', at: l.at, collectionNumber: l.collectionNumber, priceUnits: l.priceUnits, sellerAddress: l.sellerAddress }));
+    return sales.concat(lists).sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, limit);
   }
 
   // --- bids --------------------------------------------------------------------------------

@@ -80,6 +80,10 @@ const COLLECTION_DIR = process.env.VERGINALS_COLLECTION_DIR || path.join(__dirna
 // Defaults to mainnet; set VERGINALS_NETWORK=testnet to point at the dev testnet Docker node.
 const NETWORK = (process.env.VERGINALS_NETWORK || 'mainnet') === 'testnet' ? 'testnet' : 'mainnet';
 const INDEX_FROM = Number(process.env.VERGINALS_INDEX_FROM || (NETWORK === 'mainnet' ? 9290000 : 125800));
+// Verginals Arena (the game) is kept off the public surface until deliberately launched: with the
+// flag unset, initGame() never runs, the /arena page and every /api/game/* route are inert, and the
+// site hides the Arena tab. Set VERGINALS_ARENA_ENABLED=1 in the systemd env to turn it on.
+const ARENA_ENABLED = process.env.VERGINALS_ARENA_ENABLED === '1';
 const MAX_BODY = 8 * 1024 * 1024; // 8 MB JSON cap
 
 const toXVG = (units) => units / COIN;
@@ -283,7 +287,7 @@ function serveStatic(res, file) {
 
 async function handleInfo(res) {
   const tip = await chain.getBlockCount();
-  sendJSON(res, 200, { network: NETWORK, tip, indexFrom: INDEX_FROM, indexedThrough: lastScanned });
+  sendJSON(res, 200, { network: NETWORK, tip, indexFrom: INDEX_FROM, indexedThrough: lastScanned, arena: ARENA_ENABLED });
 }
 
 // Verge (like Bitcoin) refuses to relay transactions over ~100 KB as non-standard
@@ -879,6 +883,58 @@ function handleLeaderboard(res, limitStr, mintedOnly) {
   sendJSON(res, 200, { supply: r.supply, top: rows.slice(0, limit) });
 }
 
+/**
+ * GET /api/collection/market: the Alpha collection's marketplace summary for the collection page
+ * (floor, listed count, holders, minted supply, lifetime sales + volume). Marketplace numbers come
+ * from the order book; supply/holders are read from our index (Alpha = a mint with no launchpad slug).
+ */
+async function handleCollectionMarket(res) {
+  if (!orderbook) return sendJSON(res, 404, { error: 'marketplace disabled' });
+  const s = await orderbook.stats();
+  const r = getRarity();
+  const mints = collectionMintMap();
+  const holders = new Set();
+  let minted = 0;
+  for (const i of indexer.list()) {
+    const m = mints.get(i.id.replace(/i0$/, ''));
+    if (m && !m.slug && i.location && i.location !== 'burned') {
+      minted++;
+      if (i.ownerAddress) holders.add(i.ownerAddress);
+    }
+  }
+  sendJSON(res, 200, {
+    total: r ? r.supply : null, // full collection size (minted + still sealed)
+    minted, // Alpha items that exist on-chain (confirmed)
+    holders: holders.size,
+    listedCount: s.listedCount,
+    floorUnits: s.floorUnits,
+    salesCount: s.salesCount,
+    volumeUnits: s.volumeUnits,
+  });
+}
+
+/** GET /api/collection/activity: recent Alpha sales + live listings, newest first. */
+function handleCollectionActivity(res, limitStr) {
+  if (!orderbook) return sendJSON(res, 404, { error: 'marketplace disabled' });
+  const limit = Math.max(1, Math.min(100, Number(limitStr) || 50));
+  sendJSON(res, 200, { activity: orderbook.activity(limit) });
+}
+
+/**
+ * GET /api/collection/items: per-item rarity (rank, score, traits) for the collection grid and
+ * trait filters. ONLY minted items are revealed: an unminted item's number->traits mapping is
+ * still sealed by the committed-random mint order, so exposing it would break fair minting. The
+ * aggregate trait distribution (already public via /api/collection/rarity) rides along for filters.
+ */
+function handleCollectionItems(res) {
+  const r = getRarity();
+  if (!r) return sendJSON(res, 404, { error: 'minting is not enabled on this server' });
+  const items = [...r.byNumber.values()]
+    .filter((it) => mintCtl.state.minted[it.number])
+    .map((it) => ({ number: it.number, name: it.name, rank: it.rank, score: it.score, traits: it.traits }));
+  sendJSON(res, 200, { supply: r.supply, traits: r.traits, items });
+}
+
 // --- launchpad: curated community collections, open-edition mints ---------------------------
 // Submissions arrive over HTTP but go NOWHERE until the operator reviews them on the server
 // (node src/launchpad.js list / approve / reject). Approved collections mint through the same
@@ -1040,6 +1096,13 @@ function initOrderBook() {
       return { address, valueUnits: xvgToUnits(out.value), spent: false, inscription };
     },
     async outpointSpent(txid, vout) { return !(await isUnspent(txid, vout)); },
+    // Where an inscription lives now + who holds it, from our own index. Used to tell a sale (moved
+    // to a new owner) from a cancel (still with the seller) when a listed carrier is spent.
+    async inscriptionOwner(id) {
+      const rec = indexer.inscriptions.get(id);
+      if (!rec || !rec.location || rec.location === 'burned') return null;
+      return { address: rec.ownerAddress || null, location: rec.location };
+    },
   };
   orderbook = new OrderBook({ dataDir: DATA_DIR, network, chain }).load();
 }
@@ -1963,6 +2026,7 @@ function inscriptionLocationMap() {
         contentType: i.contentType,
         number: i.number,
         collectionNumber: mint ? mint.number : null,
+        collectionSlug: mint ? mint.slug : null,
         offset: entry ? entry.offset : 0,
       });
     }
@@ -2074,7 +2138,7 @@ const server = http.createServer(async (req, res) => {
     }
     // Shareable deep links (a Verginal's detail view, a holder's gallery, a launchpad
     // collection): same app shell, the frontend reads the path on boot and opens the right view.
-    if (req.method === 'GET' && (/^\/v\/[A-Za-z0-9]{1,64}$/.test(p) || /^\/gallery\/[a-km-zA-HJ-NP-Z1-9]{25,40}$/.test(p) || /^\/launchpad(\/[a-z0-9-]{3,32})?$/.test(p) || /^\/arena(\/replay\/[A-Za-z0-9_-]{1,4096})?$/.test(p))) {
+    if (req.method === 'GET' && (/^\/v\/[A-Za-z0-9]{1,64}$/.test(p) || /^\/gallery\/[a-km-zA-HJ-NP-Z1-9]{25,40}$/.test(p) || /^\/launchpad(\/[a-z0-9-]{3,32})?$/.test(p) || (ARENA_ENABLED && /^\/arena(\/replay\/[A-Za-z0-9_-]{1,4096})?$/.test(p)))) {
       return serveStatic(res, 'index.html');
     }
     if (req.method === 'GET' && (p === '/app.js' || p === '/wallet.js' || p === '/style.css')) return serveStatic(res, p.slice(1));
@@ -2087,6 +2151,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/collection/rarity') return handleRarity(res);
     if (req.method === 'GET' && p.startsWith('/api/collection/rarity/')) return handleRarityItem(res, p.slice('/api/collection/rarity/'.length));
     if (req.method === 'GET' && p === '/api/collection/leaderboard') return handleLeaderboard(res, url.searchParams.get('limit'), url.searchParams.get('minted') === '1');
+    if (req.method === 'GET' && p === '/api/collection/market') return await handleCollectionMarket(res);
+    if (req.method === 'GET' && p === '/api/collection/items') return handleCollectionItems(res);
+    if (req.method === 'GET' && p === '/api/collection/activity') return handleCollectionActivity(res, url.searchParams.get('limit'));
     if (req.method === 'GET' && p.startsWith('/api/collection/image/')) return handleCollectionImage(res, p.slice('/api/collection/image/'.length));
     if (p === '/api/launchpad' && req.method === 'GET') return handleLaunchpadList(res);
     if (p === '/api/launchpad/submit' && req.method === 'POST') return await handleLaunchpadSubmit(req, res);
@@ -2182,7 +2249,7 @@ initParent();
 initPromo();
 initLaunchpad();
 initOrderBook();
-initGame();
+if (ARENA_ENABLED) initGame(); // off the public surface until deliberately launched (see ARENA_ENABLED)
 
 server.listen(PORT, HOST, () => {
   console.log(`Verginals web UI  →  http://${HOST}:${PORT}`);

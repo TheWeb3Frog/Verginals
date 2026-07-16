@@ -2190,8 +2190,8 @@ async function loadArenaTournaments() {
       const row = document.createElement('button');
       row.className = 'arena-tourn';
       const state = t.status === 'registering' ? `${t.players}/${t.size} joined` : t.status;
-      const cta = t.status === 'registering' ? 'Join & view bracket' : 'View bracket';
-      row.innerHTML = `<span class="at-top"><span class="at-name">${esc(t.name)}</span><span class="at-state">${esc(state)}</span></span><span class="at-cta">${cta} →</span>`;
+      const cta = t.status === 'registering' ? 'Join &amp; view bracket' : 'View bracket';
+      row.innerHTML = `<span class="at-top"><span class="at-name">🏆 ${esc(t.name)}</span><span class="at-state">${esc(state)}</span></span><span class="at-cta">${cta} <span class="at-arrow">→</span></span>`;
       row.addEventListener('click', () => openTournament(t.id));
       box.appendChild(row);
     });

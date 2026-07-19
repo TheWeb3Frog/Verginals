@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Verginals: Inscriptions on Verge</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/style.css?v=16" />
+  <link rel="stylesheet" href="/style.css?v=17" />
 </head>
 <body>
   <header class="topbar">
@@ -324,14 +324,14 @@
             <h3>Choose your fighter</h3>
             <div class="arena-fighters" id="arena-fighters"></div>
             <h3>Compose your loadout</h3>
-            <p class="hint">A duel is <b>best of three rounds</b>: win 2 to take it. For each round you secretly pick an <b>element</b>, and you place two one-per-match power-ups on the rounds of your choice. Both loadouts lock in and are revealed at once, so the real game is not <i>whether</i> to use your power-ups (you always will) but <b>which round</b> to place each one, guessing where your opponent will place theirs. Place them right and you steal the duel; place them wrong and they are wasted.</p>
+            <p class="hint">A duel is <b>best of three rounds</b>. Each round, you secretly pick an <b>element</b>. Win 2 rounds and the duel is yours. Both players choose at the same time, so it is all about reading your opponent and out-guessing them.</p>
             <ul class="arena-rules">
-              <li><b>Elements</b>: 🔥 Fire beats 🪨 Earth, 🪨 Earth beats 💧 Water, 💧 Water beats 🔥 Fire. Same element ties.</li>
-              <li><b>☠️ Poison</b> (1× per match): the round you place it wins outright, <i>unless</i> your opponent drops a potion on that same round. So bluff your timing.</li>
-              <li><b>🧪 Potion</b> (1× per match): cancels a poison, but only on the exact round you place it. Read when your opponent will strike.</li>
-              <li><b>Tiebreakers</b>: a tie goes to your <b>House</b> if you played its element, then to a round-3 comeback edge, then to a coin flip slightly weighted toward the rarer Verginal.</li>
+              <li><b>Elements work like rock, paper, scissors</b>: 🔥 Fire beats 🪨 Earth, 🪨 Earth beats 💧 Water, 💧 Water beats 🔥 Fire.</li>
+              <li><b>☠️ Poison</b> (once per duel): pick a round to poison. You win that round, <i>unless</i> your opponent uses their potion on the same round.</li>
+              <li><b>🧪 Potion</b> (once per duel): pick a round to defend. It blocks a poison played on that round.</li>
+              <li><b>Both picked the same element?</b> That round is a tie, and a small bonus from your Verginal decides it (more below), so no two Verginals play exactly the same.</li>
             </ul>
-            <p class="hint">Your Verginal's House and rarity tilt the tiebreakers, so different Verginals genuinely play differently: the mind-game is all in the timing.</p>
+            <p class="hint"><b>New here? Just pick your elements and try to out-read your opponent.</b> The tie bonus, if you are curious: every Alpha belongs to a House (Fire, Water or Earth). If you play your own House's element and the round ties, you win it. Otherwise the rarer Verginal gets a slight edge. You will get the feel after a duel or two.</p>
             <div class="arena-loadout" id="arena-loadout"></div>
             <div class="arena-actions">
               <button class="btn primary" id="arena-bot">Practice vs a bot</button>
@@ -726,7 +726,7 @@
   </div>
 
   <script src="/vendor/qrcode.js"></script>
-  <script src="/app.js?v=16"></script>
-  <script src="/wallet.js?v=16"></script>
+  <script src="/app.js?v=17"></script>
+  <script src="/wallet.js?v=17"></script>
 </body>
 </html>

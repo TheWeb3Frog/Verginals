@@ -35,7 +35,7 @@ const DEFAULT_CONFIG = {
     houseAffinity: true, // your House wins same-element ties when that element was played
     faceComeback: true,  // a comeback face gets a round-3 tie edge after losing round 1
     rarityNudge: true,   // the final coin flip leans toward the higher rarity score
-    shield: true,        // the shield power-up ("cannot lose this round"), available to every fighter
+    shield: false,       // the shield power-up is OFF for now (poison + potion only); code kept, flip to true to re-enable
   },
 };
 

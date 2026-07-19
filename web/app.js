@@ -1707,7 +1707,7 @@ const Arena = {
   address: null,
   fighters: [],
   selected: null,
-  loadout: { attacks: ['fire', 'fire', 'fire'], poisonRound: 0, potionRound: 1, shieldRound: 2 },
+  loadout: { attacks: ['fire', 'fire', 'fire'], poisonRound: 0, potionRound: 1, shieldRound: null },
 };
 const ARENA_ELEMENTS = ['fire', 'water', 'earth'];
 const ELEMENT_ICON = { fire: '🔥', water: '💧', earth: '🌍' };
@@ -1811,7 +1811,7 @@ function renderLoadout() {
     box.appendChild(row);
   }
   // Each power-up must be placed on a round (every fighter plays all three, so there is no "none").
-  const specials = [['poisonRound', 'Poison 💀'], ['potionRound', 'Potion 🧪'], ['shieldRound', 'Shield 🛡️']];
+  const specials = [['poisonRound', 'Poison 💀'], ['potionRound', 'Potion 🧪']]; // shield disabled for now
   specials.forEach(([key, name]) => {
     const row = document.createElement('div');
     row.className = 'arena-round';

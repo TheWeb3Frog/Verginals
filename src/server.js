@@ -1207,7 +1207,9 @@ function normalizeLoadout(l) {
     attacks: Array.isArray(l && l.attacks) ? l.attacks.map((e) => String(e).toLowerCase()) : [],
     poisonRound: slot(l && l.poisonRound),
     potionRound: slot(l && l.potionRound),
-    shieldRound: slot(l && l.shieldRound),
+    // The shield power-up is disabled for now: strip any submitted shield so a custom client cannot
+    // slip one past the (currently off) engine trait and crash resolution. Restore slot() to re-enable.
+    shieldRound: null,
   };
 }
 
@@ -1217,7 +1219,7 @@ function makeBot() {
   const round = () => Math.floor(Math.random() * 3); // the bot places every power-up, like a player
   return {
     botFighter: { address: 'bot', house: pick(), rarityScore: 100, comeback: false, shield: false, verginal: null },
-    botLoadout: { attacks: [pick(), pick(), pick()], poisonRound: round(), potionRound: round(), shieldRound: round() },
+    botLoadout: { attacks: [pick(), pick(), pick()], poisonRound: round(), potionRound: round(), shieldRound: null },
   };
 }
 

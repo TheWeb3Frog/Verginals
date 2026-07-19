@@ -126,7 +126,8 @@ test('a comeback face steals round 3 after losing round 1', () => {
   assert.strictEqual(r.rounds[2].reason, 'comeback');
 });
 
-// --- shield ---
+// --- shield (code retained but the power-up is OFF by default; tests enable the trait) ---
+const SHIELD_ON = { traits: { shield: true } };
 test('a shield turns a losing round into a tie (cannot be lost outright)', () => {
   const p1 = plain('P1', { shield: true });
   const p2 = plain('P2');
@@ -135,8 +136,17 @@ test('a shield turns a losing round into a tie (cannot be lost outright)', () =>
     { p1: { element: 'earth' }, p2: { element: 'earth' } },
     { p1: { element: 'fire' }, p2: { element: 'fire' } },
   ];
-  const r = resolveMatch({ p1, p2, moves: mv, seed: SEED });
+  const r = resolveMatch({ p1, p2, moves: mv, seed: SEED, config: SHIELD_ON });
   assert.notStrictEqual(r.rounds[0].reason, 'element'); // was rescued into the tie path
+});
+
+test('the shield power-up is disabled by default (a shield play is rejected)', () => {
+  const mv = [
+    { p1: { element: 'fire', shield: true }, p2: { element: 'fire' } },
+    { p1: { element: 'water' }, p2: { element: 'water' } },
+    { p1: { element: 'earth' }, p2: { element: 'earth' } },
+  ];
+  assert.throws(() => resolveMatch({ p1: plain('P1'), p2: plain('P2'), moves: mv, seed: SEED }), /shield/);
 });
 
 // --- rarity nudge (statistical) ---
@@ -182,21 +192,20 @@ test('rejects too many poison charges', () => {
   assert.throws(() => resolveMatch({ p1: plain('P1'), p2: plain('P2'), moves: mv, seed: SEED }), /poison/);
 });
 
-test('every fighter may play one shield, but not two', () => {
+test('with the shield enabled, a fighter may play one but not two', () => {
   const oneShield = [
     { p1: { element: 'fire', shield: true }, p2: { element: 'fire' } },
     { p1: { element: 'water' }, p2: { element: 'water' } },
     { p1: { element: 'earth' }, p2: { element: 'earth' } },
   ];
-  // A plain fighter (no rare RUNE) may now use one shield.
-  assert.doesNotThrow(() => resolveMatch({ p1: plain('P1'), p2: plain('P2'), moves: oneShield, seed: SEED }));
-  // But a second shield in the same match is still rejected.
+  assert.doesNotThrow(() => resolveMatch({ p1: plain('P1'), p2: plain('P2'), moves: oneShield, seed: SEED, config: SHIELD_ON }));
+  // A second shield in the same match is still rejected.
   const twoShields = [
     { p1: { element: 'fire', shield: true }, p2: { element: 'fire' } },
     { p1: { element: 'water', shield: true }, p2: { element: 'water' } },
     { p1: { element: 'earth' }, p2: { element: 'earth' } },
   ];
-  assert.throws(() => resolveMatch({ p1: plain('P1'), p2: plain('P2'), moves: twoShields, seed: SEED }), /shield/);
+  assert.throws(() => resolveMatch({ p1: plain('P1'), p2: plain('P2'), moves: twoShields, seed: SEED, config: SHIELD_ON }), /shield/);
 });
 
 test('rejects the wrong number of rounds', () => {

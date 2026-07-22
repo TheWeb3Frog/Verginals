@@ -7,7 +7,7 @@ const ecpair = require('ecpair');
 const ecc = require('tiny-secp256k1');
 const { pickNetwork } = require('../src/cli');
 const { legacySighash, SIGHASH_ALL, SIGHASH_NONE, SIGHASH_SINGLE, SIGHASH_ANYONECANPAY } = require('../src/vergetx');
-const { buildListing, completeListing, buildListingSchedule, pickVariant, buildBid, acceptBid, SELLER_INDEX, LISTING_SIGHASH, POSTAGE_UNITS } = require('../src/swap');
+const { buildListing, completeListing, buildListingSchedule, pickVariant, buildBid, acceptBid, verifyListingVariant, feeFor, SELLER_INDEX, LISTING_SIGHASH, POSTAGE_UNITS } = require('../src/swap');
 const { Indexer } = require('../src/indexer');
 
 const ECPair = (ecpair.ECPairFactory || ecpair.default)(ecc);
@@ -65,6 +65,41 @@ test('the seller half-signature is invariant to every buyer-controlled slot', ()
     feeUnits: 300_000,
     carrierOffset: 0,
   });
+});
+
+test('a marketplace fee comes out of the seller proceeds; the buyer pays the same price', () => {
+  const feeAddr = addr(ECPair.makeRandom({ network }));
+  const l = mkListing({ feeUnits: 3_000_000, feeAddress: feeAddr }); // 2% of 150_000_000
+  assert.strictEqual(l.feeUnits, 3_000_000);
+  assert.strictEqual(l.feeAddress, feeAddr);
+  const done = mkComplete(l);
+  // vout[2] = seller net (price - fee), vout[3] = fee to the pool, vout[4] = change
+  assert.strictEqual(done.outputs[2].value, 147_000_000, 'seller receives price minus fee');
+  assert.strictEqual(done.outputs[3].value, 3_000_000, 'fee output to the pool');
+  const padOut = 150_000 + 120_000;
+  const totalIn = 150_000 + 120_000 + carrier.value + 200_000_000;
+  // Change is computed against the full price, so the buyer pays exactly the same as with no fee.
+  assert.strictEqual(done.outputs[4].value, totalIn - padOut - POSTAGE_UNITS - 150_000_000 - 200_000);
+});
+
+test('verifyListingVariant checks the net output the seller signed, not the gross price', () => {
+  const feeAddr = addr(ECPair.makeRandom({ network }));
+  const sched = buildListingSchedule({
+    network, carrier, priceUnits: 150_000_000, sellerAddress: addr(seller), sellerKey: seller,
+    startTime: 1_783_000_000, offsets: [0], feeUnits: 3_000_000, feeAddress: feeAddr,
+  });
+  const v = sched.variants[0];
+  const good = verifyListingVariant({ network, carrier, priceUnits: 150_000_000, sellerAddress: addr(seller), time: v.time, scriptSig: v.scriptSig, feeUnits: 3_000_000 });
+  assert.ok(good.ok, 'verifies when the fee is accounted for');
+  const bad = verifyListingVariant({ network, carrier, priceUnits: 150_000_000, sellerAddress: addr(seller), time: v.time, scriptSig: v.scriptSig, feeUnits: 0 });
+  assert.ok(!bad.ok, 'dropping the fee changes the signed net and must fail');
+});
+
+test('feeFor computes basis points and floors', () => {
+  assert.strictEqual(feeFor(150_000_000, 200), 3_000_000); // 2%
+  assert.strictEqual(feeFor(100, 200), 2);
+  assert.strictEqual(feeFor(150_000_000, 0), 0);
+  assert.strictEqual(feeFor(1_000_000_001, 200), 20_000_000); // floors down
 });
 
 test('completion requires exactly two pad coins', () => {
@@ -211,12 +246,14 @@ test('an accepted bid also lands the inscription on a fresh constant postage', (
   assert.strictEqual(land.offset, 0);
 });
 
-test('a bid can carry an optional service-fee output', () => {
+test('a bid market fee comes out of the seller proceeds (buyer pays the same price)', () => {
   const feeAddr = addr(ECPair.makeRandom({ network }));
-  const bid = mkBid({ feeOutput: { address: feeAddr, value: 5_000_000 } });
-  // vout: padding-out, postage, price, fee, change
+  const bid = mkBid({ marketFeeUnits: 5_000_000, feeAddress: feeAddr }); // price is 120_000_000
+  // vout: padding-out, postage, seller-net, fee, change
   assert.strictEqual(bid.vout.length, 5);
-  assert.strictEqual(bid.vout[3].value, 5_000_000);
+  assert.strictEqual(bid.vout[2].value, 115_000_000, 'seller receives price minus fee');
+  assert.strictEqual(bid.vout[3].value, 5_000_000, 'fee output to the pool');
+  assert.strictEqual(bid.feeUnits, 5_000_000);
   acceptBid({ network, bid, sellerKey: seller });
 });
 

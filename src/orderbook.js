@@ -12,8 +12,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const bitcoin = require('bitcoinjs-lib');
 const {
-  verifyListingVariant, verifyBid, pickVariant,
+  verifyListingVariant, verifyBid, pickVariant, feeFor,
 } = require('./swap');
 
 const OUTPOINT_RE = /^[0-9a-fA-F]{64}:\d+$/;
@@ -29,11 +30,15 @@ class OrderBook {
    * @param {object} opts.chain    { carrierInfo, outpointSpent } async on-chain reads
    * @param {function} [opts.now]  () => unix seconds
    */
-  constructor({ dataDir, network, chain, now }) {
+  constructor({ dataDir, network, chain, now, feeBps, feeAddress }) {
     this.file = path.join(dataDir, 'market.json');
     this.network = network;
     this.chain = chain;
     this.now = now || (() => Math.floor(Date.now() / 1000));
+    // Marketplace fee taken from the seller's proceeds and paid to feeAddress. 0 = no fee. A listing
+    // or bid submitted here must carry exactly this fee, or it is rejected (the enforcement point).
+    this.feeBps = feeBps || 0;
+    this.feeAddress = feeAddress || null;
     // listings: outpoint->listing ; bids: outpoint->[bid] ; sales: rolling log of detected sales
     this.state = { listings: {}, bids: {}, sales: [] };
   }
@@ -72,6 +77,12 @@ class OrderBook {
     if (!(listing.priceUnits > 0)) throw new Error('price must be positive');
     if (!Array.isArray(listing.variants) || !listing.variants.length) throw new Error('no signed variants');
 
+    // Enforce the marketplace fee: the listing must have signed the net (price - fee) to the seller
+    // and name the pool address, or we refuse it. This is where the fee is guaranteed, not the UI.
+    const expectedFee = feeFor(listing.priceUnits, this.feeBps);
+    if ((listing.feeUnits || 0) !== expectedFee) throw new Error('listing fee does not match the marketplace fee');
+    if (expectedFee > 0 && listing.feeAddress !== this.feeAddress) throw new Error('listing fee is not payable to the marketplace');
+
     const info = await this.chain.carrierInfo(carrier.txid, carrier.vout);
     if (!info || info.spent) throw new Error('carrier is spent or unknown');
     if (!info.inscription) throw new Error('this UTXO does not carry a Verginal');
@@ -80,6 +91,7 @@ class OrderBook {
       const r = verifyListingVariant({
         network: this.network, carrier, priceUnits: listing.priceUnits,
         sellerAddress: listing.sellerAddress, time: v.time, scriptSig: v.scriptSig,
+        feeUnits: listing.feeUnits || 0,
       });
       if (!r.ok) throw new Error(`a variant signature is invalid (nTime ${v.time})`);
       if (r.address !== info.address) throw new Error('a variant was not signed by the carrier owner');
@@ -211,6 +223,17 @@ class OrderBook {
     const info = await this.chain.carrierInfo(carrier.txid, carrier.vout);
     if (!info || info.spent) throw new Error('carrier is spent or unknown');
     if (!info.inscription) throw new Error('this UTXO does not carry a Verginal');
+
+    // Enforce the marketplace fee on the actual signed outputs (not just the bid's metadata): the
+    // seller output must be the net, and the fee output must pay the pool the exact fee.
+    const expectedFee = feeFor(bid.priceUnits, this.feeBps);
+    const sellerVal = bid.vout && bid.vout[2] ? bid.vout[2].value : -1;
+    if (sellerVal !== bid.priceUnits - expectedFee) throw new Error('bid does not pay the seller the net price');
+    if (expectedFee > 0) {
+      const feeScript = bitcoin.address.toOutputScript(this.feeAddress, this.network).toString('hex');
+      const hasFee = (bid.vout || []).some((o) => o.value === expectedFee && o.script === feeScript);
+      if (!hasFee) throw new Error('bid does not pay the marketplace fee');
+    }
 
     const v = verifyBid({ network: this.network, bid });
     if (!v.ok) throw new Error('bid signatures are invalid');

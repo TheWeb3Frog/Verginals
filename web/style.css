@@ -425,6 +425,7 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 .mk-field input[type=number]:focus { border: none; }
 .mk-suffix { padding: 0 14px 0 4px; color: var(--muted); font-size: 13px; font-weight: 700; letter-spacing: .04em; }
 .mk-usd { color: var(--muted); font-size: 12px; font-weight: 500; min-height: 1em; }
+.mk-fee { color: var(--muted); font-size: 12px; margin-top: 4px; line-height: 1.4; }
 .mk-price .mk-usd { display: inline; margin-left: 4px; }
 .mk .btn.block { align-self: stretch; width: 100%; margin-top: 0; white-space: nowrap; }
 

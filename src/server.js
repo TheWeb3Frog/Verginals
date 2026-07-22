@@ -107,6 +107,23 @@ function initServiceFee() {
   }
 }
 
+// Marketplace fee: a percentage (basis points) of each sale, taken from the seller's proceeds and
+// paid to the prize-pool address. Active only when BOTH a positive bps and a valid address are set.
+// Hard-capped at 10% so a misconfig can't take an absurd cut. Sellers' wallets read this to bake the
+// fee into the listing they sign; the order book rejects any listing/bid that omits it.
+const MARKET_FEE_CAP_BPS = 1000;
+let MARKET_FEE_BPS = Math.min(MARKET_FEE_CAP_BPS, Math.max(0, Number(process.env.VERGINALS_MARKET_FEE_BPS || 0)));
+const MARKET_FEE_ADDRESS = (process.env.VERGINALS_MARKET_FEE_ADDRESS || '').trim();
+function initMarketFee() {
+  if (MARKET_FEE_BPS <= 0 || !MARKET_FEE_ADDRESS) { MARKET_FEE_BPS = 0; return; }
+  try {
+    bitcoin.address.toOutputScript(MARKET_FEE_ADDRESS, pickNetwork(NETWORK).network);
+  } catch (_) {
+    MARKET_FEE_BPS = 0;
+    console.warn(`VERGINALS_MARKET_FEE_ADDRESS is not a valid ${NETWORK} address, marketplace fee DISABLED`);
+  }
+}
+
 // --- RPC credentials ---------------------------------------------------------------------
 
 function loadRpcCreds() {
@@ -290,7 +307,12 @@ function serveStatic(res, file) {
 
 async function handleInfo(res) {
   const tip = await chain.getBlockCount();
-  sendJSON(res, 200, { network: NETWORK, tip, indexFrom: INDEX_FROM, indexedThrough: lastScanned, arena: ARENA_ENABLED });
+  sendJSON(res, 200, {
+    network: NETWORK, tip, indexFrom: INDEX_FROM, indexedThrough: lastScanned, arena: ARENA_ENABLED,
+    // Marketplace fee the seller's wallet must bake into a listing (basis points + destination).
+    marketFeeBps: MARKET_FEE_BPS,
+    marketFeeAddress: MARKET_FEE_BPS > 0 ? MARKET_FEE_ADDRESS : null,
+  });
 }
 
 // Verge (like Bitcoin) refuses to relay transactions over ~100 KB as non-standard
@@ -1123,7 +1145,7 @@ function initOrderBook() {
       return { address: rec.ownerAddress || null, location: rec.location };
     },
   };
-  orderbook = new OrderBook({ dataDir: DATA_DIR, network, chain }).load();
+  orderbook = new OrderBook({ dataDir: DATA_DIR, network, chain, feeBps: MARKET_FEE_BPS, feeAddress: MARKET_FEE_ADDRESS }).load();
 }
 
 // --- Verginals Arena: player authentication and ownership (spec/GAME-SPEC-v0.md) --------------
@@ -2288,6 +2310,7 @@ function cleanupJobs() {
 }
 
 initServiceFee();
+initMarketFee();
 initMint();
 initParent();
 initPromo();

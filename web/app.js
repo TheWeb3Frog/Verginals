@@ -322,6 +322,7 @@ let ownerFilter = null; // when set, Explore shows only verginals held by this a
 let traitFilter = null; // { type, value } client-side filter, set by clicking a trait chip
 let lastList = []; // inscriptions from the last load, display order (used by filter + detail)
 let listedMap = new Map(); // carrier outpoint -> priceUnits, for the "for sale" badge on cards
+let MARKET_FEE_BPS = 0; // marketplace fee (basis points), from /api/info; shown to sellers
 
 function hasTrait(ins, type, value) {
   const md = Array.isArray(ins.metadata) ? ins.metadata.find((m) => m && Array.isArray(m.attributes)) : null;
@@ -690,8 +691,21 @@ async function renderDetailMarket(ins) {
         <input type="number" inputmode="decimal" min="0" step="0.1" id="mk-price" placeholder="0.00" />
         <span class="mk-suffix">XVG</span>
       </div>
-      <div class="mk-usd" id="mk-price-usd"></div>`;
+      <div class="mk-usd" id="mk-price-usd"></div>
+      <div class="mk-fee" id="mk-price-fee"></div>`;
     liveUsd(form.querySelector('#mk-price'), form.querySelector('#mk-price-usd'));
+    if (MARKET_FEE_BPS > 0) {
+      const priceInput = form.querySelector('#mk-price');
+      const feeLine = form.querySelector('#mk-price-fee');
+      const pct = (MARKET_FEE_BPS / 100).toLocaleString(undefined, { maximumFractionDigits: 2 });
+      const updateFee = () => {
+        const xvg = Number(priceInput.value);
+        if (!(xvg > 0)) { feeLine.textContent = ''; return; }
+        const net = xvg * (1 - MARKET_FEE_BPS / 10000);
+        feeLine.textContent = `You receive ${net.toLocaleString(undefined, { maximumFractionDigits: 2 })} XVG after the ${pct}% marketplace fee (funds the tournament prize pool).`;
+      };
+      priceInput.addEventListener('input', updateFee);
+    }
     form.appendChild(btn('List for sale', 'primary block', () => {
       const xvg = Number($('#mk-price').value);
       if (!(xvg > 0)) { status.textContent = '✗ Enter a price.'; return; }
@@ -2413,6 +2427,7 @@ $('#arena-queue').addEventListener('click', () => arenaDuel('queue'));
 (async () => {
   try {
     const info = await api('/api/info');
+    MARKET_FEE_BPS = Number(info.marketFeeBps || 0);
     $('#netinfo').innerHTML = `network <strong>${info.network}</strong><br>height ${fmt(info.tip)}`;
     // The server is pinned to one network; align the selector so the user can't pick a mismatch.
     if (info.network) $('#network').value = info.network;

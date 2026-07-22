@@ -97,6 +97,27 @@ async function main() {
     await assert.rejects(book.addListing(l), /variant signature is invalid/);
   });
 
+  await test('a fee-enabled book rejects an unfeed listing and accepts one with the exact fee', async () => {
+    const pool = addr(ECPair.makeRandom({ network }));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vmarket-'));
+    const book = new OrderBook({ dataDir: dir, network, chain: fakeChain(), feeBps: 200, feeAddress: pool, now: () => 2_000_000_000 }).load();
+    // A listing with no fee baked in is refused.
+    await assert.rejects(book.addListing(mkListing()), /fee does not match/);
+    // 2% of 150_000_000 = 3_000_000 to the pool: accepted.
+    const withFee = buildListingSchedule({
+      network, carrier, priceUnits: 150_000_000, sellerAddress: addr(seller), sellerKey: seller,
+      startTime: 1_999_999_000, offsets: [0, 3600, 86400], feeUnits: 3_000_000, feeAddress: pool,
+    });
+    const r = await book.addListing(withFee);
+    assert.strictEqual(r.listed, true);
+    // Wrong destination for the fee is refused.
+    const wrongDest = buildListingSchedule({
+      network, carrier, priceUnits: 150_000_000, sellerAddress: addr(seller), sellerKey: seller,
+      startTime: 1_999_999_000, offsets: [0], feeUnits: 3_000_000, feeAddress: addr(buyer),
+    });
+    await assert.rejects(book.addListing(wrongDest), /not payable to the marketplace/);
+  });
+
   await test('a sold carrier makes the listing disappear on next read', async () => {
     const chain = fakeChain();
     const book = freshBook(chain);

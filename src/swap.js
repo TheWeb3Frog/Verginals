@@ -35,6 +35,17 @@ const SELLER_INDEX = 2; // the seller's input/output index in the final transact
 const LISTING_SIGHASH = SIGHASH_SINGLE | SIGHASH_ANYONECANPAY;
 const POSTAGE_UNITS = 100000; // 0.1 XVG: the constant value a Verginal-bearing carrier holds
 
+/**
+ * Marketplace fee in atomic units for a given price. The fee comes OUT of the seller's proceeds
+ * (like Magic Eden): the buyer pays the listed price, the seller signs an output of price - fee,
+ * and the buyer adds a fee output. The fee output sits AFTER the seller's output (index > 2), so
+ * SIGHASH_SINGLE never commits to it and the existing seller signature is unchanged.
+ */
+function feeFor(priceUnits, feeBps) {
+  if (!feeBps || feeBps <= 0) return 0;
+  return Math.floor((priceUnits * feeBps) / 10000);
+}
+
 /** P2PKH scriptPubKey for an address on `network`. */
 function p2pkhScript(address, network) {
   return bitcoin.address.toOutputScript(address, network);
@@ -73,11 +84,15 @@ function listingTemplate(carrier, priceUnits, sellerScript, nTime) {
  * @param {number} [p.time]       transaction nTime (pinned by the signature; defaults to now)
  * @returns a JSON-safe listing object: everything a buyer needs, no private material
  */
-function buildListing({ network, carrier, priceUnits, sellerAddress, sellerKey, time }) {
+function buildListing({ network, carrier, priceUnits, sellerAddress, sellerKey, time, feeUnits, feeAddress }) {
   if (!(priceUnits > 0)) throw new Error('price must be positive');
+  const fee = feeUnits || 0;
+  const sellerReceive = priceUnits - fee; // the seller signs (and receives) the net of the fee
+  if (!(sellerReceive > 0)) throw new Error('fee cannot exceed the price');
+  if (fee > 0 && !feeAddress) throw new Error('a fee needs a fee address');
   const nTime = time == null ? Math.floor(Date.now() / 1000) : time;
   const sellerScript = p2pkhScript(sellerAddress, network);
-  const tx = listingTemplate(carrier, priceUnits, sellerScript, nTime);
+  const tx = listingTemplate(carrier, sellerReceive, sellerScript, nTime);
 
   const carrierScript = bitcoin.payments.p2pkh({ pubkey: Buffer.from(sellerKey.publicKey), network }).output;
   const sighash = legacySighash(tx, SELLER_INDEX, carrierScript, LISTING_SIGHASH);
@@ -93,6 +108,8 @@ function buildListing({ network, carrier, priceUnits, sellerAddress, sellerKey, 
     kind: 'verginals-listing-v2',
     carrier: { txid: carrier.txid, vout: carrier.vout, value: carrier.value },
     priceUnits,
+    feeUnits: fee,
+    feeAddress: fee > 0 ? feeAddress : null,
     sellerAddress,
     time: nTime,
     version: 1,
@@ -131,15 +148,21 @@ function completeListing({ network, listing, pads, funds, buyerAddress, buyerKey
   const fundsTotal = funds.reduce((s, u) => s + u.value, 0);
   const totalIn = padTotal + carrierValue + fundsTotal;
 
+  const marketFee = listing.feeUnits || 0; // taken from the seller's proceeds, paid to the pool
+  const sellerReceive = listing.priceUnits - marketFee; // exactly what the seller signed at vout[2]
   const padOut = padTotal + g; // returns the pads and the carrier's pre-inscription sats to the buyer
+  // The buyer's total cost is the listed price (seller net + market fee are two slices of it) plus
+  // postage and the miner fee, so the change formula is unchanged by the market fee.
   const change = totalIn - padOut - post - listing.priceUnits - feeUnits;
   if (change < 0) throw new Error('buyer funds do not cover price + fee');
 
   const vout = [
     { value: padOut, script: buyerScript }, // padding-out -> buyer (resets the inscription to offset 0)
     { value: post, script: buyerScript }, // new carrier -> buyer (inscription @ offset 0)
-    { value: listing.priceUnits, script: sellerScript }, // exactly what the seller signed
+    { value: sellerReceive, script: sellerScript }, // exactly what the seller signed (price - fee)
   ];
+  // Market fee output sits AFTER the seller output, so the seller's SINGLE signature never sees it.
+  if (marketFee > 0) vout.push({ value: marketFee, script: p2pkhScript(listing.feeAddress, network) });
   if (change > 0) vout.push({ value: change, script: buyerScript });
 
   const vin = [
@@ -194,13 +217,14 @@ function addressOfScriptSig(scriptSigHex, network) {
  * and check the SINGLE|ANYONECANPAY signature. Returns { ok, address } where address is the
  * signer's P2PKH address; the caller must confirm it owns the carrier on-chain.
  */
-function verifyListingVariant({ network, carrier, priceUnits, sellerAddress, time, scriptSig }) {
+function verifyListingVariant({ network, carrier, priceUnits, sellerAddress, time, scriptSig, feeUnits }) {
   const parts = bitcoin.script.decompile(Buffer.from(scriptSig, 'hex'));
   if (!parts || parts.length !== 2 || !Buffer.isBuffer(parts[0]) || !Buffer.isBuffer(parts[1])) return { ok: false };
   const pubkey = parts[1];
   const address = (() => { try { return bitcoin.payments.p2pkh({ pubkey, network }).address; } catch { return null; } })();
   if (!address) return { ok: false };
-  const tx = listingTemplate(carrier, priceUnits, p2pkhScript(sellerAddress, network), time);
+  const sellerReceive = priceUnits - (feeUnits || 0); // the seller signed the net, not the gross price
+  const tx = listingTemplate(carrier, sellerReceive, p2pkhScript(sellerAddress, network), time);
   const carrierScript = bitcoin.payments.p2pkh({ pubkey, network }).output;
   const sighash = legacySighash(tx, SELLER_INDEX, carrierScript, LISTING_SIGHASH);
   let sig;
@@ -248,17 +272,20 @@ const DEFAULT_SCHEDULE = [0, 900, 3600, 14400, 43200, 86400, 172800, 345600, 604
  * pick a variant valid for the age of their coins (spec 2.1). Returns one listing object whose
  * `variants` array holds { time, scriptSig }; everything else (carrier, price) is shared.
  */
-function buildListingSchedule({ network, carrier, priceUnits, sellerAddress, sellerKey, startTime, offsets }) {
+function buildListingSchedule({ network, carrier, priceUnits, sellerAddress, sellerKey, startTime, offsets, feeUnits, feeAddress }) {
   const t0 = startTime == null ? Math.floor(Date.now() / 1000) : startTime;
   const sched = offsets || DEFAULT_SCHEDULE;
+  const fee = feeUnits || 0;
   const variants = sched.map((off) => {
-    const l = buildListing({ network, carrier, priceUnits, sellerAddress, sellerKey, time: t0 + off });
+    const l = buildListing({ network, carrier, priceUnits, sellerAddress, sellerKey, time: t0 + off, feeUnits: fee, feeAddress });
     return { time: l.time, scriptSig: l.scriptSig };
   });
   return {
     kind: 'verginals-listing-v2',
     carrier: { txid: carrier.txid, vout: carrier.vout, value: carrier.value },
     priceUnits,
+    feeUnits: fee,
+    feeAddress: fee > 0 ? feeAddress : null,
     sellerAddress,
     version: 1,
     locktime: 0,
@@ -283,6 +310,8 @@ function pickVariant(listing, { now, maxCoinTime }) {
     kind: 'verginals-listing-v2',
     carrier: listing.carrier,
     priceUnits: listing.priceUnits,
+    feeUnits: listing.feeUnits || 0,
+    feeAddress: listing.feeAddress || null,
     sellerAddress: listing.sellerAddress,
     time: v.time,
     version: listing.version,
@@ -299,7 +328,7 @@ function pickVariant(listing, { now, maxCoinTime }) {
  * constant-postage carrier too.
  * @returns a JSON-safe bid: the unsigned-carrier transaction plus its metadata.
  */
-function buildBid({ network, carrier, priceUnits, sellerAddress, pads, funds, buyerAddress, buyerKey, feeUnits, feeOutput, carrierOffset, postage, time }) {
+function buildBid({ network, carrier, priceUnits, sellerAddress, pads, funds, buyerAddress, buyerKey, feeUnits, marketFeeUnits, feeAddress, carrierOffset, postage, time }) {
   if (!(priceUnits > 0)) throw new Error('price must be positive');
   if (!Array.isArray(pads) || pads.length !== SELLER_INDEX) {
     throw new Error(`a bid needs exactly ${SELLER_INDEX} small pad coins`);
@@ -307,23 +336,26 @@ function buildBid({ network, carrier, priceUnits, sellerAddress, pads, funds, bu
   const g = carrierOffset || 0;
   const post = postage == null ? POSTAGE_UNITS : postage;
   if (carrier.value - g < post) throw new Error('carrier is too small to reset the inscription onto a fresh postage');
+  const marketFee = marketFeeUnits || 0; // taken from the seller's proceeds (same model as listings)
+  const sellerReceive = priceUnits - marketFee;
+  if (!(sellerReceive > 0)) throw new Error('fee cannot exceed the price');
+  if (marketFee > 0 && !feeAddress) throw new Error('a fee needs a fee address');
   const nTime = time == null ? Math.floor(Date.now() / 1000) : time;
   const buyerScript = p2pkhScript(buyerAddress, network);
   const sellerScript = p2pkhScript(sellerAddress, network);
-  const fee = feeOutput ? feeOutput.value : 0;
   const padTotal = pads.reduce((s, u) => s + u.value, 0);
   const fundsTotal = funds.reduce((s, u) => s + u.value, 0);
   const totalIn = padTotal + carrier.value + fundsTotal;
   const padOut = padTotal + g;
-  const change = totalIn - padOut - post - priceUnits - feeUnits - fee;
+  const change = totalIn - padOut - post - priceUnits - feeUnits;
   if (change < 0) throw new Error('bid funds do not cover price + fee');
 
   const vout = [
     { value: padOut, script: buyerScript },
     { value: post, script: buyerScript },
-    { value: priceUnits, script: sellerScript },
+    { value: sellerReceive, script: sellerScript },
   ];
-  if (feeOutput) vout.push({ value: feeOutput.value, script: p2pkhScript(feeOutput.address, network) });
+  if (marketFee > 0) vout.push({ value: marketFee, script: p2pkhScript(feeAddress, network) });
   if (change > 0) vout.push({ value: change, script: buyerScript });
 
   const vin = [
@@ -349,6 +381,8 @@ function buildBid({ network, carrier, priceUnits, sellerAddress, pads, funds, bu
     kind: 'verginals-bid-v2',
     carrier: { txid: carrier.txid, vout: carrier.vout, value: carrier.value },
     priceUnits,
+    feeUnits: marketFee,
+    feeAddress: marketFee > 0 ? feeAddress : null,
     sellerAddress,
     buyerAddress,
     time: nTime,
@@ -387,6 +421,6 @@ function acceptBid({ network, bid, sellerKey }) {
 
 module.exports = {
   buildListing, completeListing, buildListingSchedule, pickVariant, buildBid, acceptBid,
-  verifyListingVariant, verifyBid, addressOfScriptSig,
+  verifyListingVariant, verifyBid, addressOfScriptSig, feeFor,
   SELLER_INDEX, LISTING_SIGHASH, POSTAGE_UNITS, DEFAULT_SCHEDULE,
 };

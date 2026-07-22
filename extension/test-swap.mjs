@@ -70,6 +70,22 @@ const TIME = 1_783_000_000;
   ok('server verifyBid accepts the browser bid', S.verifyBid({ network, bid: brwBid }).ok);
 }
 
+// --- 3b. a FEE'D listing + completion is byte-identical (seller pays the marketplace fee) -----
+{
+  const poolAddr = bitcoin.payments.p2pkh({ pubkey: Buffer.from(ECPair.makeRandom({ network }).publicKey), network }).address;
+  const feeUnits = S.feeFor(150_000_000, 200); // 2%
+  const srvListing = S.buildListing({ network, carrier, priceUnits: 150_000_000, sellerAddress: sellerAddr, sellerKey: sellerEC, time: TIME, feeUnits, feeAddress: poolAddr });
+  const brwVariant0 = await B.buildListing({ carrier, priceUnits: 150_000_000, sellerAddress: sellerAddr, priv: sellerPriv, startTime: TIME, offsets: [0], feeUnits, feeAddress: poolAddr });
+  ok('fee listing variant scriptSig matches the server', srvListing.scriptSig === brwVariant0.variants[0].scriptSig);
+  const pads = [{ txid: H('b'), vout: 1, value: 150_000 }, { txid: H('d'), vout: 3, value: 120_000 }];
+  const funds = [{ txid: H('c'), vout: 0, value: 200_000_000 }];
+  const srvDone = S.completeListing({ network, listing: srvListing, pads, funds, buyerAddress: buyerAddr, buyerKey: buyerEC, feeUnits: 200_000, carrierOffset: 0 });
+  const brwVariant = { ...srvListing, time: TIME, scriptSig: srvListing.scriptSig };
+  const brwDone = await B.completeListing({ variant: brwVariant, pads, funds, buyerAddress: buyerAddr, priv: buyerPriv, feeUnits: 200_000, carrierOffset: 0 });
+  ok('fee completed-buy hex matches the server', srvDone.hex === brwDone.hex);
+  ok('fee output is the seller-signed net + a pool output', srvDone.outputs[2].value === 147_000_000 && srvDone.outputs[3].value === feeUnits);
+}
+
 // --- 4. the extended sighash did not disturb SIGHASH_ALL (existing transfers still identical) -
 {
   const inputs = [{ txid: H('f'), vout: 2, value: 5_000_000, privateKey: buyerPriv }];

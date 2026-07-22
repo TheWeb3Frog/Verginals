@@ -567,9 +567,21 @@ export class Wallet {
     };
   }
 
+  /** The marketplace fee (basis points + destination) the server requires listings to carry. */
+  async _marketFee() {
+    try {
+      const info = await this._get('/api/info');
+      const bps = Number(info.marketFeeBps || 0);
+      return { bps, address: bps > 0 ? info.marketFeeAddress : null };
+    } catch (_) {
+      return { bps: 0, address: null };
+    }
+  }
+
   /**
    * List one owned Verginal for sale at `priceUnits`. Signs a 30-day schedule of half-signed
-   * variants (SIGHASH_SINGLE|ANYONECANPAY) and posts them to the order book. No coins move.
+   * variants (SIGHASH_SINGLE|ANYONECANPAY) and posts them to the order book. No coins move. The
+   * marketplace fee is taken from the sale, so the seller nets priceUnits minus the fee.
    */
   async listInscription({ carrierOutpoint, priceUnits }) {
     this._requireUnlocked();
@@ -578,9 +590,12 @@ export class Wallet {
     const { carrier } = await this._marketCoins(carrierOutpoint);
     if (!carrier) throw new Error('carrier UTXO not found for this wallet');
     if (!carrier.inscription) throw new Error('that UTXO carries no Verginal');
+    const { bps, address } = await this._marketFee();
+    const feeUnits = bps > 0 ? Math.floor((priceUnits * bps) / 10000) : 0;
     const listing = await swap.buildListing({
       carrier: { txid: carrier.txid, vout: carrier.vout, value: carrier.value },
       priceUnits, sellerAddress: this._address, priv: this._priv,
+      feeUnits, feeAddress: address,
     });
     return this._post('/api/market/list', listing);
   }
@@ -633,10 +648,13 @@ export class Wallet {
     const { pads, funds } = await this._ensurePads(sorted, priceUnits + feeUnits);
     const [ct, cv] = carrierOutpoint.split(':');
     const carrierOffset = await this._carrierOffset(carrierOutpoint);
+    const { bps, address } = await this._marketFee();
+    const marketFeeUnits = bps > 0 ? Math.floor((priceUnits * bps) / 10000) : 0;
     const bid = await swap.buildBid({
       carrier: { txid: ct, vout: Number(cv), value: carrierValue },
       priceUnits, sellerAddress, pads, funds,
       buyerAddress: this._address, priv: this._priv, feeUnits,
+      marketFeeUnits, feeAddress: address,
       carrierOffset,
     });
     return this._post('/api/market/bid', bid);

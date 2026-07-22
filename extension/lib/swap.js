@@ -31,8 +31,13 @@ function scriptSig(sig, pubkey) {
   return concatBytes(push(sig), push(pubkey));
 }
 
-/** Half-sign one listing variant at nTime `time`. Returns { time, scriptSig(hex) }. */
-export async function signListingVariant({ carrier, priceUnits, sellerAddress, priv, time }) {
+/**
+ * Half-sign one listing variant at nTime `time`. The seller signs the NET of the marketplace fee
+ * (priceUnits - feeUnits); the buyer adds the fee output later, after the seller output, so it
+ * stays outside the SIGHASH_SINGLE commitment. Returns { time, scriptSig(hex) }.
+ */
+export async function signListingVariant({ carrier, priceUnits, sellerAddress, priv, time, feeUnits }) {
+  const sellerReceive = priceUnits - (feeUnits || 0);
   const pub = V.publicKeyFromPrivate(priv);
   const carrierScript = await V.p2pkhScript(await V.addressFromPubkey(pub));
   const tx = {
@@ -45,7 +50,7 @@ export async function signListingVariant({ carrier, priceUnits, sellerAddress, p
     vout: [
       { value: 0, script: new Uint8Array(0) },
       { value: 0, script: new Uint8Array(0) },
-      { value: priceUnits, script: await V.p2pkhScript(sellerAddress) },
+      { value: sellerReceive, script: await V.p2pkhScript(sellerAddress) },
     ],
   };
   const sighash = await V.legacySighash(tx, SELLER_INDEX, carrierScript, LISTING_SIGHASH);
@@ -54,15 +59,19 @@ export async function signListingVariant({ carrier, priceUnits, sellerAddress, p
 }
 
 /** Build a full listing (all scheduled variants) ready to POST to the order book. */
-export async function buildListing({ carrier, priceUnits, sellerAddress, priv, startTime, offsets }) {
+export async function buildListing({ carrier, priceUnits, sellerAddress, priv, startTime, offsets, feeUnits, feeAddress }) {
   const t0 = startTime == null ? Math.floor(Date.now() / 1000) : startTime;
   const sched = offsets || DEFAULT_SCHEDULE;
+  const fee = feeUnits || 0;
+  if (fee > 0 && !feeAddress) throw new Error('a fee needs a fee address');
+  if (fee >= priceUnits) throw new Error('fee cannot exceed the price');
   const variants = [];
-  for (const off of sched) variants.push(await signListingVariant({ carrier, priceUnits, sellerAddress, priv, time: t0 + off }));
+  for (const off of sched) variants.push(await signListingVariant({ carrier, priceUnits, sellerAddress, priv, time: t0 + off, feeUnits: fee }));
   return {
     kind: 'verginals-listing-v2',
     carrier: { txid: carrier.txid, vout: carrier.vout, value: carrier.value },
-    priceUnits, sellerAddress, version: 1, locktime: 0,
+    priceUnits, feeUnits: fee, feeAddress: fee > 0 ? feeAddress : null,
+    sellerAddress, version: 1, locktime: 0,
     startTime: t0, expiresAt: t0 + sched[sched.length - 1], variants,
   };
 }
@@ -85,15 +94,19 @@ export async function completeListing({ variant, pads, funds, buyerAddress, priv
   const padTotal = pads.reduce((s, u) => s + u.value, 0);
   const fundsTotal = funds.reduce((s, u) => s + u.value, 0);
   const totalIn = padTotal + carrierValue + fundsTotal;
+  const marketFee = variant.feeUnits || 0; // taken from the seller's proceeds, paid to the pool
+  const sellerReceive = variant.priceUnits - marketFee; // exactly what the seller signed at vout[2]
   const padOut = padTotal + g;
+  // Buyer cost is the full price (seller net + fee are two slices), so change ignores the market fee.
   const change = totalIn - padOut - post - variant.priceUnits - feeUnits;
   if (change < 0) throw new Error('funds do not cover price + fee');
 
   const vout = [
     { value: padOut, script: buyerScript },
     { value: post, script: buyerScript },
-    { value: variant.priceUnits, script: sellerScript },
+    { value: sellerReceive, script: sellerScript },
   ];
+  if (marketFee > 0) vout.push({ value: marketFee, script: await V.p2pkhScript(variant.feeAddress) });
   if (change > 0) vout.push({ value: change, script: buyerScript });
 
   const sellerScriptSig = hexToBytes(variant.scriptSig);
@@ -118,28 +131,31 @@ export async function completeListing({ variant, pads, funds, buyerAddress, priv
 }
 
 /** Build a bid: the buyer signs the whole transaction, leaving the carrier input for the seller. */
-export async function buildBid({ carrier, priceUnits, sellerAddress, pads, funds, buyerAddress, priv, feeUnits, feeOutput, carrierOffset, postage, time }) {
+export async function buildBid({ carrier, priceUnits, sellerAddress, pads, funds, buyerAddress, priv, feeUnits, marketFeeUnits, feeAddress, carrierOffset, postage, time }) {
   if (!Array.isArray(pads) || pads.length !== SELLER_INDEX) throw new Error(`a bid needs exactly ${SELLER_INDEX} small pad coins`);
   const g = carrierOffset || 0;
   const post = postage == null ? POSTAGE_UNITS : postage;
   if (carrier.value - g < post) throw new Error('carrier is too small to reset the inscription onto a fresh postage');
+  const marketFee = marketFeeUnits || 0; // taken from the seller's proceeds (same model as listings)
+  const sellerReceive = priceUnits - marketFee;
+  if (sellerReceive <= 0) throw new Error('fee cannot exceed the price');
+  if (marketFee > 0 && !feeAddress) throw new Error('a fee needs a fee address');
   const nTime = time == null ? Math.floor(Date.now() / 1000) : time;
   const buyerScript = await V.p2pkhScript(buyerAddress);
   const sellerScript = await V.p2pkhScript(sellerAddress);
-  const fee = feeOutput ? feeOutput.value : 0;
   const padTotal = pads.reduce((s, u) => s + u.value, 0);
   const fundsTotal = funds.reduce((s, u) => s + u.value, 0);
   const totalIn = padTotal + carrier.value + fundsTotal;
   const padOut = padTotal + g;
-  const change = totalIn - padOut - post - priceUnits - feeUnits - fee;
+  const change = totalIn - padOut - post - priceUnits - feeUnits;
   if (change < 0) throw new Error('funds do not cover price + fee');
 
   const vout = [
     { value: padOut, script: buyerScript },
     { value: post, script: buyerScript },
-    { value: priceUnits, script: sellerScript },
+    { value: sellerReceive, script: sellerScript },
   ];
-  if (feeOutput) vout.push({ value: feeOutput.value, script: await V.p2pkhScript(feeOutput.address) });
+  if (marketFee > 0) vout.push({ value: marketFee, script: await V.p2pkhScript(feeAddress) });
   if (change > 0) vout.push({ value: change, script: buyerScript });
 
   const vin = [
@@ -153,7 +169,8 @@ export async function buildBid({ carrier, priceUnits, sellerAddress, pads, funds
   return {
     kind: 'verginals-bid-v2',
     carrier: { txid: carrier.txid, vout: carrier.vout, value: carrier.value },
-    priceUnits, sellerAddress, buyerAddress, time: nTime, version: 1, locktime: 0,
+    priceUnits, feeUnits: marketFee, feeAddress: marketFee > 0 ? feeAddress : null,
+    sellerAddress, buyerAddress, time: nTime, version: 1, locktime: 0,
     vin: vin.map((v) => ({ txid: v.txid, vout: v.vout })),
     vout: vout.map((o) => ({ value: o.value, script: bytesToHex(o.script) })),
     scriptSigs,
@@ -186,6 +203,7 @@ export function pickVariant(listing, { now, maxCoinTime }) {
   const v = usable[0];
   return {
     kind: 'verginals-listing-v2', carrier: listing.carrier, priceUnits: listing.priceUnits,
+    feeUnits: listing.feeUnits || 0, feeAddress: listing.feeAddress || null,
     sellerAddress: listing.sellerAddress, time: v.time, version: listing.version,
     locktime: listing.locktime, scriptSig: v.scriptSig,
   };

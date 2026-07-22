@@ -187,6 +187,32 @@ async function main() {
     assert.strictEqual(book.activity().filter((a) => a.type === 'sale').length, 0);
   });
 
+  await test('a sale is NOT lost when the indexer lags the spend (retries until decidable)', async () => {
+    const chain = fakeChain();
+    const book = freshBook(chain);
+    await book.addListing(mkListing());
+    chain.spent.add(`${carrier.txid}:0`);
+    // Indexer still maps the inscription to the outpoint we know is spent: verdict must be
+    // "pending", the listing survives for a retry, but is hidden from buyers and stats.
+    chain.owner = { address: addr(seller), location: `${carrier.txid}:0` };
+    let s = await book.stats();
+    assert.strictEqual(s.salesCount, 0, 'no premature sale');
+    assert.strictEqual(s.listedCount, 0, 'pending listing hidden from stats');
+    assert.strictEqual(book.variantFor(`${carrier.txid}:0`, { maxCoinTime: 2_000_000_100 }), null, 'not buyable');
+    // Indexer errors are also "pending", not a lost sale.
+    const oldOwner = chain.inscriptionOwner;
+    chain.inscriptionOwner = async () => { throw new Error('indexer busy'); };
+    await book.stats();
+    chain.inscriptionOwner = oldOwner;
+    // Indexer catches up: the move to the buyer is now visible and the sale is recorded.
+    chain.owner = { address: addr(buyer), location: 'ff'.repeat(32) + ':1' };
+    s = await book.stats();
+    assert.strictEqual(s.salesCount, 1, 'sale recorded after the indexer caught up');
+    assert.strictEqual(s.volumeUnits, 150_000_000);
+    const sale = book.activity().find((a) => a.type === 'sale');
+    assert.strictEqual(sale.buyerAddress, addr(buyer));
+  });
+
   await test('stats report floor, listed count and lifetime volume for Alpha only', async () => {
     const chain = fakeChain();
     const book = freshBook(chain);

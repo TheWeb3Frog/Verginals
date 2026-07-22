@@ -108,7 +108,7 @@ class OrderBook {
   /** The completion-ready variant for a buyer, or null if none is valid yet. */
   variantFor(carrierKey, { maxCoinTime }) {
     const l = this.state.listings[carrierKey];
-    if (!l) return null;
+    if (!l || l.pendingSale) return null; // pendingSale: carrier already spent, awaiting the indexer
     return pickVariant(l, { now: this.now(), maxCoinTime: maxCoinTime || 0 });
   }
 
@@ -119,7 +119,17 @@ class OrderBook {
     if (this.now() > (l.expiresAt || 0)) { delete this.state.listings[key]; return true; }
     const [txid, vout] = key.split(':');
     if (await this.chain.outpointSpent(txid, Number(vout))) {
-      await this._recordSaleIfMoved(l); // a spent carrier that changed hands at the listed price = a sale
+      // The spend is visible on the live RPC immediately, but only the (periodically synced)
+      // indexer can say whether it was a sale or a cancel. Until the indexer has processed the
+      // spend it still reports the inscription AT the spent outpoint (or errors); deleting the
+      // listing then would lose the sale forever, since the listing record is the only place the
+      // price survives. Keep the listing and retry on the next prune; expiry still bounds how
+      // long an undecidable one can linger. `pendingSale` hides it from floor/listed stats.
+      const verdict = await this._recordSaleIfMoved(l, key);
+      if (verdict === 'pending') {
+        if (!l.pendingSale) { l.pendingSale = this.now(); this._save(); }
+        return false;
+      }
       delete this.state.listings[key];
       return true;
     }
@@ -128,15 +138,20 @@ class OrderBook {
 
   /**
    * When a listed carrier is spent, decide whether it was a SALE (the inscription moved to a new
-   * owner, which under a signed listing can only happen at the listed price) or a cancel/self-move,
-   * and log sales into a rolling activity feed. Best-effort: needs chain.inscriptionOwner(id); a
-   * cancel (inscription still with the seller) or an unknown owner records nothing.
+   * owner, which under a signed listing can only happen at the listed price), a cancel/self-move,
+   * or not yet decidable (indexer hasn't processed the spend). Returns 'sale' | 'cancel' |
+   * 'pending'. Sales are logged into the rolling activity feed.
    */
-  async _recordSaleIfMoved(listing) {
-    if (!listing || !listing.inscriptionId || typeof this.chain.inscriptionOwner !== 'function') return;
+  async _recordSaleIfMoved(listing, spentKey) {
+    if (!listing || !listing.inscriptionId || typeof this.chain.inscriptionOwner !== 'function') {
+      return 'cancel'; // nothing to record against: treat as a plain prune
+    }
     let owner = null;
-    try { owner = await this.chain.inscriptionOwner(listing.inscriptionId); } catch (_) { return; }
-    if (!owner || !owner.address || owner.address === listing.sellerAddress) return; // cancel or self-move
+    try { owner = await this.chain.inscriptionOwner(listing.inscriptionId); } catch (_) { return 'pending'; }
+    if (!owner || !owner.address) return 'pending'; // indexer doesn't know yet: retry next prune
+    // Indexer still maps the inscription to the outpoint we KNOW is spent -> it lags the chain.
+    if (spentKey && owner.location === spentKey) return 'pending';
+    if (owner.address === listing.sellerAddress) return 'cancel'; // still the seller's: cancel/self-move
     this.state.sales.push({
       inscriptionId: listing.inscriptionId,
       collectionNumber: listing.collectionNumber != null ? listing.collectionNumber : null,
@@ -147,6 +162,7 @@ class OrderBook {
       at: this.now(),
     });
     if (this.state.sales.length > MAX_SALES) this.state.sales = this.state.sales.slice(-MAX_SALES);
+    return 'sale';
   }
 
   /** True for an Alpha Verginal (a collection mint with no launchpad slug). */
@@ -162,7 +178,7 @@ class OrderBook {
   async stats() {
     for (const key of Object.keys(this.state.listings)) await this._pruneListing(key);
     this._save();
-    const listed = Object.values(this.state.listings).filter(OrderBook._isAlpha);
+    const listed = Object.values(this.state.listings).filter((l) => OrderBook._isAlpha(l) && !l.pendingSale);
     const floorUnits = listed.reduce((m, l) => (m == null || l.priceUnits < m ? l.priceUnits : m), null);
     const sales = this.state.sales.filter(OrderBook._isAlpha);
     const volumeUnits = sales.reduce((s, x) => s + (x.priceUnits || 0), 0);
@@ -173,7 +189,7 @@ class OrderBook {
   activity(limit = 50) {
     const sales = this.state.sales.filter(OrderBook._isAlpha)
       .map((s) => ({ type: 'sale', at: s.at, collectionNumber: s.collectionNumber, priceUnits: s.priceUnits, sellerAddress: s.sellerAddress, buyerAddress: s.buyerAddress }));
-    const lists = Object.values(this.state.listings).filter(OrderBook._isAlpha)
+    const lists = Object.values(this.state.listings).filter((l) => OrderBook._isAlpha(l) && !l.pendingSale)
       .map((l) => ({ type: 'list', at: l.at, collectionNumber: l.collectionNumber, priceUnits: l.priceUnits, sellerAddress: l.sellerAddress }));
     return sales.concat(lists).sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, limit);
   }
@@ -246,13 +262,15 @@ class OrderBook {
       if (await this._pruneListing(key)) changed = true;
     }
     if (changed) this._save();
-    return Object.values(this.state.listings).map((l) => ({
-      carrier: this._key(l.carrier),
-      priceUnits: l.priceUnits,
-      sellerAddress: l.sellerAddress,
-      expiresAt: l.expiresAt,
-      at: l.at,
-    }));
+    return Object.values(this.state.listings)
+      .filter((l) => !l.pendingSale) // spent carrier awaiting the indexer's sale/cancel verdict
+      .map((l) => ({
+        carrier: this._key(l.carrier),
+        priceUnits: l.priceUnits,
+        sellerAddress: l.sellerAddress,
+        expiresAt: l.expiresAt,
+        at: l.at,
+      }));
   }
 
   async bidsFor(carrierKey) {

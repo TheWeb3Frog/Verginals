@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Verginals Wallet",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "description": "A non-custodial Verge (XVG) wallet that signs on-device and lets you safely transfer Verginals inscriptions on verginals.com.",
   "action": {
     "default_title": "Verginals Wallet",

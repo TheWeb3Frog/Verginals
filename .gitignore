@@ -22,6 +22,22 @@ mint.secret
 # Internal working notes, not for publication.
 HANDOFF.md
 
+# One-off operational and analysis tooling. These carry real holder addresses and internal
+# review notes, so they stay out of the public repo.
+scripts/
+
+# Local wallet build artifacts.
+verginals-wallet-*.zip
+
+# Mint fairness measures. server.js loads src/guard.js only if present; kept out of the open tree
+# so the anti-abuse heuristics are not a public playbook. Deployed by file copy, not from git.
+src/guard.js
+src/mintcaps.js
+src/family.js
+test/mintcaps.test.js
+test/family.test.js
+data/mint/families.json
+
 # Collection source art is served from the live API, not shipped in the repo.
 # The provenance commitment (collection_manifest.json) is kept; the raw images
 # and per-token design map are excluded to keep clones small.

@@ -528,6 +528,11 @@ async function handleQuote(req, res) {
 // random order. It reuses the entire payment/inscription pipeline (same service fee, same job flow).
 let mintCtl = null; // MintController when a collection is loaded, else null
 
+// Optional local operations module (mint fairness caps). Absent in the open tree, in which case the
+// mint runs uncapped; present on our deployments. Loaded lazily so a clone without it just works.
+let guard = null;
+try { guard = require('./guard'); } catch (_) { guard = null; }
+
 // Default deposit sizing for a mint (per commit input, XVG). Enough to cover the reveal fee and
 // leave a small carrier that returns to the minter as the inscription-bearing UTXO.
 const MINT_PER_INPUT_XVG = Number(process.env.VERGINALS_MINT_PER_INPUT_XVG || 0.3);
@@ -625,6 +630,15 @@ function initMint() {
       return;
     }
     mintCtl = new MintController({ collectionDir: COLLECTION_DIR, dataDir: path.join(DATA_DIR, 'mint') }).load();
+    if (guard) {
+      guard.init({
+        dataDir: path.join(DATA_DIR, 'mint'),
+        mintController: mintCtl,
+        rpcClient: client,
+        env: process.env,
+        reserveTtlMs: MINT_RESERVE_TTL_MS,
+      });
+    }
   } catch (e) {
     mintCtl = null;
     console.warn('Mint: failed to load collection: ' + e.message);
@@ -757,7 +771,8 @@ async function handleMintStatus(res) {
   sendJSON(res, 200, Object.assign(
     { enabled: true, parented: !!parentCfg, parentId: parentCfg ? parentCfg.id : null },
     mintCtl.status(),
-    { promo: promoCtl ? promoCtl.status() : { active: false } }
+    { promo: promoCtl ? promoCtl.status() : { active: false } },
+    guard ? guard.status() : {}
   ));
 }
 
@@ -772,11 +787,18 @@ async function handleMint(req, res) {
   const { network } = pickNetwork(NETWORK);
   requireDestination(to, network);
 
+  // Fairness gate: refuse if this wallet is over its allocation (message stays generic).
+  if (guard) {
+    const v = guard.checkReserve(to, ip);
+    if (!v.ok) return sendJSON(res, 429, { error: v.error });
+  }
+
   // Reserve a number FIRST (its image size fixes the plan/fees), then build the payment job under
   // the same job id so the reaper can tie an unpaid reservation back to its deposit.
   const jobId = crypto.randomBytes(16).toString('hex');
   const assignment = mintCtl.reserve(jobId);
   if (!assignment) return sendJSON(res, 200, Object.assign({ soldOut: true }, mintCtl.status()));
+  if (guard) guard.hold(jobId, to, ip); // count this in-flight reservation toward the caps
 
   try {
     const body = fs.readFileSync(mintCtl.imagePath(assignment.number));
@@ -823,6 +845,7 @@ async function handleMint(req, res) {
     }));
   } catch (e) {
     mintCtl.release(assignment.number); // roll the reservation back if the job couldn't be built
+    if (guard) guard.release(jobId);
     throw e;
   }
 }
@@ -1597,6 +1620,7 @@ async function reapMintReservations() {
         const received = utxos.reduce((s, u) => s + toUnits(u.amount), 0);
         if (received < job.total) {
           ctl.release(number); // truly unpaid → free the number
+          if (ctl === mintCtl && guard) guard.release(job.id); // and free its cap hold
           if (job.promo && promoCtl) promoCtl.release(job.id); // and return the promo slot
         }
       } catch (_) {
@@ -1700,6 +1724,8 @@ async function drivePayout(job, depositUtxos) {
     } catch (_) {
       /* non-fatal: the inscription is already on-chain; state will reconcile from the index */
     }
+    // Record this completed mint against the fairness caps (best-effort; never blocks a mint).
+    if (ctl === mintCtl && guard) guard.confirm(job);
     // Lock in a promo-funded mint so its slot stays consumed permanently.
     if (job.promo && promoCtl) promoCtl.confirm(job.id);
   }
@@ -2282,7 +2308,8 @@ server.listen(PORT, HOST, () => {
   );
   console.log(
     mintCtl
-      ? `Mint ${mintCtl.manifest.name}: ${mintCtl.mintedCount()}/${mintCtl.supply} minted · commitment ${mintCtl.commitment.slice(0, 16)}…`
+      ? `Mint ${mintCtl.manifest.name}: ${mintCtl.mintedCount()}/${mintCtl.supply} minted · commitment ${mintCtl.commitment.slice(0, 16)}…` +
+        (guard ? guard.summaryLine() : '')
       : 'Mint disabled (no collection loaded)',
   );
   console.log(

@@ -336,6 +336,14 @@ function setTraitFilter(type, value) {
   renderGallery();
 }
 
+/** Jump to the Alpha collection page filtered to one badge family (from the Stats page chips). */
+function setBadgeFilter(family) {
+  coll.badge = family;
+  closeDetail();
+  activateTab('collection');
+  loadCollection();
+}
+
 function renderGallery() {
   const g = $('#gallery');
   const bar = $('#filterbar');
@@ -524,7 +532,9 @@ function openDetail(ins, push = true) {
   if (ins.collectionNumber != null && !ins.collectionSlug) {
     // Alpha mint: the rarity engine is keyed by COLLECTION number (never the inscription counter).
     api('/api/collection/rarity/' + ins.collectionNumber).then((r) => {
-      rankEl.innerHTML = `Rarity rank <b>#${fmt(r.rank)}</b> of ${fmt(r.supply)} · score ${fmt(r.score)}`;
+      const badges = (r.badges || []).map((b) => `<span class="rarity-badge ${badgeClass(b)}">${esc(b)}</span>`).join('');
+      rankEl.innerHTML = `Rarity rank <b>#${fmt(r.rank)}</b> of ${fmt(r.supply)} · score ${fmt(r.score)}`
+        + (badges ? `<div class="rarity-badges">${badges}</div>` : '');
       rankEl.classList.remove('hidden');
       traitsEl.innerHTML = '';
       r.traits.forEach((t) => traitsEl.appendChild(chipFor(t, t.pct)));
@@ -814,7 +824,7 @@ const coll = {
   insByNum: new Map(),  // collection number -> inscription (txid, location, owner)
   priceByCarrier: new Map(), // listed carrier -> priceUnits
   traits: [],           // aggregate trait distribution (for the filter dropdown)
-  view: 'items', sort: 'price-asc', trait: '', forSaleOnly: false, bound: false,
+  view: 'items', sort: 'price-asc', trait: '', badge: '', forSaleOnly: false, bound: false,
 };
 
 function collAgo(ts) {
@@ -852,6 +862,7 @@ async function loadCollection() {
     coll.insByNum = insByNum;
     coll.priceByCarrier = new Map((listResp.listings || []).map((l) => [l.carrier, l.priceUnits]));
     buildTraitFilter();
+    buildBadgeFilter();
     renderCollView();
   } catch (e) {
     grid.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`;
@@ -911,6 +922,9 @@ function renderCollItems() {
     const [tt, tv] = coll.trait.split('=');
     rows = rows.filter((r) => (r.it.traits || []).some((x) => x.trait_type === tt && x.value === tv));
   }
+  if (coll.badge) {
+    rows = rows.filter((r) => (r.it.badges || []).some((b) => badgeFamily(b) === coll.badge));
+  }
   const rank = (r) => (r.it.rank || 1e9);
   const priceKey = (r) => (r.price == null ? Infinity : r.price);
   if (coll.sort === 'price-asc') rows.sort((a, b) => priceKey(a) - priceKey(b) || a.it.number - b.it.number);
@@ -925,8 +939,10 @@ function renderCollItems() {
     c.className = 'coll-card' + (ins ? ' clickable' : '');
     const xvg = price != null ? price / MKT_COIN : null;
     const media = ins ? `<img src="/api/content/${esc(ins.txid)}" loading="lazy" alt="" />` : '<div class="blob">✦</div>';
+    const topBadge = (it.badges || [])[0];
+    const badgePill = topBadge ? `<span class="coll-badge-pill ${badgeClass(topBadge)}">${esc(topBadge)}</span>` : '';
     c.innerHTML = `
-      <div class="coll-media">${media}<span class="coll-rank">#${it.rank}</span></div>
+      <div class="coll-media">${media}<span class="coll-rank">#${it.rank}</span>${badgePill}</div>
       <div class="coll-cbody">
         <div class="coll-cnum">Verginals #${it.number}</div>
         ${xvg != null ? `<div class="coll-cprice">${fmt(xvg)} XVG</div>` : '<div class="coll-cunlisted">Not listed</div>'}
@@ -973,7 +989,42 @@ function bindCollControls() {
   }));
   $('#coll-sort').addEventListener('change', (e) => { coll.sort = e.target.value; renderCollItems(); });
   $('#coll-trait').addEventListener('change', (e) => { coll.trait = e.target.value; renderCollItems(); });
+  $('#coll-badge').addEventListener('change', (e) => { coll.badge = e.target.value; renderCollItems(); });
   $('#coll-forsale').addEventListener('change', (e) => { coll.forSaleOnly = e.target.checked; renderCollItems(); });
+}
+
+/** The badge family of a badge string ("Prismatic Grey" -> "Prismatic"). */
+function badgeFamily(b) {
+  if (b.startsWith('Double Rainbow')) return 'Double Rainbow';
+  if (b.startsWith('Perfect')) return 'Perfect Pair';
+  return b.split(' ')[0]; // Prismatic, Chromatic
+}
+
+/** CSS class for a badge's look, by family. */
+function badgeClass(b) {
+  const f = badgeFamily(b);
+  if (f === 'Double Rainbow') return 'b-rainbow';
+  if (f === 'Prismatic') return 'b-prism';
+  if (f === 'Perfect Pair') return 'b-pair';
+  return 'b-chroma';
+}
+
+/** Build the badge filter dropdown from the badges present on the loaded items. */
+function buildBadgeFilter() {
+  const sel = $('#coll-badge');
+  if (!sel) return;
+  const counts = new Map();
+  coll.items.forEach((it) => (it.badges || []).forEach((b) => {
+    const f = badgeFamily(b);
+    counts.set(f, (counts.get(f) || 0) + 1);
+  }));
+  const order = ['Double Rainbow', 'Prismatic', 'Perfect Pair', 'Chromatic'];
+  const present = order.filter((f) => counts.has(f));
+  let html = '<option value="">All badges</option>';
+  present.forEach((f) => { html += `<option value="${esc(f)}">${esc(f)} (${counts.get(f)})</option>`; });
+  sel.innerHTML = html;
+  sel.value = coll.badge || '';
+  sel.classList.toggle('hidden', present.length === 0);
 }
 
 // --- "show mine" owner filter (a shareable holder gallery: /gallery/<address>) ------------
@@ -1251,6 +1302,14 @@ async function loadStats() {
       const ins = list.find((i) => i.collectionNumber != null && String(i.collectionNumber) === row.dataset.open);
       if (ins) openDetail(ins);
     }));
+
+    // combo badges: clickable chips that jump to the collection filtered by that badge
+    const badgeOrder = ['Double Rainbow', 'Prismatic', 'Perfect Pair', 'Chromatic'];
+    const bd = rarity.badges || {};
+    const chips = badgeOrder.filter((f) => bd[f]).map((f) =>
+      `<button class="badge-chip ${badgeClass(f)}" data-badge="${esc(f)}">${esc(f)}<span class="bc-count">${bd[f]}</span></button>`).join('');
+    $('#stats-badges').innerHTML = chips || '<div class="empty">No combo badges yet.</div>';
+    $$('#stats-badges .badge-chip').forEach((c) => c.addEventListener('click', () => setBadgeFilter(c.dataset.badge)));
 
     // trait distribution, one collapsible block per trait type
     $('#stats-traits').innerHTML = rarity.traits.map((t) => `

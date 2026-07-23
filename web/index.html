@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Verginals: Inscriptions on Verge</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/style.css?v=18" />
+  <link rel="stylesheet" href="/style.css?v=19" />
 </head>
 <body>
   <header class="topbar">
@@ -302,6 +302,7 @@
             <option value="number">Number</option>
           </select>
           <select id="coll-trait" class="coll-select" title="Filter by trait"></select>
+          <select id="coll-badge" class="coll-select" title="Filter by badge"></select>
           <label class="coll-check"><input type="checkbox" id="coll-forsale" /> For sale only</label>
         </div>
       </div>
@@ -393,6 +394,11 @@
           <button class="btn ghost" id="rarity-check">Check rarity</button>
         </div>
         <div id="rarity-result"></div>
+      </div>
+      <div class="card">
+        <h2>Combo badges</h2>
+        <p class="hint">Special badges beyond single-trait rarity: matching colors across the art, the two rainbow elements together, and curated pairs. Click one to see every Verginal that earned it.</p>
+        <div id="stats-badges"><div class="empty">Loading…</div></div>
       </div>
       <div class="card">
         <h2>Rarity leaderboard</h2>
@@ -726,7 +732,7 @@
   </div>
 
   <script src="/vendor/qrcode.js"></script>
-  <script src="/app.js?v=18"></script>
+  <script src="/app.js?v=19"></script>
   <script src="/wallet.js?v=17"></script>
 </body>
 </html>

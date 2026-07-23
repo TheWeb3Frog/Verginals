@@ -426,6 +426,20 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 .mk-suffix { padding: 0 14px 0 4px; color: var(--muted); font-size: 13px; font-weight: 700; letter-spacing: .04em; }
 .mk-usd { color: var(--muted); font-size: 12px; font-weight: 500; min-height: 1em; }
 .mk-fee { color: var(--muted); font-size: 12px; margin-top: 4px; line-height: 1.4; }
+.rarity-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.rarity-badge { font-size: 11px; font-weight: 700; letter-spacing: .02em; padding: 3px 9px; border-radius: 999px; border: 1px solid transparent; }
+/* Badge families, shared by the rank card, the collection card pill, and the stats chips. */
+.b-rainbow { background: linear-gradient(90deg, #ff5f6d, #ffc371, #42e695, #3bb2f6, #b06ab3); color: #1a1622; }
+.b-prism { background: linear-gradient(135deg, rgba(120,90,255,.22), rgba(60,150,246,.22)); border-color: rgba(120,110,255,.45); }
+.b-chroma { background: rgba(200,150,60,.16); border-color: rgba(200,150,60,.45); }
+.b-pair { background: rgba(255,120,180,.18); border-color: rgba(255,120,180,.5); }
+.coll-badge-pill { position: absolute; left: 8px; top: 8px; font-size: 10px; font-weight: 700; padding: 2px 8px;
+  border-radius: 999px; border: 1px solid transparent; backdrop-filter: blur(2px); }
+.coll-media { position: relative; }
+.badge-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.badge-chip { cursor: pointer; font-size: 13px; font-weight: 700; padding: 6px 12px; border-radius: 999px; border: 1px solid transparent; }
+.badge-chip .bc-count { opacity: .7; font-weight: 600; margin-left: 4px; }
+.badge-chip:focus-visible { outline: 2px solid var(--accent, #7a5cff); outline-offset: 2px; }
 .mk-price .mk-usd { display: inline; margin-left: 4px; }
 .mk .btn.block { align-self: stretch; width: 100%; margin-top: 0; white-space: nowrap; }
 

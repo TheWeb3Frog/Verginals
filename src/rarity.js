@@ -24,7 +24,7 @@
  *   leaderboard:Array<{number:number, name:string, score:number, rank:number}>
  * }}
  */
-function computeRarity(items, supply) {
+function computeRarity(items, supply, opts = {}) {
   const n = supply || items.length;
   if (!n) throw new Error('empty collection');
 
@@ -57,22 +57,31 @@ function computeRarity(items, supply) {
       .map(([value, count]) => ({ value, count, pct: pct(count) })),
   }));
 
-  // Pass 2: per-item score over the union of trait types.
+  // Pass 2: per-item score over the union of trait types. `opts.bonusFor(item)` may return
+  // { points, badges } to add a collection-specific bonus on top of the statistical base (kept
+  // separate as `base` so the socle stays visible); absent it, scoring is exactly the base rarity.
+  const bonusFor = opts && typeof opts.bonusFor === 'function' ? opts.bonusFor : null;
   const allTypes = [...counts.keys()];
   const scored = items.map((it) => {
     const own = new Map((it.attributes || []).filter((a) => a && a.trait_type).map((a) => [String(a.trait_type), String(a.value)]));
-    let score = 0;
+    let base = 0;
     const itemTraits = [];
     for (const t of allTypes) {
       const v = own.has(t) ? own.get(t) : 'None';
       const count = counts.get(t).get(v) || 0;
-      if (count > 0) score += n / count;
+      if (count > 0) base += n / count;
       if (own.has(t)) itemTraits.push({ trait_type: t, value: v, count, pct: pct(count) });
     }
+    const b = bonusFor ? bonusFor(it) || {} : {};
+    const bonus = Number(b.points) || 0;
+    const badges = Array.isArray(b.badges) ? b.badges : [];
     return {
       number: it.number,
       name: it.name || `#${it.number}`,
-      score: Math.round(score * 100) / 100,
+      score: Math.round((base + bonus) * 100) / 100,
+      base: Math.round(base * 100) / 100,
+      bonus: Math.round(bonus * 100) / 100,
+      badges,
       traits: itemTraits,
     };
   });
@@ -88,7 +97,7 @@ function computeRarity(items, supply) {
   });
 
   const byNumber = new Map(scored.map((s) => [s.number, s]));
-  const leaderboard = scored.map(({ number, name, score, rank }) => ({ number, name, score, rank }));
+  const leaderboard = scored.map(({ number, name, score, base, bonus, badges, rank }) => ({ number, name, score, base, bonus, badges, rank }));
   return { supply: n, traits, byNumber, leaderboard };
 }
 

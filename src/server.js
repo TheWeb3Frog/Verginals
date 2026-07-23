@@ -48,6 +48,7 @@ const { ECPair, buildFundingTx } = require('./builder');
 const { MintController } = require('./mint');
 const { PromoController } = require('./promo');
 const { computeRarity } = require('./rarity');
+const { comboBonus } = require('./combos');
 const { Launchpad } = require('./launchpad');
 const { OrderBook } = require('./orderbook');
 const { GameAuth } = require('./gameauth');
@@ -895,15 +896,24 @@ function handleCollectionImage(res, nStr) {
 let rarityCache = null;
 function getRarity() {
   if (!mintCtl) return null;
-  if (!rarityCache) rarityCache = computeRarity([...mintCtl.byNumber.values()], mintCtl.supply);
+  // Alpha collection gets the curated color/rainbow combo bonuses on top of the statistical base.
+  if (!rarityCache) rarityCache = computeRarity([...mintCtl.byNumber.values()], mintCtl.supply, { bonusFor: comboBonus });
   return rarityCache;
 }
 
-/** GET /api/collection/rarity: the full trait distribution (counts + percentages). */
+/** GET /api/collection/rarity: the full trait distribution (counts + percentages) + badge tallies. */
 function handleRarity(res) {
   const r = getRarity();
   if (!r) return sendJSON(res, 404, { error: 'minting is not enabled on this server' });
-  sendJSON(res, 200, { supply: r.supply, traits: r.traits });
+  // Combo badges over the whole collection, grouped by family (all "Prismatic *" under "Prismatic").
+  const badges = {};
+  for (const it of r.byNumber.values()) {
+    for (const b of it.badges || []) {
+      const family = b.split(' ')[0] === 'Double' ? 'Double Rainbow' : b.split(' ')[0] === 'Perfect' ? 'Perfect Pair' : b.split(' ')[0];
+      badges[family] = (badges[family] || 0) + 1;
+    }
+  }
+  sendJSON(res, 200, { supply: r.supply, traits: r.traits, badges });
 }
 
 /** GET /api/collection/rarity/<number>: one item's traits with rarity, score and rank. */
@@ -972,7 +982,7 @@ function handleCollectionItems(res) {
   if (!r) return sendJSON(res, 404, { error: 'minting is not enabled on this server' });
   const items = [...r.byNumber.values()]
     .filter((it) => mintCtl.state.minted[it.number])
-    .map((it) => ({ number: it.number, name: it.name, rank: it.rank, score: it.score, traits: it.traits }));
+    .map((it) => ({ number: it.number, name: it.name, rank: it.rank, score: it.score, badges: it.badges || [], traits: it.traits }));
   sendJSON(res, 200, { supply: r.supply, traits: r.traits, items });
 }
 

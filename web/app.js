@@ -1005,9 +1005,15 @@ function badgeClass(b) {
   const f = badgeFamily(b);
   if (f === 'Double Rainbow') return 'b-rainbow';
   if (f === 'Prismatic') return 'b-prism';
+  if (f === 'Monochrome') return 'b-mono';
+  if (f === 'Duotone') return 'b-duo';
+  if (f === 'Tailored') return 'b-tailored';
   if (f === 'Perfect Pair') return 'b-pair';
   return 'b-chroma';
 }
+
+// Display order for badge filters and chips: rarest / most prestigious first.
+const BADGE_ORDER = ['Double Rainbow', 'Prismatic', 'Monochrome', 'Duotone', 'Perfect Pair', 'Chromatic', 'Tailored'];
 
 /** Build the badge filter dropdown from the badges present on the loaded items. */
 function buildBadgeFilter() {
@@ -1018,8 +1024,7 @@ function buildBadgeFilter() {
     const f = badgeFamily(b);
     counts.set(f, (counts.get(f) || 0) + 1);
   }));
-  const order = ['Double Rainbow', 'Prismatic', 'Perfect Pair', 'Chromatic'];
-  const present = order.filter((f) => counts.has(f));
+  const present = BADGE_ORDER.filter((f) => counts.has(f));
   let html = '<option value="">All badges</option>';
   present.forEach((f) => { html += `<option value="${esc(f)}">${esc(f)} (${counts.get(f)})</option>`; });
   sel.innerHTML = html;
@@ -1304,9 +1309,8 @@ async function loadStats() {
     }));
 
     // combo badges: clickable chips that jump to the collection filtered by that badge
-    const badgeOrder = ['Double Rainbow', 'Prismatic', 'Perfect Pair', 'Chromatic'];
     const bd = rarity.badges || {};
-    const chips = badgeOrder.filter((f) => bd[f]).map((f) =>
+    const chips = BADGE_ORDER.filter((f) => bd[f]).map((f) =>
       `<button class="badge-chip ${badgeClass(f)}" data-badge="${esc(f)}">${esc(f)}<span class="bc-count">${bd[f]}</span></button>`).join('');
     $('#stats-badges').innerHTML = chips || '<div class="empty">No combo badges yet.</div>';
     $$('#stats-badges .badge-chip').forEach((c) => c.addEventListener('click', () => setBadgeFilter(c.dataset.badge)));

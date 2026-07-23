@@ -9,11 +9,22 @@
 //   - Patterned bodies show every color they carry: Harlequin Lava is red AND orange, so it can
 //     complete a red match OR an orange match. Ears are ignored (they are near 50/50 noise).
 //   - Color-match points: 2 slots = +5, 3 = +20 (badge "Chromatic"), 4 = +60 (badge "Prismatic").
-//   - Both rainbow elements together (a Rainbow-ish face + a Spectrum background) = "Double
-//     Rainbow", +80.
-//   - Curated perfect pair (a background and body drawn to match): Pink Sky + Harlequin Pink, +25.
+//   - Monochrome (+60): every color slot is neutral (grey/white/black), so the piece reads as one
+//     black-and-white look even across two neutral families.
+//   - Duotone (+50): two vivid colors coordinated at once (one on 3+ slots, another on 2+).
+//   - Tailored (+10): the Collar, Body and Rune all share a color, a clean deliberate set.
+//   - Double Rainbow (+80): a Rainbow-ish face together with a Spectrum background.
+//   - Perfect Pair (+25): a curated background/body drawn to match (Pink Sky + Harlequin Pink).
 
-const POINTS = { 2: 5, 3: 20, 4: 60, doubleRainbow: 80, perfectPair: 25 };
+const POINTS = {
+  2: 5, 3: 20, 4: 60, // color matches: pair, Chromatic, Prismatic
+  monochrome: 60,     // every color slot is neutral (grey/white/black), read as one black-and-white look
+  duotone: 50,        // two vivid colors coordinated at once (one on 3+ slots, another on 2+)
+  tailored: 10,       // the Collar, Body and Rune all share a color (a clean, deliberate set)
+  doubleRainbow: 80, perfectPair: 25,
+};
+// Neutrals read as one "black and white" family (black already folds to grey in the maps above).
+const NEUTRAL = new Set(['grey', 'white']);
 
 // Each slot maps a trait value to the set of color families it shows (empty = no dominant color).
 const BACKGROUND = {
@@ -62,24 +73,20 @@ function attrs(item) {
 }
 
 /** The color families shown by each color-bearing slot (Background, Body, Collar, Rune, Face). */
-function slotColors(m) {
-  return [
-    BACKGROUND[m.Background] || [],
-    BODY[m.Body] || [],
-    COLLAR[m.Collar] || [],
-    runeColors(m.Rune),
-    FACE[m.Face] || [],
-  ];
-}
-
-/** Largest number of slots sharing one color family. Returns { level, color }. */
-function bestMatch(slots) {
-  const count = {};
-  for (const colors of slots) for (const c of new Set(colors)) if (c !== 'rainbow') count[c] = (count[c] || 0) + 1;
-  let level = 1;
-  let color = null;
-  for (const [c, k] of Object.entries(count)) if (k > level) { level = k; color = c; }
-  return { level, color };
+/** Map every color family to the SET of slot names showing it (a bicolor slot appears under each). */
+function colorsBySlot(m) {
+  const slots = {
+    Background: BACKGROUND[m.Background] || [],
+    Body: BODY[m.Body] || [],
+    Collar: COLLAR[m.Collar] || [],
+    Rune: runeColors(m.Rune),
+    Face: FACE[m.Face] || [],
+  };
+  const by = {}; // color -> Set(slotName)
+  for (const [name, colors] of Object.entries(slots)) {
+    for (const c of new Set(colors)) if (c !== 'rainbow') (by[c] || (by[c] = new Set())).add(name);
+  }
+  return by;
 }
 
 /** How many of the two rainbow elements are present (Rainbow-ish face + Spectrum background). */
@@ -98,21 +105,40 @@ function isPerfectPair(m) {
 const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
 /**
- * Combo bonus for one item: { points, badges }. Points stack (a Double Rainbow can also match a
- * color); badges start at a 3-color match (a 2-match is common, so it earns points but no badge).
+ * Combo bonus for one item: { points, badges }.
+ *
+ * One primary color-coordination badge (strongest wins): Prismatic (4 slots one vivid color) >
+ * Monochrome (all-neutral, 3+ slots) > Duotone (two vivid colors coordinated at once) > Chromatic
+ * (3 slots one color) > a plain 2-match (points, no badge). On top of it, a Tailored bonus when the
+ * Collar, Body and Rune share a color, and two independent axes (Double Rainbow, Perfect Pair).
  */
 function comboBonus(item) {
   const m = attrs(item);
-  const slots = slotColors(m);
-  const match = bestMatch(slots);
-  const rainbow = rainbowElements(m);
+  const by = colorsBySlot(m);
+  const counts = Object.entries(by).map(([c, set]) => [c, set.size]).sort((a, b) => b[1] - a[1]);
+  const colors = Object.keys(by);
+  const top = counts[0] || [null, 1];
+  const level = top[1] >= 2 ? top[1] : 1;
+
+  const neutralSlots = new Set([...(by.grey || []), ...(by.white || [])]);
+  const monochrome = colors.length > 0 && colors.every((c) => NEUTRAL.has(c)) && neutralSlots.size >= 3;
+  const vivid = counts.filter(([c]) => !NEUTRAL.has(c));
+  const duotone = vivid.length >= 2 && vivid[0][1] >= 3 && vivid[1][1] >= 2;
+  const tailored = Object.values(by).some((set) => set.has('Collar') && set.has('Body') && set.has('Rune'));
+
   const badges = [];
   let points = 0;
 
-  if (match.level >= 2) points += POINTS[match.level] || 0;
-  if (match.level === 3) badges.push(`Chromatic ${cap(match.color)}`);
-  if (match.level >= 4) badges.push(`Prismatic ${cap(match.color)}`);
-  if (rainbow >= 2) { points += POINTS.doubleRainbow; badges.push('Double Rainbow'); }
+  // Primary color-coordination badge (exactly one).
+  if (level >= 4) { points += POINTS[4]; badges.push(`Prismatic ${cap(top[0])}`); }
+  else if (monochrome) { points += POINTS.monochrome; badges.push('Monochrome'); }
+  else if (duotone) { points += POINTS.duotone; badges.push(`Duotone ${cap(vivid[0][0])}/${cap(vivid[1][0])}`); }
+  else if (level === 3) { points += POINTS[3]; badges.push(`Chromatic ${cap(top[0])}`); }
+  else if (level === 2) { points += POINTS[2]; }
+
+  // Add-on and independent axes.
+  if (tailored) { points += POINTS.tailored; badges.push('Tailored'); }
+  if (rainbowElements(m) >= 2) { points += POINTS.doubleRainbow; badges.push('Double Rainbow'); }
   if (isPerfectPair(m)) { points += POINTS.perfectPair; badges.push('Perfect Pair'); }
 
   return { points, badges };

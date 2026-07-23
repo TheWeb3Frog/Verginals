@@ -433,6 +433,9 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 .b-prism { background: linear-gradient(135deg, rgba(120,90,255,.22), rgba(60,150,246,.22)); border-color: rgba(120,110,255,.45); }
 .b-chroma { background: rgba(200,150,60,.16); border-color: rgba(200,150,60,.45); }
 .b-pair { background: rgba(255,120,180,.18); border-color: rgba(255,120,180,.5); }
+.b-mono { background: linear-gradient(135deg, rgba(20,20,24,.9), rgba(230,230,235,.9)); color: #fff; text-shadow: 0 0 2px rgba(0,0,0,.6); }
+.b-duo { background: linear-gradient(90deg, rgba(60,150,246,.28) 0 50%, rgba(230,80,70,.28) 50% 100%); border-color: rgba(150,150,150,.4); }
+.b-tailored { background: rgba(120,200,160,.14); border-color: rgba(120,200,160,.4); }
 .coll-badge-pill { position: absolute; left: 8px; top: 8px; font-size: 10px; font-weight: 700; padding: 2px 8px;
   border-radius: 999px; border: 1px solid transparent; backdrop-filter: blur(2px); }
 .coll-media { position: relative; }

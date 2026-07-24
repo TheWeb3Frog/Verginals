@@ -9,18 +9,22 @@
 //   - Patterned bodies show every color they carry: Harlequin Lava is red AND orange, so it can
 //     complete a red match OR an orange match. Ears are ignored (they are near 50/50 noise).
 //   - Color-match points: 2 slots = +5, 3 = +20 (badge "Chromatic"), 4 = +60 (badge "Prismatic").
+//   - Two vivid pairs (+15, no badge): two vivid colors each on 2 slots (e.g. red x2 + orange x2),
+//     a real two-colour coordination but far too common (~145 items) to earn the premium Duotone badge.
 //   - Monochrome (+60): every color slot is neutral (grey/white/black), so the piece reads as one
 //     black-and-white look even across two neutral families.
 //   - Duotone (+50): two vivid colors coordinated at once (one on 3+ slots, another on 2+).
 //   - Tailored (+10): the Collar, Body and Rune all share a color, a clean deliberate set.
+//   - Camouflage (+10): the Body shares a vivid color with the Background, so the cat blends in.
 //   - Double Rainbow (+80): a Rainbow-ish face together with a Spectrum background.
 //   - Perfect Pair (+25): a curated background/body drawn to match (Pink Sky + Harlequin Pink).
 
 const POINTS = {
-  2: 5, 3: 20, 4: 60, // color matches: pair, Chromatic, Prismatic
-  monochrome: 60,     // every color slot is neutral (grey/white/black), read as one black-and-white look
+  2: 5, twoTone: 15, 3: 20, 4: 60, // color matches: pair, two vivid pairs, Chromatic, Prismatic
+  monochrome: 90,     // every color slot is neutral (grey/white/black); the rarest look (~0.3% of the set)
   duotone: 50,        // two vivid colors coordinated at once (one on 3+ slots, another on 2+)
   tailored: 10,       // the Collar, Body and Rune all share a color (a clean, deliberate set)
+  camouflage: 10,     // the Body shares a vivid color with the Background (the cat blends into its scene)
   doubleRainbow: 80, perfectPair: 25,
 };
 // Neutrals read as one "black and white" family (black already folds to grey in the maps above).
@@ -124,7 +128,9 @@ function comboBonus(item) {
   const monochrome = colors.length > 0 && colors.every((c) => NEUTRAL.has(c)) && neutralSlots.size >= 3;
   const vivid = counts.filter(([c]) => !NEUTRAL.has(c));
   const duotone = vivid.length >= 2 && vivid[0][1] >= 3 && vivid[1][1] >= 2;
+  const twoTone = vivid.length >= 2 && vivid[0][1] >= 2 && vivid[1][1] >= 2; // two vivid pairs (2+2)
   const tailored = Object.values(by).some((set) => set.has('Collar') && set.has('Body') && set.has('Rune'));
+  const camouflage = Object.entries(by).some(([c, set]) => !NEUTRAL.has(c) && set.has('Body') && set.has('Background'));
 
   const badges = [];
   let points = 0;
@@ -134,10 +140,11 @@ function comboBonus(item) {
   else if (monochrome) { points += POINTS.monochrome; badges.push('Monochrome'); }
   else if (duotone) { points += POINTS.duotone; badges.push(`Duotone ${cap(vivid[0][0])}/${cap(vivid[1][0])}`); }
   else if (level === 3) { points += POINTS[3]; badges.push(`Chromatic ${cap(top[0])}`); }
-  else if (level === 2) { points += POINTS[2]; }
+  else if (level === 2) { points += twoTone ? POINTS.twoTone : POINTS[2]; } // two vivid pairs score more, still no badge
 
   // Add-on and independent axes.
   if (tailored) { points += POINTS.tailored; badges.push('Tailored'); }
+  if (camouflage) { points += POINTS.camouflage; badges.push('Camouflage'); }
   if (rainbowElements(m) >= 2) { points += POINTS.doubleRainbow; badges.push('Double Rainbow'); }
   if (isPerfectPair(m)) { points += POINTS.perfectPair; badges.push('Perfect Pair'); }
 

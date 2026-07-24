@@ -1008,12 +1008,13 @@ function badgeClass(b) {
   if (f === 'Monochrome') return 'b-mono';
   if (f === 'Duotone') return 'b-duo';
   if (f === 'Tailored') return 'b-tailored';
+  if (f === 'Camouflage') return 'b-camo';
   if (f === 'Perfect Pair') return 'b-pair';
   return 'b-chroma';
 }
 
 // Display order for badge filters and chips: rarest / most prestigious first.
-const BADGE_ORDER = ['Double Rainbow', 'Prismatic', 'Monochrome', 'Duotone', 'Perfect Pair', 'Chromatic', 'Tailored'];
+const BADGE_ORDER = ['Double Rainbow', 'Prismatic', 'Monochrome', 'Duotone', 'Perfect Pair', 'Chromatic', 'Tailored', 'Camouflage'];
 
 /** Build the badge filter dropdown from the badges present on the loaded items. */
 function buildBadgeFilter() {

@@ -20,8 +20,10 @@ test('grey + white across four slots reads as Monochrome (like #2515)', () => {
 
 test('two vivid colors coordinated at once is Duotone (like #2931: blue x3 + red x2)', () => {
   const b = comboBonus(item({ Background: 'Sky Blue', Body: 'Blue', Collar: 'Dark Grey', Rune: 'Ride Red', Face: '3D Glasses' }));
-  assert.deepStrictEqual(b.badges, ['Duotone Blue/Red']);
-  assert.strictEqual(b.points, POINTS.duotone);
+  assert.ok(b.badges.includes('Duotone Blue/Red'));
+  // blue body on a blue background also blends in -> Camouflage stacks
+  assert.ok(b.badges.includes('Camouflage'));
+  assert.strictEqual(b.points, POINTS.duotone + POINTS.camouflage);
 });
 
 test('Collar + Body + Rune sharing a color adds a Tailored bonus on top', () => {
@@ -29,6 +31,27 @@ test('Collar + Body + Rune sharing a color adds a Tailored bonus on top', () => 
   assert.ok(b.badges.includes('Chromatic Red'));
   assert.ok(b.badges.includes('Tailored'));
   assert.strictEqual(b.points, POINTS[3] + POINTS.tailored);
+});
+
+test('a vivid Body sharing its color with the Background earns a Camouflage badge', () => {
+  // green body on a green background -> vivid Body==Background
+  const b = comboBonus(item({ Background: 'Emerald', Body: 'Green', Collar: 'Blue', Rune: 'Birch White', Face: 'Happy' }));
+  assert.ok(b.badges.includes('Camouflage'));
+  assert.strictEqual(b.points, POINTS[2] + POINTS.camouflage);
+});
+
+test('a neutral Body matching a neutral Background does NOT earn Camouflage', () => {
+  // grey body on a grey background -> neutral, no Camouflage (only prettiness is vivid)
+  const b = comboBonus(item({ Background: 'Grey', Body: 'Dark Grey', Collar: 'Blue', Rune: 'Ride Red', Face: 'Happy' }));
+  assert.ok(!b.badges.includes('Camouflage'));
+});
+
+test('two vivid pairs (2+2) score more than a single pair but earn no badge (like #1268)', () => {
+  // red x2 (bg + laser face) + orange x2 (poison body + orange collar) -> two vivid pairs, no dominant 3
+  const b = comboBonus(item({ Background: 'Red', Body: 'Harlequin Poison', Collar: 'Bitcoin Orange', Rune: 'Earth Blue', Face: 'Lazer' }));
+  assert.strictEqual(b.points, POINTS.twoTone);
+  assert.deepStrictEqual(b.badges, []);
+  assert.ok(POINTS.twoTone > POINTS[2] && POINTS.twoTone < POINTS.duotone);
 });
 
 test('a 2-match earns points but no badge (too common to badge)', () => {
@@ -40,7 +63,7 @@ test('a 2-match earns points but no badge (too common to badge)', () => {
 test('a bicolor body counts toward either of its colors (Harlequin Lava = red + orange)', () => {
   // lava(red,orange) + red bg + red collar -> red x3
   const red = comboBonus(item({ Background: 'Red', Body: 'Harlequin Lava', Collar: 'Red', Rune: 'Birch White', Face: 'Happy' }));
-  assert.deepStrictEqual(red.badges, ['Chromatic Red']);
+  assert.ok(red.badges.includes('Chromatic Red'));
   // same body completing an orange match instead (4 orange slots -> Prismatic, +Tailored set)
   const orange = comboBonus(item({ Background: 'Bitcoin Orange', Body: 'Harlequin Lava', Collar: 'Bitcoin Orange', Rune: 'Fire Bitcoin Orange', Face: 'Happy' }));
   assert.ok(orange.badges.includes('Prismatic Orange'));

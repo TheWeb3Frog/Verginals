@@ -11,8 +11,13 @@
 
 import * as verge from './verge.js';
 
+// Public Verge ElectrumX servers, tried in order (see _connectAny: the wallet fails over to the
+// next one if a server is unreachable, e.g. an expired TLS cert breaking its wss:// endpoint).
+// Two independent operators run WSS on :50004; listing both means one going down no longer
+// takes the wallet offline. Verified live (ElectrumX 1.19.0, protocol 1.4).
 export const DEFAULT_SERVERS = [
-  'wss://electrumx-verge.cloud:50004',
+  'wss://electrumx-verge.cloud:50004', // primary (host 68.183.133.16)
+  'wss://electrum-verge.cloud:50004',  // fallback, separate operator (host 68.183.133.141)
 ];
 
 /** Electrum scripthash for a P2PKH address = reverse(sha256(scriptPubKey)) as hex. */

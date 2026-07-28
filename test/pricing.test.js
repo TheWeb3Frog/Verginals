@@ -59,8 +59,9 @@ test('heavy items save the most (a 20-input plan roughly halves)', () => {
   assert.ok(p.total / COIN < 3.5);
 });
 
-test('a 3-input plan still costs about 0.9 XVG', () => {
-  assert.ok(Math.abs(price(3).total / COIN - 0.9) < 0.001);
+test('the lightest plans stay comfortably under 1 XVG', () => {
+  assert.strictEqual(price(3).total / COIN, 0.92);
+  assert.ok(price(4).total / COIN < 1.2);
 });
 
 test('the commit always covers the reveal fee it has to pay', () => {
@@ -81,6 +82,23 @@ test('a service fee is added on top and does not eat the carrier', () => {
 test('a nonsense input count is rejected rather than priced', () => {
   assert.throws(() => priceInscription({ numInputs: 0, maxPerInput: FLAT_PER_INPUT }));
   assert.throws(() => priceInscription({ numInputs: 2.5, maxPerInput: FLAT_PER_INPUT }));
+});
+
+test('quoted totals never show more than 2 decimals (no 1.300004 nonsense)', () => {
+  for (const n of ALL) {
+    for (const field of ['total', 'commitTotal', 'carrier', 'perInput']) {
+      const xvg = price(n)[field] / COIN;
+      const decimals = (String(xvg).split('.')[1] || '').length;
+      assert.ok(decimals <= 2, `n=${n} ${field}=${xvg} has ${decimals} decimals`);
+    }
+  }
+});
+
+test('rounding to a clean step never dips the carrier below its target', () => {
+  for (const n of ALL) {
+    const p = price(n);
+    if (p.perInput < FLAT_PER_INPUT) assert.ok(p.carrier >= CARRIER_TARGET_UNITS, 'n=' + n);
+  }
 });
 
 test('every figure is a whole number of atomic units', () => {

@@ -37,6 +37,10 @@ const DUST_UNITS = 100000; // 0.1 XVG
 // What the carrier should be left holding once the reveal fee is paid: comfortably above dust, and
 // the value light items already carry in practice today.
 const CARRIER_TARGET_UNITS = 300000; // 0.3 XVG
+// Commit outputs are all equal, so the exact per-input figure is usually a non-terminating division
+// (1.1 XVG over 6 inputs). Rounding it up to a clean step keeps the quoted total to two decimals:
+// a buyer asked for "1.300004 XVG" reasonably assumes something is broken.
+const PER_INPUT_STEP_UNITS = 10000; // 0.01 XVG
 
 /**
  * Every figure a payment job needs, in atomic units.
@@ -54,7 +58,9 @@ function priceInscription({ numInputs, parented = false, maxPerInput, serviceFee
   const revealFee = toUnits(suggestRevealFeeXVG(numInputs, parented));
 
   const perInputFloor = Math.ceil((revealFee + DUST_UNITS) / numInputs);          // never leave dust
-  const perInputWanted = Math.ceil((revealFee + CARRIER_TARGET_UNITS) / numInputs);
+  const exact = Math.ceil((revealFee + CARRIER_TARGET_UNITS) / numInputs);
+  // Round the wanted figure UP to a clean step, never down, so the carrier target is still met.
+  const perInputWanted = Math.ceil(exact / PER_INPUT_STEP_UNITS) * PER_INPUT_STEP_UNITS;
   const perInput = Math.max(perInputFloor, Math.min(maxPerInput, perInputWanted));
 
   const commitTotal = perInput * numInputs;

@@ -343,16 +343,8 @@ function decodeContent(b) {
   return { body, contentType, filename };
 }
 
-// Fee suggestions (relayfee ~0.2 XVG/kB on testnet). A P2SH reveal input is ~600 bytes; the
-// funding tx is 1 P2PKH input (~150 B) + N P2SH outputs (~32 B each) + ~12 B overhead.
-const FEE_RATE_XVG_PER_KB = 0.2;
-const feeForBytes = (bytes) => Math.max(0.2, Math.ceil(bytes / 1000) * FEE_RATE_XVG_PER_KB);
-const suggestRevealFeeXVG = (numInputs) => feeForBytes(numInputs * 600);
-const suggestSplitFeeXVG = (numInputs) => feeForBytes(150 + numInputs * 32 + 12);
-// Minimum value (units) an output must hold to be spendable and safe to relay. The carrier that
-// returns the inscription must clear this, otherwise the reveal can be rejected as dust or the
-// inscription lands on a utxo too small to move later.
-const DUST_UNITS = 100000; // 0.1 XVG
+// Fee and job pricing live in pricing.js as pure arithmetic, so the money path can be unit-tested.
+const { feeForBytes, DUST_UNITS, priceInscription } = require('./pricing');
 
 /** Derive the P2PKH address for a bitcoinjs network + ECPair. */
 function p2pkhAddress(signer, network) {
@@ -440,13 +432,13 @@ async function createPaymentJob({ id, body, contentType, filename, to, amountPer
   const depositWif = depositKey.toWIF();
   const depositAddress = p2pkhAddress(depositKey, network);
 
-  const splitFee = toUnits(suggestSplitFeeXVG(numInputs));
-  // A parented reveal adds one P2PKH parent input (~150B) and one carry-forward output (~34B).
-  const revealFee = toUnits(suggestRevealFeeXVG(numInputs) + (parented ? feeForBytes(150 + 34) : 0));
-  const serviceFee = SERVICE_FEE_UNITS; // operator fee (0 unless configured); paid in the funding tx
-  const commitTotal = amountPerInput * numInputs;
-  const total = commitTotal + splitFee + serviceFee; // what the user must pay to the deposit address
-  const carrier = commitTotal - revealFee; // returns to the user's destination (the inscription's home)
+  // Commit outputs are sized from the reveal fee they must cover rather than at a flat rate, so a
+  // heavy item no longer asks the buyer to front several XVG that come straight back in its carrier.
+  // amountPerInput acts as the ceiling, so this can only ever lower the asking price.
+  const { perInput, commitTotal, splitFee, revealFee, serviceFee, total, carrier } = priceInscription({
+    numInputs, parented, maxPerInput: amountPerInput, serviceFee: SERVICE_FEE_UNITS,
+  });
+  for (const inp of plan.inputs) inp.amount = perInput; // keep the plan consistent with what is paid
   if (carrier < DUST_UNITS) throw new Error('per-input amount too low: the returned inscription would be dust, raise it');
 
   await client.call('importaddress', [depositAddress, 'verginals:' + crypto.randomBytes(4).toString('hex'), false]);
@@ -455,7 +447,7 @@ async function createPaymentJob({ id, body, contentType, filename, to, amountPer
   const job = {
     id: jobId, status: 'awaiting_payment', createdAt: Date.now(),
     networkName, to, contentType, bodySize: body.length, numInputs,
-    perInput: amountPerInput, splitFee, revealFee, serviceFee,
+    perInput, splitFee, revealFee, serviceFee,
     feeAddress: serviceFee > 0 ? FEE_ADDRESS : null, total, carrier,
     depositAddress, depositWif, plan,
     splitTxid: null, revealTxid: null, location: null, error: null,
@@ -1629,16 +1621,28 @@ async function handleMarketAcceptData(res, carrierKey, buyerAddress) {
   sendJSON(res, 200, { bid });
 }
 
+// A paid job is retried by the reaper for this many cycles before it is left for a human. Reveals
+// fail transiently (a busy parent chain hits the node's mempool limit), so retrying is usually all
+// it takes; the bound stops a genuinely broken job from being rebuilt forever.
+const MAX_DRIVE_ATTEMPTS = 12;
+
 /**
- * Release reservations that have gone stale AND whose deposit never received the payment. Only the
- * server can check funding, so the pure controller defers to this. Funded-but-not-yet-driven jobs
- * are left alone (they'll complete); genuinely abandoned ones return their number to the pool.
+ * Finish or free stale reservations. A mint only advances while someone polls /api/job/:id, so a
+ * buyer who pays and then closes the tab would otherwise leave a paid job parked forever: money
+ * taken, number reserved, nothing delivered. This is the server side of that promise.
+ *
+ *   - deposit funded  -> finish the mint here, exactly as a browser poll would have.
+ *   - never funded    -> return the number, the cap hold and the promo slot to their pools.
+ *   - funded once and already committed on-chain -> never released, even though the deposit now
+ *     reads empty: the payment is spent into the commit outputs, so freeing the number would take
+ *     it from someone who has already paid.
  */
 async function reapMintReservations() {
   // Alpha plus every live launchpad collection: each controller reaps its own reservations.
   const ctls = [];
   if (mintCtl) ctls.push(mintCtl);
   if (launchpad) for (const { ctl } of launchpad.live.values()) ctls.push(ctl);
+  const paid = []; // funded jobs that still need their commit + reveal
   for (const ctl of ctls) {
     for (const { number, jobId } of ctl.staleReservations(MINT_RESERVE_TTL_MS)) {
       const job = loadJob(jobId);
@@ -1647,17 +1651,65 @@ async function reapMintReservations() {
         continue;
       }
       if (job.status === 'done') continue; // already minted (confirmMinted should have cleared it)
+      if (processing.has(job.id)) continue; // a browser poll is driving it right now
       try {
         const utxos = await client.call('listunspent', [0, 9999999, [job.depositAddress]]);
         const received = utxos.reduce((s, u) => s + toUnits(u.amount), 0);
-        if (received < job.total) {
-          ctl.release(number); // truly unpaid → free the number
-          if (ctl === mintCtl && guard) guard.release(job.id); // and free its cap hold
-          if (job.promo && promoCtl) promoCtl.release(job.id); // and return the promo slot
+        if (received >= job.total) {
+          if ((job.driveAttempts || 0) < MAX_DRIVE_ATTEMPTS) paid.push({ job, utxos });
+          continue;
         }
+        if (job.splitTxid) {
+          // Paid, and the commit already spent the deposit: the empty deposit is not "unpaid".
+          console.warn(`Mint: #${number} paid but stuck after commit ${job.splitTxid}; keeping the reservation`);
+          continue;
+        }
+        ctl.release(number); // truly unpaid → free the number
+        if (ctl === mintCtl && guard) guard.release(job.id); // and free its cap hold
+        if (job.promo && promoCtl) promoCtl.release(job.id); // and return the promo slot
       } catch (_) {
         /* leave it; retry next cycle */
       }
+    }
+  }
+
+  // Finish ONE paid job per cycle. Every parented reveal spends the collection parent tip, so a
+  // burst of them rebuilds the long unconfirmed chain that makes reveals fail in the first place.
+  // Least-tried first, so one job that keeps failing cannot starve the others behind it.
+  paid.sort((a, b) => (a.job.driveAttempts || 0) - (b.job.driveAttempts || 0));
+  const next = paid[0];
+  if (next) {
+    const { job, utxos } = next;
+    job.driveAttempts = (job.driveAttempts || 0) + 1;
+    processing.add(job.id);
+    try {
+      await drivePayout(job, utxos);
+      console.log(`Mint: finished abandoned job ${job.id}${job.mint ? ` (#${job.mint.number})` : ''} -> ${job.revealTxid}`);
+    } catch (e) {
+      job.status = 'error';
+      job.error = e.message;
+      saveJob(job);
+      console.warn(`Mint: could not finish job ${job.id} (attempt ${job.driveAttempts}): ${e.message}`);
+    } finally {
+      processing.delete(job.id);
+    }
+  }
+
+  // A quote that was opened but never paid must not keep counting against the minter's own
+  // allocation: someone who starts a mint, does not confirm, then reloads and starts another would
+  // otherwise spend their allowance on attempts that never existed on-chain. The reservation keeps
+  // its own, longer clock above, so a slow payer still keeps their number.
+  if (guard && guard.reapHolds) {
+    try {
+      await guard.reapHolds(async (jobId) => {
+        const job = loadJob(jobId);
+        if (!job) return false; // job gone: nothing can still be paid for
+        if (job.status === 'done') return true; // already minted; confirm() clears it
+        const utxos = await client.call('listunspent', [0, 9999999, [job.depositAddress]]);
+        return utxos.reduce((s, u) => s + toUnits(u.amount), 0) >= job.total;
+      });
+    } catch (_) {
+      /* never let cap bookkeeping break the reaper */
     }
   }
 }

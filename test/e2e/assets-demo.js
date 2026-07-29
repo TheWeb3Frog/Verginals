@@ -159,12 +159,21 @@ async function main() {
   const bob = await rpc('getnewaddress');
 
   // --- 2. create a token -----------------------------------------------------------------------
-  step(2, 'Creating a token called DEMO');
+  // Carve your own: TICKER=FROG SUPPLY=21000000 node test/e2e/assets-demo.js
+  const TICKER = (process.env.TICKER || 'DEMO').toUpperCase();
+  const DECIMALS = Number(process.env.DECIMALS || 2);
+  const whole = Number(process.env.SUPPLY || 10000);                       // in display units
+  const supply = Math.round(whole * 10 ** DECIMALS);
+  const premine = Math.round(supply * Number(process.env.PREMINE_PCT || 40) / 100);
+  const perMint = Math.max(1, Math.round((supply - premine) / 120));
+
+  step(2, `Creating a Verge Rune called ${TICKER}`);
   const etch = buildEtch({
-    ticker: 'DEMO', name: 'Demonstration', divisibility: 2,
-    supply: 1000000, premine: 400000, terms: { amount: 5000, cap: 20 },
+    ticker: TICKER, name: process.env.NAME || TICKER, divisibility: DECIMALS,
+    supply, premine, terms: { amount: perMint, cap: 20 },
   }, { address: alice, value: DUST_UNITS });
-  say(`      supply 10,000.00   premine 4,000.00   open mint 50.00 per mint, 20 mints`);
+  const show = (u) => (u / 10 ** DECIMALS).toLocaleString('en-US', { minimumFractionDigits: DECIMALS });
+  say(`      supply ${show(supply)}   premine ${show(premine)}   open mint ${show(perMint)} per claim, 20 claims`);
   say(`      the definition is ${etch.body.length} bytes of CBOR, carried in an inscription`);
 
   const { network } = pickNetwork('regtest');
@@ -192,7 +201,8 @@ async function main() {
   const etchTxid = await rpc('sendrawtransaction', [reveal.hex]);
   await rpc('generate', [1]);
   ok(`etched on chain in ${etchTxid.slice(0, 16)}...`);
-  say(`      a 4-character ticker costs ${(priceOf('DEMO') / COIN).toLocaleString()} XVG on mainnet, to price out squatters`);
+  say(`      on mainnet a ${TICKER.length}-character ticker costs `
+    + `${(priceOf(TICKER) / COIN).toLocaleString()} XVG, to price out squatters`);
 
   // --- 3. an indexer discovers it unaided -------------------------------------------------------
   step(3, 'An indexer finds the token by itself, from blocks alone');
@@ -202,7 +212,7 @@ async function main() {
   const state = new AssetState();
   const afterEtch = (await rpc('getblockchaininfo')).blocks;
   await scanRange(chain, state, start + 1, afterEtch, applyTx);
-  const REF = state.tickers.get('DEMO');
+  const REF = state.tickers.get(TICKER);
   ok(`registered from a replay of the chain, nothing was told to the indexer`);
 
   // --- 4. mint ----------------------------------------------------------------------------------
@@ -213,14 +223,19 @@ async function main() {
   await scanRange(chain, state, afterEtch + 1, afterMint, applyTx);
   const mintTx = await rpc('getrawtransaction', [mintTxid, true]);
   const bobVout = mintTx.vout.findIndex((o) => (o.scriptPubKey.addresses || []).includes(bob));
-  ok(`Bob holds ${(state.balanceOf(`${mintTxid}:${bobVout}`, REF) / 100).toFixed(2)} DEMO`);
+  const bobHas = state.balanceOf(`${mintTxid}:${bobVout}`, REF);
+  ok(`Bob holds ${show(bobHas)} ${TICKER}`);
   say('      one transaction, 83 bytes of OP_RETURN, no inscription needed to move value');
 
   // --- 5. transfer ------------------------------------------------------------------------------
-  step(5, 'Bob sends 20.00 to Alice and keeps the rest');
+  // Send 40% of the claim on, keep the rest. The change edict is explicit: without it the leftover
+  // would fall through to the first output and Alice would receive the lot.
+  const sending = Math.floor(bobHas * 0.4);
+  const keeping = bobHas - sending;
+  step(5, `Bob sends ${show(sending)} to Alice and keeps ${show(keeping)}`);
   const tPlan = buildTransfer([
-    { address: alice, value: DUST_UNITS, assets: [{ assetRef: REF, amount: 2000 }] },
-    { address: bob, value: DUST_UNITS, assets: [{ assetRef: REF, amount: 3000 }] },
+    { address: alice, value: DUST_UNITS, assets: [{ assetRef: REF, amount: sending }] },
+    { address: bob, value: DUST_UNITS, assets: [{ assetRef: REF, amount: keeping }] },
   ]);
   const tTxid = await broadcast(tPlan, [{ txid: mintTxid, vout: bobVout }]);
   await rpc('generate', [1]);
@@ -229,8 +244,8 @@ async function main() {
   const tTx = await rpc('getrawtransaction', [tTxid, true]);
   const aliceVout = tTx.vout.findIndex((o) => (o.scriptPubKey.addresses || []).includes(alice));
   const bobBack = tTx.vout.findIndex((o) => (o.scriptPubKey.addresses || []).includes(bob));
-  ok(`Alice ${(state.balanceOf(`${tTxid}:${aliceVout}`, REF) / 100).toFixed(2)} DEMO, `
-    + `Bob ${(state.balanceOf(`${tTxid}:${bobBack}`, REF) / 100).toFixed(2)} DEMO`);
+  ok(`Alice ${show(state.balanceOf(`${tTxid}:${aliceVout}`, REF))} ${TICKER}, `
+    + `Bob ${show(state.balanceOf(`${tTxid}:${bobBack}`, REF))} ${TICKER}`);
   say('      balances live on outputs, like the coin itself, so ordinary utxo handling applies');
 
   // --- 6. the part nothing on Bitcoin has ------------------------------------------------------

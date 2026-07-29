@@ -281,12 +281,113 @@ async function main() {
   ok(`implementation B: ${rootB.slice(0, 24)}...`);
   ok(rootA === rootB ? 'identical, so a divergence would be publicly detectable' : 'DIVERGED');
 
+  // --- 8. something you can actually look at ----------------------------------------------------
+  step(8, 'Writing a report you can open');
+  const def = state.assets.get(REF);
+  const holders = [...state.entries()].filter((e) => e.assetRef === REF);
+  const reportPath = process.env.REPORT || path.join(os.tmpdir(), `verge-rune-${TICKER}.html`);
+  fs.writeFileSync(reportPath, htmlReport({
+    ticker: TICKER, def, holders, root, show, etchTxid, mintTxid, tTxid,
+    height: end, decimals: DECIMALS, alice, bob, aliceVout, bobBack,
+  }));
+  ok(`open it: ${reportPath}`);
+
   say('\n\x1b[1mWhat this means for Verge\x1b[0m');
   say('  - a token standard native to Verge, with 30-second settlement rather than an hour');
   say('  - one protocol for fungible tokens and for inscriptions, so one indexer and one wallet');
   say('  - balances a light client can verify, which no metaprotocol on Bitcoin offers');
   say('  - designed around what Verge actually has: no SegWit, no CSV, CLTV active, 83-byte OP_RETURN');
   say('\n  The specification is spec/ASSETS-SPEC-v0.md. Criticism is more useful than agreement.');
+}
+
+/**
+ * A plain report of what the run produced. Deliberately sober: this is a protocol readout, not a
+ * dashboard, and every figure in it was read back off the chain rather than remembered.
+ */
+function htmlReport({ ticker, def, holders, root, show, etchTxid, mintTxid, tTxid, height, decimals, alice, bob, aliceVout, bobBack }) {
+  const esc = (s) => String(s).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+  const owner = (op) => (op === `${tTxid}:${aliceVout}` ? 'Alice' : op === `${tTxid}:${bobBack}` ? 'Bob' : 'issuer');
+  const total = holders.reduce((s, h) => s + h.amount, 0);
+  const rows = holders.map((h) => `<tr><td class="who">${owner(h.outpoint)}</td>`
+    + `<td class="num">${show(h.amount)}</td>`
+    + `<td class="pct">${((h.amount / total) * 100).toFixed(1)}%</td>`
+    + `<td class="mono">${esc(h.outpoint)}</td></tr>`).join('\n');
+
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(ticker)} on Verge</title>
+<style>
+  :root{--bg:#fbfaf8;--fg:#1c1a17;--dim:#6b655c;--line:#e2ded6;--card:#fff;--accent:#7a4bd0}
+  @media(prefers-color-scheme:dark){:root{--bg:#14130f;--fg:#eae6df;--dim:#948d81;--line:#2a2823;--card:#1c1a16;--accent:#b393f0}}
+  *{box-sizing:border-box}
+  body{margin:0;padding:2.5rem 1.25rem;background:var(--bg);color:var(--fg);
+    font:15px/1.6 ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif}
+  main{max-width:56rem;margin:0 auto}
+  .eyebrow{font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+  h1{font-size:clamp(2rem,6vw,3rem);margin:.2em 0 .1em;letter-spacing:-.02em;text-wrap:balance}
+  h1 span{color:var(--accent)}
+  .sub{color:var(--dim);margin:0 0 2.5rem}
+  h2{font-size:.8rem;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);
+    margin:2.5rem 0 .75rem;font-weight:600}
+  .grid{display:grid;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;
+    grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));overflow:hidden}
+  .cell{background:var(--card);padding:.9rem 1rem}
+  .k{font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+  .v{font-size:1.15rem;font-variant-numeric:tabular-nums;margin-top:.15rem}
+  .wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+  table{width:100%;border-collapse:collapse;font-size:.9rem}
+  th{text-align:left;font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);
+    font-weight:600;padding:.7rem 1rem;border-bottom:1px solid var(--line)}
+  td{padding:.7rem 1rem;border-bottom:1px solid var(--line)}
+  tr:last-child td{border-bottom:0}
+  .num,.pct{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+  .pct{color:var(--dim)}
+  .who{font-weight:600}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.78rem;color:var(--dim)}
+  .root{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8rem;word-break:break-all;
+    background:var(--card);border:1px solid var(--line);border-radius:10px;padding:1rem;line-height:1.7}
+  .note{color:var(--dim);font-size:.85rem;margin-top:.6rem}
+  footer{margin-top:3rem;padding-top:1.25rem;border-top:1px solid var(--line);color:var(--dim);font-size:.82rem}
+</style></head><body><main>
+
+  <p class="eyebrow">Verge Rune &middot; regtest</p>
+  <h1><span>${esc(ticker)}</span></h1>
+  <p class="sub">${esc(def.name || ticker)} &mdash; created, claimed and transferred on a Verge chain.
+     Every number below was read back out of blocks.</p>
+
+  <h2>The rune</h2>
+  <div class="grid">
+    <div class="cell"><div class="k">Supply</div><div class="v">${show(def.supply)}</div></div>
+    <div class="cell"><div class="k">Premine</div><div class="v">${show(def.premine)}</div></div>
+    <div class="cell"><div class="k">Issued by mint</div><div class="v">${show(def.minted)}</div></div>
+    <div class="cell"><div class="k">Claims made</div><div class="v">${def.mintCount}${def.terms && def.terms.cap ? ' / ' + def.terms.cap : ''}</div></div>
+    <div class="cell"><div class="k">Decimals</div><div class="v">${decimals}</div></div>
+    <div class="cell"><div class="k">Per claim</div><div class="v">${def.terms ? show(def.terms.amount) : '&mdash;'}</div></div>
+  </div>
+
+  <h2>Who holds it</h2>
+  <div class="wrap"><table>
+    <thead><tr><th>Holder</th><th class="num">Balance</th><th class="pct">Share</th><th>Output carrying it</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>
+  <p class="note">Balances sit on outputs, like the coin itself. Spending the output moves the balance.</p>
+
+  <h2>State commitment at height ${height}</h2>
+  <div class="root">${esc(root.toString('hex'))}</div>
+  <p class="note">One merkle root over every balance in existence. A wallet proves its own balance
+     against this without running an indexer, and cannot be lied to by one.</p>
+
+  <h2>On chain</h2>
+  <div class="wrap"><table><tbody>
+    <tr><td class="who">Rune created</td><td class="mono">${esc(etchTxid)}</td></tr>
+    <tr><td class="who">Claimed from mint</td><td class="mono">${esc(mintTxid)}</td></tr>
+    <tr><td class="who">Transferred</td><td class="mono">${esc(tTxid)}</td></tr>
+  </tbody></table></div>
+
+  <footer>Regtest, a throwaway local chain: no real XVG was spent and no ticker was reserved.
+     Protocol specification in <code>spec/ASSETS-SPEC-v0.md</code>.</footer>
+</main></body></html>`;
 }
 
 function cleanup() {

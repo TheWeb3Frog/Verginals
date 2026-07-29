@@ -225,9 +225,9 @@ The result was not fairness: bots raced each unlock, and the good names went to 
 changed.
 
 On Verge that failure mode would be worse. Relay fees are 0.2 XVG/kB, so there is no accidental cost
-filter at all, and one operator could take every desirable ticker for pocket change. This is an
-observed behaviour on this chain, not a hypothesis: a single operator has already accumulated 565
-collection items across 612 wallets.
+filter at all, and one operator could take every desirable ticker for pocket change. Nor is
+wallet-rotation at scale hypothetical here: it is already observable on this chain, on any drop worth
+farming.
 
 So a ticker has a price, and it exists for one reason: **to make mass registration ruinous while
 leaving one good name affordable to a real project.**

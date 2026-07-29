@@ -267,8 +267,7 @@ Paying only one side does not buy a ticker. Any odd unit from the split goes to 
 project.
 
 The Verge address is fixed in the protocol and immutable. It **must be an address published by the
-Verge project itself**; it is deliberately left unset here until the Verge maintainers confirm one,
-because an address invented for a specification would send real money nowhere, forever.
+Verge project itself**, and is deliberately left unset here until the Verge maintainers confirm one.
 
 ---
 

@@ -12,9 +12,9 @@
 // real project. At the schedule below, a four-letter ticker costs one project 10,000 XVG, and costs
 // a squatter wanting fifty of them half a million.
 //
-// The fee is split 50/50 between the project treasury and Verge itself. Funding the chain the
-// protocol runs on is not charity: Verge's public infrastructure is visibly under-funded (the only
-// public ElectrumX server went down because nobody renewed a TLS certificate), and this makes the
+// The fee is split 50/50 between the project treasury and Verge itself. A protocol that depends on a
+// chain should contribute to it: Verge's development and public infrastructure are what make this
+// possible at all, so a share goes back by design rather than by goodwill, which also makes the
 // protocol's success and the chain's health the same thing.
 
 const { COIN } = require('../networks');

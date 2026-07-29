@@ -257,10 +257,10 @@ unique, case-folded to uppercase, and permanent.
 
 **Half to the project treasury, half to Verge itself.** Nothing is burned.
 
-Funding the chain the protocol runs on is not charity, it is self-interest: Verge's public
-infrastructure is visibly under-funded, to the point that the only public ElectrumX server went dark
-because nobody renewed a TLS certificate. A protocol that pays into the chain makes its own success
-and the chain's health the same thing.
+A protocol that depends on a chain should contribute to it. Verge's development and its public
+infrastructure are what make this protocol possible at all, so a share of every registration goes
+back to them by design rather than by goodwill. It also aligns the incentives: the protocol's success
+and the chain's health become the same thing.
 
 Both halves must be paid **in the transaction that carries the etching**, each to its exact address.
 Paying only one side does not buy a ticker. Any odd unit from the split goes to Verge, never to the

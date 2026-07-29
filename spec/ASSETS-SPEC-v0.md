@@ -219,20 +219,56 @@ Royalties are **optional per asset** and immutable once etched.
 
 ## 7. Ticker allocation
 
-Runes unlocks short names on a length-based schedule spread over four years, which created a
-squatting game. This uses a simpler rule with no calendar to camp on:
+Runes made names free and released short ones on a length-unlock schedule spread over four years.
+The result was not fairness: bots raced each unlock, and the good names went to squatters who paid
+**miners** rather than the ecosystem. The name was never free, only the recipient of the payment
+changed.
 
-**Price of a ticker = burned XVG, rising steeply as it shortens.**
+On Verge that failure mode would be worse. Relay fees are 0.2 XVG/kB, so there is no accidental cost
+filter at all, and one operator could take every desirable ticker for pocket change. This is an
+observed behaviour on this chain, not a hypothesis: a single operator has already accumulated 565
+collection items across 612 wallets.
 
-```
-cost(len) = BASE * 2^(26 - len)      XVG, burned to an unspendable output
-```
+So a ticker has a price, and it exists for one reason: **to make mass registration ruinous while
+leaving one good name affordable to a real project.**
 
-with `BASE` small enough that a 26-character name is nearly free. Cost tracks value, allocation is
-first-come, and there is no unlock date to race. Burning rather than collecting keeps the protocol
-free of a treasury and its governance.
+### Schedule
 
-Tickers are unique, case-folded to uppercase, and permanent.
+An explicit table rather than a formula, because a lookup cannot be misread by a second
+implementation. Permanent once the first asset is etched.
+
+| Length | Price | | Length | Price |
+|---|---|---|---|---|
+| 1 | 100,000 XVG | | 7 | 1,000 XVG |
+| 2 | 50,000 XVG | | 8 | 500 XVG |
+| 3 | 25,000 XVG | | 9 | 250 XVG |
+| 4 | **10,000 XVG** | | 10 | 100 XVG |
+| 5 | 5,000 XVG | | 11 | 50 XVG |
+| 6 | 2,500 XVG | | 12+ | 10 XVG |
+
+The arithmetic that matters: a four-letter ticker costs **one project 10,000 XVG**, and costs
+**a squatter wanting fifty of them 500,000 XVG**. A descriptive name of twelve characters or more is
+nearly free, so honest naming is never priced out.
+
+There is no unlock calendar, so there is no date to camp on. Allocation is first come, tickers are
+unique, case-folded to uppercase, and permanent.
+
+### Where the money goes
+
+**Half to the project treasury, half to Verge itself.** Nothing is burned.
+
+Funding the chain the protocol runs on is not charity, it is self-interest: Verge's public
+infrastructure is visibly under-funded, to the point that the only public ElectrumX server went dark
+because nobody renewed a TLS certificate. A protocol that pays into the chain makes its own success
+and the chain's health the same thing.
+
+Both halves must be paid **in the transaction that carries the etching**, each to its exact address.
+Paying only one side does not buy a ticker. Any odd unit from the split goes to Verge, never to the
+project.
+
+The Verge address is fixed in the protocol and immutable. It **must be an address published by the
+Verge project itself**; it is deliberately left unset here until the Verge maintainers confirm one,
+because an address invented for a specification would send real money nowhere, forever.
 
 ---
 

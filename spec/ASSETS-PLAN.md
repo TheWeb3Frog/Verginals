@@ -96,7 +96,7 @@ Preconditions, all of which must hold before a single mainnet transaction:
 - phase 3 green end to end;
 - a second, independently written indexer agreeing on the same checkpoint roots (the whole point of
   §8 is undermined if only one implementation exists);
-- the ticker burn schedule fixed, since it is permanent once the first asset is etched;
+- the ticker schedule fixed and the Verge payout address confirmed by the Verge maintainers, since both are permanent once the first asset is etched;
 - a public statement of what the protocol does **not** do (spec §10), so nobody builds on a promise
   the chain cannot keep.
 
@@ -111,7 +111,7 @@ first real ticker is not spent on a shakedown run.
 |---|---|
 | A wallet spends an asset UTXO as fee change | asset-aware coin selection (2.3), the same guard inscriptions already need |
 | Two indexers diverge silently | checkpoints make divergence public and attributable (§8) |
-| Ticker squatting | burn-priced allocation, no unlock calendar to camp (§7) |
+| Ticker squatting | priced allocation split 50/50 project and Verge, no unlock calendar to camp (§7) |
 | A malformed message burns someone's balance | already handled: unknown messages fall through to the default assignment, and it is tested |
 | The 83-byte ceiling is hit by a real use case | etchings carry the rich data; only the hot path is constrained |
 | Nobody adopts it | the protocol is useless without a second implementation and a wallet; treat those as launch requirements, not follow-ups |

@@ -13,10 +13,10 @@ launch.
 | 1 | OP_RETURN codec (`src/assets/codec.js`) | **done** | 15 |
 | 1 | State machine (`src/assets/indexer.js`) | **done** | 17 |
 | 1 | Merkle checkpoints (`src/assets/checkpoint.js`) | **done** | 12 |
-| 2 | Chain scanner (`src/assets/scanner.js`) | **done** | covered by e2e |
+| 2 | Chain scanner + etch discovery (`src/assets/scanner.js`) | **done** | 11 |
 | 2 | Transaction builders (`src/assets/builder.js`) | **done** | 14 |
 | 2 | Asset-aware coin selection (`src/assets/coinselect.js`) | **done** | 13 |
-| 3 | Regtest end-to-end | **done** | 23 checks on chain |
+| 3 | Regtest end-to-end, full lifecycle | **done** | 38 checks on chain |
 | 4 | Mainnet launch | not started | |
 
 Phase 1 is the part where correctness actually lives: the protocol is a pure function from

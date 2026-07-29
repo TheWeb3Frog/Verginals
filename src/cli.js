@@ -15,7 +15,7 @@
 const fs = require('fs');
 const path = require('path');
 const bitcoin = require('bitcoinjs-lib');
-const { mainnet, testnet, COIN } = require('./networks');
+const { mainnet, testnet, regtest, COIN } = require('./networks');
 const { Indexer } = require('./indexer');
 const { ECPair, toBitcoinjsNetwork, buildInscriptionScripts, p2shFor, buildReveal } = require('./builder');
 const { RpcClient, VergeChain } = require('./rpc');
@@ -70,6 +70,9 @@ function inferContentType(file) {
 // --- network -----------------------------------------------------------------------------
 
 function pickNetwork(name) {
+  // regtest is opt-in by exact name: anything unrecognised still falls back to testnet, so a typo
+  // can never silently point mainnet-shaped work at a local test chain.
+  if (name === 'regtest') return { name: 'regtest', params: regtest, network: toBitcoinjsNetwork(regtest) };
   const params = name === 'mainnet' ? mainnet : testnet;
   return { name: name === 'mainnet' ? 'mainnet' : 'testnet', params, network: toBitcoinjsNetwork(params) };
 }

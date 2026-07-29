@@ -34,6 +34,24 @@ const testnet = {
   targetSpacing: 45,
 };
 
+// Local regression-test chain (verged -regtest). Unlike verge-testnet, which has its own version
+// bytes, regtest kept the Bitcoin Core defaults; these were read back from a running node rather
+// than assumed (getnewaddress -> 111, addmultisigaddress -> 196, dumpprivkey -> 239).
+// Blocks are mined on demand with the `generate` RPC, which is what makes it a usable test chain
+// where the public Verge testnet is not.
+const regtest = {
+  name: 'verge-regtest',
+  messagePrefix: '\x18Verge Signed Message:\n',
+  bech32: 'vrt',
+  bip32: { public: 0x043587cf, private: 0x04358394 },
+  pubKeyHash: 111, // 0x6f
+  scriptHash: 196, // 0xC4
+  wif: 239, // 0xEF
+  port: 21106,
+  magic: Buffer.from([0xcd, 0xf2, 0xc0, 0xef]),
+  targetSpacing: 30,
+};
+
 // Standardness limits we must stay inside (from the Bitcoin Core base Verge forked).
 // NB: Verge never serializes segwit witnesses (see src/vergetx.js), so inscriptions live in a
 // P2SH redeemScript revealed in the scriptSig. That redeemScript is pushed as ONE stack element,
@@ -44,4 +62,4 @@ const limits = {
   MAX_STANDARD_TX_WEIGHT: 400_000,
 };
 
-module.exports = { COIN, MAX_MONEY_XVG, MAX_UNITS, mainnet, testnet, limits };
+module.exports = { COIN, MAX_MONEY_XVG, MAX_UNITS, mainnet, testnet, regtest, limits };

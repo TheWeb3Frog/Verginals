@@ -6,6 +6,80 @@
 // without a node. Keeping the boundary here is what lets two independent implementations agree.
 
 const codec = require('./codec');
+const cbor = require('../cbor');
+const { parseInscriptionScript } = require('../envelope');
+const { extractRedeemScript } = require('../rpc');
+
+/** The content type that marks an inscription as an asset etching (spec §1). */
+const ETCH_CONTENT_TYPE = 'application/vnd.verge-asset+cbor';
+
+/**
+ * Coerce a decoded CBOR byte string to a Buffer. The project's CBOR decoder hands byte strings back
+ * as a plain object with numeric keys rather than a Buffer, so accept that shape too. Returns null
+ * for anything that is not a clean byte sequence, and callers must treat null as "unreadable".
+ */
+function toBuffer(v) {
+  if (Buffer.isBuffer(v)) return v;
+  if (v instanceof Uint8Array) return Buffer.from(v);
+  if (v && typeof v === 'object') {
+    const vals = Object.values(v);
+    if (vals.length && vals.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) return Buffer.from(vals);
+  }
+  return null;
+}
+
+/**
+ * Find an asset etching in a reveal transaction.
+ *
+ * An etching is an ordinary inscription whose content type is ETCH_CONTENT_TYPE, so this reuses the
+ * existing envelope parser rather than inventing a second one: the body may be split across several
+ * P2SH inputs and is concatenated in input order, exactly as the inscription indexer does it.
+ *
+ * Returns the etching in the shape the state machine expects, or null. A malformed body returns null
+ * rather than throwing: an unreadable etching must be ignored, never fatal.
+ */
+function detectEtching(tx) {
+  let contentType = null;
+  const chunks = [];
+  let found = false;
+  for (const vin of tx.vin || []) {
+    const redeem = extractRedeemScript(vin.scriptSig);
+    if (!redeem) continue;
+    const parsed = parseInscriptionScript(redeem);
+    if (!parsed) continue;
+    found = true;
+    // The envelope parser hands back the content type as raw bytes, not a string.
+    if (contentType === null && parsed.contentType) contentType = Buffer.from(parsed.contentType).toString('utf8');
+    chunks.push(parsed.body);
+  }
+  if (!found || contentType !== ETCH_CONTENT_TYPE) return null;
+
+  let body;
+  try { body = cbor.decode(Buffer.concat(chunks)); } catch { return null; }
+  if (!body || typeof body !== 'object') return null;
+
+  // Short CBOR keys back to readable fields (spec §2.1).
+  const etching = {
+    ticker: body.t, name: body.n, divisibility: body.d, supply: body.s, premine: body.p,
+  };
+  if (body.m) {
+    etching.terms = { amount: body.m.a };
+    if (body.m.c != null) etching.terms.cap = body.m.c;
+    if (body.m.h0 != null) etching.terms.openHeight = body.m.h0;
+    if (body.m.h1 != null) etching.terms.closeHeight = body.m.h1;
+  }
+  if (body.a != null) {
+    // A gated mint whose gate cannot be read must NOT be registered as an open one: dropping an
+    // unreadable allowlist would quietly turn a whitelist-only drop into a free-for-all.
+    const root = toBuffer(body.a);
+    if (!root || root.length !== 32) return null;
+    etching.allowlistRoot = root;
+  }
+  if (body.r) etching.royalty = { bps: body.r.b, address: body.r.x };
+  if (body.i) etching.metadataRef = body.i;
+  if (body.k) etching.parent = body.k;
+  return etching;
+}
 
 /** Is this output an OP_RETURN, and what does it carry? scriptPubKey.hex starts with 6a (OP_RETURN). */
 function readOpReturn(vout) {
@@ -49,7 +123,14 @@ function toIndexerTx(tx, height, txIndex, opts = {}) {
     };
   });
 
-  return Object.assign({ txid: tx.txid, height, txIndex, inputs, outputs }, opts);
+  // An etching passed in by the caller wins; otherwise look for one in this transaction's
+  // inscription envelope, so a scan needs no outside help to find new assets.
+  const extra = Object.assign({}, opts);
+  if (!extra.etching) {
+    const found = detectEtching(tx);
+    if (found) extra.etching = found;
+  }
+  return Object.assign({ txid: tx.txid, height, txIndex, inputs, outputs }, extra);
 }
 
 /** True when a transaction carries something this protocol should look at (cheap pre-filter). */
@@ -87,4 +168,4 @@ async function scanRange(chain, state, from, to, applyTx, opts = {}) {
   return { applied, height: to };
 }
 
-module.exports = { readOpReturn, toIndexerTx, isRelevant, scanRange };
+module.exports = { ETCH_CONTENT_TYPE, readOpReturn, detectEtching, toIndexerTx, isRelevant, scanRange };

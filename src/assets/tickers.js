@@ -5,12 +5,12 @@
 // schedule; in practice bots raced every unlock and the good names went to squatters, who paid
 // miners rather than the ecosystem. On Verge that failure mode would be worse, not better: relay
 // fees are 0.2 XVG/kB, so there is no accidental cost filter at all and a single operator could take
-// every desirable ticker for pocket change. This project has already watched one operator accumulate
-// 565 items across 612 wallets, so this is an observed behaviour, not a hypothetical.
+// every desirable ticker for pocket change. Nor is wallet-rotation at scale hypothetical here: it is
+// observable on this chain on any drop worth farming.
 //
 // So the price exists to make MASS registration ruinous while leaving one good name affordable to a
-// real project. At the schedule below, a four-letter ticker costs one project 10,000 XVG, and costs
-// a squatter wanting fifty of them half a million.
+// real project. At the schedule below, a four-letter ticker costs one project 10,000 XVG, and costs a
+// squatter wanting fifty of them half a million.
 //
 // The fee is split 50/50 between the project treasury and Verge itself. A protocol that depends on a
 // chain should contribute to it: Verge's development and public infrastructure are what make this

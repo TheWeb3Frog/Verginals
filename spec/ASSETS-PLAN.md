@@ -112,6 +112,7 @@ first real ticker is not spent on a shakedown run.
 | A wallet spends an asset UTXO as fee change | asset-aware coin selection (2.3), the same guard inscriptions already need |
 | Two indexers diverge silently | checkpoints make divergence public and attributable (§8) |
 | Ticker squatting | priced allocation split 50/50 project and Verge, no unlock calendar to camp (§7) |
+| A taker steals a partial asset sale | a listing sells the whole carrier, so a missing edict costs the maker nothing (§9.1); the attack itself is asserted in test/assets-swap.test.js |
 | A malformed message burns someone's balance | already handled: unknown messages fall through to the default assignment, and it is tested |
 | The 83-byte ceiling is hit by a real use case | etchings carry the rich data; only the hot path is constrained |
 | Nobody adopts it | the protocol is useless without a second implementation and a wallet; treat those as launch requirements, not follow-ups |

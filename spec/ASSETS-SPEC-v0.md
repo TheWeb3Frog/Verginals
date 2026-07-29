@@ -310,13 +310,52 @@ The marketplace primitive is part of the protocol, not left to third parties.
 A swap is a single transaction, partially signed: the maker signs their input and their expected
 output with `SIGHASH_SINGLE | SIGHASH_ANYONECANPAY`, and the taker appends their input, their output,
 and the fee. Neither side can alter the other's leg, and the trade either happens atomically or not
-at all.
-
-Because assets are a single primitive, the same construction covers **any pair**: token/XVG,
-token/token, item/token, item/item. This is the same construction already proven in
-`src/swap.js` for inscription trading.
+at all. This is the construction already proven in `src/swap.js` for inscription trading, and because
+assets are a single primitive the same shape covers any pair: token/XVG, token/token, item/token,
+item/item.
 
 Offers can be made to expire with CLTV, which is active on Verge.
+
+### 9.1 Why a listing must sell a whole carrier
+
+Applying the inscription construction to a **divisible** asset without one extra rule is a theft
+vector, so the rule is stated here rather than left to implementers to discover.
+
+`SIGHASH_SINGLE | SIGHASH_ANYONECANPAY` commits the maker to exactly one output: their own payment.
+Every other output, **including the OP_RETURN that carries the edicts**, is built by the taker. For an
+inscription that is safe, because an inscription is indivisible and travels with its satoshi. For a
+divisible asset it is not, because **the amount that leaves is decided by an edict the maker never
+signed**.
+
+Concretely, with the marketplace layout (`vout[0]` padding-out to the buyer, `vout[1]` the buyer's new
+carrier, `vout[2]` the maker's price):
+
+| | Buyer receives | Maker keeps |
+|---|---|---|
+| Honest taker, edicts as agreed | 300 | 700 |
+| Taker simply omits the OP_RETURN | **1000** | **0** |
+
+With no edict, the default assignment (§3) sweeps the whole pooled balance to the first eligible
+output, which belongs to the buyer. The maker is paid for 300 and loses 1000, using the maker's own
+valid signature.
+
+**The rule:** an asset listing sells the **entire balance of one carrier outpoint**. A listing may not
+name a partial amount. A maker who wants to sell part of a holding **splits first**, in a separate
+transaction they sign in full, and then lists the resulting carrier.
+
+This removes the attack rather than mitigating it: when everything on the carrier is for sale, a
+missing edict costs the maker nothing, and the worst a lazy taker achieves is receiving the balance on
+`vout[0]` instead of on the intended carrier at `vout[1]`. Implementations SHOULD still emit the
+explicit edict so the balance lands on the proper carrier.
+
+### 9.2 A listing declares everything on the carrier
+
+A single outpoint can hold several different assets (§3). A listing MUST therefore declare **every**
+asset and amount the carrier holds, and a taker MUST refuse a listing whose declaration does not match
+the chain.
+
+This protects both sides: a maker cannot accidentally sell an asset they had forgotten was sitting on
+that coin, and a taker knows exactly what the coin carries before paying for it.
 
 ---
 

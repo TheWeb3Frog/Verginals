@@ -9,6 +9,15 @@
 //
 // Set VERGE_BIN if the binary is somewhere unusual:
 //   VERGE_BIN=/usr/local/bin/verged node test/e2e/assets-demo.js
+//
+// PREFER NOT TO LET A STRANGER'S SCRIPT START A PROCESS? Start your own regtest node, however you
+// like, and point this at it. It then only makes JSON-RPC calls and spawns nothing:
+//
+//   DEMO_RPC_PORT=18443 DEMO_RPC_USER=you DEMO_RPC_PASS=yourpass node test/e2e/assets-demo.js
+//
+// In that mode this file touches nothing but the RPC socket you gave it. It never reads a datadir,
+// never looks for a wallet file, and never starts or stops anything. That is worth verifying rather
+// than believing: it is one file, and `spawn` appears exactly once in it.
 'use strict';
 const { spawn, execSync } = require('child_process');
 const fs = require('fs');
@@ -26,9 +35,12 @@ const { stateRoot, proveBalance, verifyBalance } = require(path.join(ROOT, 'src/
 const { priceOf } = require(path.join(ROOT, 'src/assets/tickers'));
 
 const COIN = 1e6;
-const PORT = 18449; // deliberately not a default, so it cannot collide with a real node
-const USER = 'demo';
-const PASS = 'demo' + Math.random().toString(36).slice(2, 10);
+
+// Attach mode: when the reader supplies RPC details, we connect to THEIR node and start nothing.
+const ATTACH = !!(process.env.DEMO_RPC_PORT && process.env.DEMO_RPC_USER && process.env.DEMO_RPC_PASS);
+const PORT = Number(process.env.DEMO_RPC_PORT || 18449); // 18449: not a default, cannot hit a real node
+const USER = process.env.DEMO_RPC_USER || 'demo';
+const PASS = process.env.DEMO_RPC_PASS || ('demo' + Math.random().toString(36).slice(2, 10));
 
 const CANDIDATES = [
   process.env.VERGE_BIN,
@@ -109,28 +121,38 @@ let node = null;
 let dir = null;
 
 async function main() {
-  const bin = findBinary();
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'verge-assets-demo-'));
-  fs.writeFileSync(path.join(dir, 'VERGE.conf'),
-    `regtest=1\nserver=1\nlisten=0\ntxindex=1\ndatacarrier=1\ndatacarriersize=83\n\n`
-    + `[regtest]\nrpcuser=${USER}\nrpcpassword=${PASS}\nrpcport=${PORT}\nrpcbind=127.0.0.1\nrpcallowip=127.0.0.1\n`);
-
   say('\x1b[1mVerge Assets: a live demonstration\x1b[0m');
   say('A fungible token protocol running on Verge. Everything below is a real transaction');
-  say('on a throwaway regtest chain created for this run.');
-  say(`\nbinary   ${bin}`);
-  say(`datadir  ${dir}  (deleted when this finishes)`);
+  say('on a regtest chain.');
 
-  step(1, 'Starting a private regtest chain');
-  node = spawn(bin, [`-datadir=${dir}`, '-regtest', '-server=1', '-listen=0'], { stdio: 'ignore' });
-  await waitForRpc();
-  ok('node up, isolated from any real wallet');
+  if (ATTACH) {
+    say(`\nmode     attaching to YOUR regtest node on 127.0.0.1:${PORT}`);
+    say('         this process starts nothing and touches no datadir or wallet file');
+    step(1, 'Connecting to your node');
+    const info = await rpc('getblockchaininfo');
+    if (info.chain !== 'regtest') throw new Error(`refusing to run: that node is on "${info.chain}", not regtest`);
+    ok(`connected, chain ${info.chain} at height ${info.blocks}`);
+  } else {
+    const bin = findBinary();
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'verge-assets-demo-'));
+    fs.writeFileSync(path.join(dir, 'VERGE.conf'),
+      `regtest=1\nserver=1\nlisten=0\ntxindex=1\ndatacarrier=1\ndatacarriersize=83\n\n`
+      + `[regtest]\nrpcuser=${USER}\nrpcpassword=${PASS}\nrpcport=${PORT}\nrpcbind=127.0.0.1\nrpcallowip=127.0.0.1\n`);
+    say(`\nbinary   ${bin}`);
+    say(`datadir  ${dir}  (created for this run, deleted at the end)`);
+    say('         to avoid letting this script start a process, see the header: it can attach');
+    say('         to a regtest node you started yourself instead.');
+    step(1, 'Starting a private regtest chain');
+    node = spawn(bin, [`-datadir=${dir}`, '-regtest', '-server=1', '-listen=0'], { stdio: 'ignore' });
+    await waitForRpc();
+    ok('node up, isolated from any real wallet');
+  }
 
-  const addr = await rpc('getnewaddress');
   let mined = 0;
   const t0 = Date.now();
-  while (mined < 130) { const n = Math.min(20, 130 - mined); await rpc('generate', [n]); mined += n; }
-  ok(`130 blocks mined in ${((Date.now() - t0) / 1000).toFixed(1)}s, balance ${await rpc('getbalance')} XVG`);
+  const need = ATTACH ? Math.max(0, 130 - (await rpc('getblockchaininfo')).blocks) : 130;
+  while (mined < need) { const n = Math.min(20, need - mined); await rpc('generate', [n]); mined += n; }
+  ok(`${mined} blocks mined in ${((Date.now() - t0) / 1000).toFixed(1)}s, balance ${await rpc('getbalance')} XVG`);
 
   const start = (await rpc('getblockchaininfo')).blocks;
   const alice = await rpc('getnewaddress');

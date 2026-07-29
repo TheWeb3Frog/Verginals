@@ -1,0 +1,200 @@
+// Conformance: two independent implementations must agree, on every history.
+//
+// This is what gives checkpoints their meaning. A published root only proves something if
+// implementations that were built differently arrive at the same one, so this drives
+// src/assets/indexer.js (mutable maps) and src/assets/verify.js (an append-only delta journal) over
+// randomised transaction histories and compares their checkpoint roots.
+//
+// It is also the artifact a third-party implementer needs: point a new implementation at this file,
+// and conformance stops being a claim and becomes a test result.
+//
+// Run: node test/assets-conformance.test.js
+const assert = require('assert');
+const crypto = require('crypto');
+const indexerImpl = require('../src/assets/indexer');
+const verifyImpl = require('../src/assets/verify');
+const { buildTree } = require('../src/assets/checkpoint');
+const codec = require('../src/assets/codec');
+
+let passed = 0;
+const test = (name, fn) => { fn(); passed += 1; console.log('  ok - ' + name); };
+
+const DUST = 100000;
+const rootOf = (entries) => buildTree([...entries]).root.toString('hex');
+
+/** Both implementations, over the same history, must commit to the same root. */
+function agree(txs) {
+  const a = indexerImpl.index(txs);
+  const b = verifyImpl.index(txs);
+  return { same: rootOf(a.entries()) === rootOf(b.entries()), a: rootOf(a.entries()), b: rootOf(b.entries()) };
+}
+
+// --- a small deterministic generator ------------------------------------------------------------
+// Seeded so a failure is reproducible: the seed is printed with any mismatch.
+function makeRng(seed) {
+  let s = seed >>> 0;
+  return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+}
+
+const out = (value = DUST, address = null) => ({ value, scriptPubKey: Buffer.from('aa', 'hex'), isOpReturn: false, address });
+const opret = (data) => ({ value: 0, isOpReturn: true, opReturnData: data });
+
+/** A random but structurally valid history: etchings, mints, transfers, plain sends and junk. */
+function randomHistory(seed, length = 40) {
+  const rnd = makeRng(seed);
+  const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
+  const txs = [];
+  const refs = [];
+  const spendable = []; // outpoints that may carry a balance
+
+  for (let n = 0; n < length; n++) {
+    const height = 100 + n;
+    const txid = 'tx' + n;
+    const kind = rnd();
+
+    if (kind < 0.15 || refs.length === 0) {
+      // etch
+      const ticker = 'T' + n;
+      const supply = 1000 + Math.floor(rnd() * 100000);
+      const premine = Math.floor(rnd() * supply);
+      const etching = { ticker, name: ticker, divisibility: Math.floor(rnd() * 7), supply, premine };
+      if (rnd() < 0.5 && premine < supply) {
+        etching.terms = { amount: Math.max(1, Math.floor((supply - premine) / 10)) };
+        if (rnd() < 0.5) etching.terms.cap = 1 + Math.floor(rnd() * 4);
+        if (rnd() < 0.3) etching.terms.openHeight = height + Math.floor(rnd() * 5);
+        if (rnd() < 0.3) etching.terms.closeHeight = height + Math.floor(rnd() * 10);
+      }
+      txs.push({ txid, height, txIndex: 1, inputs: [], outputs: [out(), out()], etching });
+      refs.push(indexerImpl.assetRefOf(height, 1));
+      spendable.push(txid + ':0', txid + ':1');
+      continue;
+    }
+
+    const ref = pick(refs);
+    const spend = spendable.length ? [pick(spendable)] : [];
+    const inputs = spend.map((s) => ({ txid: s.split(':')[0], vout: Number(s.split(':')[1]) }));
+
+    if (kind < 0.4) {
+      // mint
+      txs.push({ txid, height, txIndex: 0, inputs, outputs: [out(), opret(codec.encodeMint(ref))] });
+    } else if (kind < 0.7) {
+      // transfer, sometimes to an output that does not exist or is dust
+      const amount = rnd() < 0.3 ? 0 : Math.floor(rnd() * 5000);
+      const target = Math.floor(rnd() * 3);
+      let edicts;
+      try { edicts = codec.encodeEdicts([{ assetRef: ref, amount, output: target }]); } catch { continue; }
+      txs.push({ txid, height, txIndex: 0, inputs, outputs: [out(), out(rnd() < 0.2 ? 1 : DUST), opret(edicts)] });
+    } else if (kind < 0.85) {
+      // plain send: the default assignment has to move the balance
+      txs.push({ txid, height, txIndex: 0, inputs, outputs: [out()] });
+    } else {
+      // junk in the OP_RETURN, or nowhere to put the balance
+      const junk = rnd() < 0.5 ? Buffer.from('not a message') : Buffer.from([0x56, 0x41, 0x00, 0x80]);
+      txs.push({ txid, height, txIndex: 0, inputs, outputs: rnd() < 0.5 ? [opret(junk)] : [out(), opret(junk)] });
+    }
+    spendable.push(txid + ':0', txid + ':1');
+  }
+  return txs;
+}
+
+// --- the tests ----------------------------------------------------------------------------------
+
+test('both implementations agree on an empty history', () => {
+  assert.ok(agree([]).same);
+});
+
+test('both agree on a simple etch, mint and transfer', () => {
+  const REF = indexerImpl.assetRefOf(100, 1);
+  const txs = [
+    { txid: 'e', height: 100, txIndex: 1, inputs: [], outputs: [out()],
+      etching: { ticker: 'CONF', supply: 100000, premine: 40000, divisibility: 2, terms: { amount: 1000 } } },
+    { txid: 'm', height: 101, txIndex: 0, inputs: [], outputs: [out(), opret(codec.encodeMint(REF))] },
+    { txid: 't', height: 102, txIndex: 0, inputs: [{ txid: 'e', vout: 0 }],
+      outputs: [out(), out(), opret(codec.encodeEdicts([{ assetRef: REF, amount: 15000, output: 1 }]))] },
+  ];
+  const r = agree(txs);
+  assert.ok(r.same, `${r.a} vs ${r.b}`);
+});
+
+test('both agree across 200 randomised histories', () => {
+  const failures = [];
+  for (let seed = 1; seed <= 200; seed++) {
+    const r = agree(randomHistory(seed));
+    if (!r.same) failures.push(`seed ${seed}: ${r.a.slice(0, 12)} vs ${r.b.slice(0, 12)}`);
+  }
+  assert.strictEqual(failures.length, 0, 'divergence:\n  ' + failures.slice(0, 5).join('\n  '));
+});
+
+test('both agree on long histories where balances are repeatedly split and merged', () => {
+  const failures = [];
+  for (let seed = 500; seed <= 520; seed++) {
+    const r = agree(randomHistory(seed, 150));
+    if (!r.same) failures.push('seed ' + seed);
+  }
+  assert.strictEqual(failures.length, 0, failures.join(', '));
+});
+
+test('both agree on the awkward cases: burns, dust outputs and malformed messages', () => {
+  const REF = indexerImpl.assetRefOf(100, 1);
+  const etch = { txid: 'e', height: 100, txIndex: 1, inputs: [], outputs: [out()],
+    etching: { ticker: 'EDGE', supply: 50000, premine: 50000 } };
+  const cases = [
+    // burned: no eligible output at all
+    [etch, { txid: 'b', height: 101, txIndex: 0, inputs: [{ txid: 'e', vout: 0 }], outputs: [opret(Buffer.from('x'))] }],
+    // every output below dust
+    [etch, { txid: 'd', height: 101, txIndex: 0, inputs: [{ txid: 'e', vout: 0 }], outputs: [out(1), out(2)] }],
+    // malformed protocol message
+    [etch, { txid: 'j', height: 101, txIndex: 0, inputs: [{ txid: 'e', vout: 0 }],
+      outputs: [out(), opret(Buffer.from([0x56, 0x41, 0x00, 0x80]))] }],
+    // edict naming an output that does not exist
+    [etch, { txid: 'o', height: 101, txIndex: 0, inputs: [{ txid: 'e', vout: 0 }],
+      outputs: [out(), opret(codec.encodeEdicts([{ assetRef: REF, amount: 10, output: 9 }]))] }],
+  ];
+  for (const [i, txs] of cases.entries()) {
+    const r = agree(txs);
+    assert.ok(r.same, `case ${i}: ${r.a} vs ${r.b}`);
+  }
+});
+
+test('both agree that a mint past its cap or window changes nothing', () => {
+  const REF = indexerImpl.assetRefOf(100, 1);
+  const txs = [
+    { txid: 'e', height: 100, txIndex: 1, inputs: [], outputs: [out()],
+      etching: { ticker: 'CAPD', supply: 100000, premine: 0, terms: { amount: 1000, cap: 2, openHeight: 105, closeHeight: 110 } } },
+  ];
+  for (const h of [101, 106, 107, 108, 115]) {
+    txs.push({ txid: 'm' + h, height: h, txIndex: 0, inputs: [], outputs: [out(), opret(codec.encodeMint(REF))] });
+  }
+  const r = agree(txs);
+  assert.ok(r.same, `${r.a} vs ${r.b}`);
+  // and the shared answer is the correct one: only the two inside the window and under the cap
+  assert.strictEqual(indexerImpl.index(txs).assets.get(REF).minted, 2000);
+});
+
+test('both agree on royalty enforcement', () => {
+  const REF = indexerImpl.assetRefOf(100, 1);
+  const edicts = codec.encodeEdicts([{ assetRef: REF, amount: 10000, output: 1 }]);
+  const base = { txid: 'e', height: 100, txIndex: 1, inputs: [], outputs: [out()],
+    etching: { ticker: 'ROY', supply: 50000, premine: 50000, royalty: { bps: 500, address: 'DPAYEE' } } };
+  const underpaid = [base, { txid: 'u', height: 101, txIndex: 0, saleValue: 1000000,
+    inputs: [{ txid: 'e', vout: 0 }], outputs: [out(), out(), out(10000, 'DPAYEE'), opret(edicts)] }];
+  const paid = [base, { txid: 'p', height: 101, txIndex: 0, saleValue: 1000000,
+    inputs: [{ txid: 'e', vout: 0 }], outputs: [out(), out(), out(50000, 'DPAYEE'), opret(edicts)] }];
+  assert.ok(agree(underpaid).same);
+  assert.ok(agree(paid).same);
+  // and they disagree with each other, so the rule is actually doing something
+  assert.notStrictEqual(rootOf(indexerImpl.index(underpaid).entries()), rootOf(indexerImpl.index(paid).entries()));
+});
+
+test('a deliberately broken implementation is caught (the harness can fail)', () => {
+  // guards against a harness that would pass no matter what
+  const REF = indexerImpl.assetRefOf(100, 1);
+  const txs = [{ txid: 'e', height: 100, txIndex: 1, inputs: [], outputs: [out()],
+    etching: { ticker: 'SANITY', supply: 1000, premine: 1000 } }];
+  const good = rootOf(indexerImpl.index(txs).entries());
+  const tampered = verifyImpl.index(txs);
+  tampered.record('tx:0', REF, 1); // one extra unit out of nowhere
+  assert.notStrictEqual(good, rootOf(tampered.entries()));
+});
+
+console.log('\nassets conformance: ' + passed + ' passed');

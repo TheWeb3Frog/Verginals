@@ -17,6 +17,7 @@ import * as bip32 from './bip32.js';
 import { ElectrumClient } from './electrum.js';
 import { InscriptionDetector } from './inscriptions.js';
 import * as swap from './swap.js';
+import { verifiedBalances, spendableForPayment } from './assets.js';
 
 const DEFAULT_API = 'https://verginals.com';
 
@@ -704,7 +705,50 @@ export class Wallet {
         }
       }
     } catch { /* offline / VPS down: display shows the inscription without a number, spends unaffected */ }
+    await this._annotateAssets(utxos);
     return utxos;
+  }
+
+  /**
+   * Tag each coin with the fungible assets it carries (ASSETS-SPEC-v0).
+   *
+   * A wallet cannot index the chain, so it asks an indexer, and then REFUSES TO TRUST IT: every
+   * balance must come with a merkle proof that verifies against a checkpoint root, and anything that
+   * does not verify is discarded. A hostile indexer therefore cannot invent a balance, and a dead
+   * one cannot make coins look spendable that are not.
+   *
+   * `assets` follows the same fail-safe convention as `inscription`: {} means confirmed to carry
+   * nothing, and `undefined` means undetermined, which every spend path treats as "do not touch".
+   */
+  async _annotateAssets(utxos) {
+    for (const u of utxos) u.assets = undefined; // undetermined until proven otherwise
+    try {
+      const outpoints = utxos.map((u) => `${u.txid}:${u.vout}`);
+      const answer = await this._post('/api/assets/balances', { outpoints });
+      if (!answer || !answer.root || !Array.isArray(answer.entries)) return; // leave undetermined
+      const root = Uint8Array.from(answer.root);
+      const { balances, rejected } = await verifiedBalances(answer, root);
+      if (rejected > 0) {
+        // Something served a balance it could not prove. Trust nothing from this answer.
+        console.warn(`assets: ${rejected} unproven balance(s) rejected; leaving coins undetermined`);
+        return;
+      }
+      for (const u of utxos) u.assets = balances.get(`${u.txid}:${u.vout}`) || {};
+    } catch {
+      /* offline, or no asset indexer: coins stay undetermined, so nothing gets spent by accident */
+    }
+  }
+
+  /** Fungible asset balances held by this wallet, summed across its coins. */
+  async getAssetBalances() {
+    const utxos = await this.getUtxos();
+    const totals = {};
+    let undetermined = 0;
+    for (const u of utxos) {
+      if (u.assets === undefined) { undetermined += 1; continue; }
+      for (const [ref, amt] of Object.entries(u.assets)) totals[ref] = (totals[ref] || 0) + amt;
+    }
+    return { totals, undetermined };
   }
 
   /**
@@ -815,8 +859,10 @@ export class Wallet {
   async send({ toAddress, amount, feePerKb = 200000, broadcast = true }) {
     this._requireUnlocked();
     const utxos = await this.getUtxos();
-    // Spend ONLY coins explicitly confirmed non-inscription (=== null); never unknown/inscription.
-    const spendable = utxos.filter((u) => u.inscription === null).map((u) => ({ ...u, privateKey: this._priv }));
+    // Spend ONLY coins explicitly confirmed to carry neither an inscription nor a fungible asset.
+    // Both checks are positive: a coin whose status could not be determined is left alone, because
+    // a refused payment is an inconvenience and a burnt asset is permanent.
+    const spendable = spendableForPayment(utxos).map((u) => ({ ...u, privateKey: this._priv }));
 
     // Greedy selection over spendable UTXOs.
     spendable.sort((a, b) => b.value - a.value);

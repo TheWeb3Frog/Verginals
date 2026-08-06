@@ -266,4 +266,109 @@ test('a new season starts clean, and Alphas are untouched because they were neve
   assert.strictEqual(s.preview(ADDR, mother(), father()).ok, true);
 });
 
+// --- the DNA Orb (§2, §2.1) -------------------------------------------------------------------------
+
+// A stand-in rarity engine: the real one is combos.js, injected so this module never imports it.
+const rarityOf = (attrs) => attrs.reduce((n, a) => n + a.value.length, 0);
+
+test('the two ladders rank the fighter and the breeder separately (§2.1)', () => {
+  const { s } = fresh();
+  const a = conceive(s, 'l1');
+  const b = conceive(s, 'l2');
+  s.recordFight(ADDR, a.id, true);
+  s.recordFight(ADDR, a.id, true);
+  s.recordFight(ADDR, b.id, false);
+  const l = s.ladders(ADDR, rarityOf);
+  assert.strictEqual(l.combat[0].id, a.id, 'the combat ladder must lead with the winner');
+  assert.strictEqual(l.combat.length, 2);
+  assert.strictEqual(l.genetics.length, 2);
+  assert.ok(l.genetics[0].score >= l.genetics[1].score, 'the genetics ladder must be sorted');
+});
+
+test('an Orb goes to the top of a ladder, and one player gets at most one (§2)', () => {
+  const { s } = fresh();
+  conceive(s, 'o1');
+  conceive(s, 'o2');
+  const g = s.grantOrbs(ADDR, rarityOf);
+  assert.strictEqual(g.orbs, 1, 'one Orb carries ONE bloodline, so a second means nothing');
+  assert.ok(g.eligible.length >= 1);
+});
+
+test('a small community still has winners: the top 10% never rounds down to nobody', () => {
+  const { s } = fresh({ tuning: { livingSlots: 3 } });
+  conceive(s, 'sm');
+  const g = s.grantOrbs(ADDR, rarityOf);
+  assert.strictEqual(g.eligible.length >= 1, true);
+  assert.strictEqual(g.orbs, 1);
+});
+
+test('season end keeps the roster savable, so an Orb has something to spend on', () => {
+  const { s, clock } = fresh();
+  const a = conceive(s, 'sv');
+  s.grantOrbs(ADDR, rarityOf);
+  clock.t = T0 + 30 * DAY;
+  s.endSeason();
+  assert.strictEqual(s.roster(ADDR).living.length, 0, 'the season must still wipe the stable');
+  assert.strictEqual(s.state.players[ADDR].saved.length, 1);
+  assert.strictEqual(s.state.players[ADDR].saved[0].id, a.id);
+});
+
+test('spending the Orb clones the GENOME, not the individual (§5.1)', () => {
+  const { s, clock } = fresh();
+  const a = conceive(s, 'cl');
+  const before = s.state.players[ADDR].creatures[a.id];
+  s.attend(ADDR, a.id, 'feed');
+  s.recordFight(ADDR, a.id, true);
+  s.grantOrbs(ADDR, rarityOf);
+  clock.t = T0 + 30 * DAY;
+  s.endSeason();
+
+  const r = s.spendOrb(ADDR, a.id);
+  assert.strictEqual(r.ok, true);
+  const clone = s.state.players[ADDR].creatures[r.id];
+  assert.deepStrictEqual(clone.genome.genes, before.genome.genes, 'the bloodline must carry');
+  // The individual does not: raising it again is the whole point of the Orb.
+  assert.deepStrictEqual(clone.j.attentions, { spar: 0, drill: 0, feed: 0, play: 0 });
+  assert.deepStrictEqual(clone.record, { fights: 0, wins: 0 });
+  assert.strictEqual(clone.clonedFrom, a.id);
+});
+
+test('one Orb, one bloodline, no undo', () => {
+  const { s, clock } = fresh();
+  const a = conceive(s, 'nu');
+  conceive(s, 'nu2');
+  s.grantOrbs(ADDR, rarityOf);
+  clock.t = T0 + 30 * DAY;
+  s.endSeason();
+  assert.strictEqual(s.spendOrb(ADDR, a.id).ok, true);
+  assert.strictEqual(s.state.players[ADDR].orbs, 0);
+  assert.strictEqual(s.spendOrb(ADDR, a.id).reason, 'you have no DNA Orb');
+});
+
+test('a carried bloodline is unrelated to everything in the new season (§3.4)', () => {
+  const { s, clock } = fresh();
+  const a = conceive(s, 'fb');
+  s.grantOrbs(ADDR, rarityOf);
+  clock.t = T0 + 30 * DAY;
+  s.endSeason();
+  const r = s.spendOrb(ADDR, a.id);
+  const clone = s.state.players[ADDR].creatures[r.id];
+  assert.strictEqual(clone.mother, null);
+  assert.strictEqual(clone.father, null);
+  const fresh2 = conceive(s, 'fb2');
+  const pv = s.preview(ADDR, { id: clone.id, genome: clone.genome }, { id: fresh2.id, genome: s.state.players[ADDR].creatures[fresh2.id].genome });
+  assert.strictEqual(pv.viability, 1, 'a carried bloodline must arrive as fresh blood');
+});
+
+test('an Orb cannot be spent on a bloodline that was never saved, or with no free slot', () => {
+  const { s, clock } = fresh({ tuning: { livingSlots: 1 } });
+  const a = conceive(s, 'ns');
+  s.grantOrbs(ADDR, rarityOf);
+  clock.t = T0 + 30 * DAY;
+  s.endSeason();
+  assert.match(s.spendOrb(ADDR, 'nope').reason, /not on your saved roster/);
+  conceive(s, 'fill');
+  assert.match(s.spendOrb(ADDR, a.id).reason, /no free living slot/);
+});
+
 console.log(`\n${passed} stable tests passed`);

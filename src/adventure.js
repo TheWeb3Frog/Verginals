@@ -218,6 +218,37 @@ class Adventure {
     return r.ok ? r : { error: r.reason };
   }
 
+  /**
+   * GET /adventure/orb — the save file and what it could carry (§2).
+   *
+   * The candidates are deliberately NOT ranked. A winner with six heterozygous traits, a rare
+   * expression with nothing locked and a weak fighter with three traits fixed are three different
+   * bets, and the game refuses to say which is correct because that judgement is the reward for
+   * having learned the pip bar. Same reasoning as leaving Punnett squares out.
+   */
+  orb(address) {
+    const p = this.stable.state.players[address] || {};
+    return {
+      orbs: p.orbs || 0,
+      candidates: (p.saved || []).map((s) => ({
+        id: s.id,
+        generation: s.generation,
+        record: s.record,
+        sex: s.genome.sex,
+        traits: G.phenotype(s.genome, this.pool, s.id),
+        zygosity: Object.fromEntries(G.LOCI.map((l) => [l, G.zygosity(s.genome, l)])),
+      })),
+    };
+  }
+
+  /** POST /adventure/orb/spend — one orb, one bloodline, no undo. */
+  spendOrb(address, savedId) {
+    const r = this.stable.spendOrb(address, savedId);
+    if (!r.ok) return { error: r.reason };
+    const c = this.stable.state.players[address].creatures[r.id];
+    return { ...r, traits: G.phenotype(c.genome, this.pool, r.id), bornAt: c.j.bornAt };
+  }
+
   /** POST /adventure/creature/:id/release — §6, "choosing what not to keep". */
   release(address, id) {
     const r = this.stable.release(address, id);

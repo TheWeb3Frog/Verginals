@@ -1454,6 +1454,45 @@ async function handleAdventureDuelRound(req, res, duelId) {
   return sendJSON(res, r.error ? 400 : 200, r);
 }
 
+/**
+ * POST /api/adventure/creature/:id/tournament: enter a descendant in a tournament (§4.1).
+ *
+ * The tournament machinery is the Arena's and is reused whole — brackets, blind submission, beacon
+ * seeds. All this adds is a fighter that comes from the stable instead of a carrier outpoint, at
+ * the same neutral rarity, so a bred lineage enters on equal arithmetic (§4.2).
+ */
+async function handleAdventureTournamentJoin(req, res, id) {
+  const address = adventurePlayer(req, res);
+  if (!address) return undefined;
+  if (!gameStore) return sendJSON(res, 404, { error: 'the Arena is not enabled on this server' });
+  if (!allowQuote(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
+  let body;
+  try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); } catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+  const f = adventure.fighterFor(address, id);
+  if (f.error) return sendJSON(res, 400, { error: f.error });
+  // §4.1: three moves committed in advance, then everything revealed at once. A creature that
+  // cannot yet fight its own bot fights cannot be entered either.
+  try { return sendJSON(res, 200, gameStore.joinTournament(body.tournamentId, f.fighter)); }
+  catch (e) { return sendJSON(res, 400, { error: e.message }); }
+}
+
+/** GET /api/adventure/orb: what the player holds and which bloodlines it could carry (§2). */
+function handleAdventureOrb(req, res) {
+  const address = adventurePlayer(req, res);
+  if (!address) return undefined;
+  return sendJSON(res, 200, adventure.orb(address));
+}
+
+/** POST /api/adventure/orb/spend: one orb, one bloodline, no undo. */
+async function handleAdventureOrbSpend(req, res) {
+  const address = adventurePlayer(req, res);
+  if (!address) return undefined;
+  let body;
+  try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); } catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+  const r = adventure.spendOrb(address, String(body.id || ''));
+  return sendJSON(res, r.error ? 400 : 200, r);
+}
+
 /** POST /api/adventure/creature/:id/release: §6, choosing what not to keep. Not a death. */
 function handleAdventureRelease(req, res, id) {
   const address = adventurePlayer(req, res);
@@ -2578,6 +2617,9 @@ const server = http.createServer(async (req, res) => {
       if ((m = p.match(/^\/api\/adventure\/creature\/([A-Za-z0-9_]{1,64})\/fight$/)) && req.method === 'POST') return await handleAdventureFight(req, res, m[1]);
       if ((m = p.match(/^\/api\/adventure\/creature\/([A-Za-z0-9_]{1,64})\/duel$/)) && req.method === 'POST') return await handleAdventureDuelOpen(req, res, m[1]);
       if ((m = p.match(/^\/api\/adventure\/duel\/([A-Za-z0-9_]{1,64})\/round$/)) && req.method === 'POST') return await handleAdventureDuelRound(req, res, m[1]);
+      if ((m = p.match(/^\/api\/adventure\/creature\/([A-Za-z0-9_]{1,64})\/tournament$/)) && req.method === 'POST') return await handleAdventureTournamentJoin(req, res, m[1]);
+      if (p === '/api/adventure/orb' && req.method === 'GET') return handleAdventureOrb(req, res);
+      if (p === '/api/adventure/orb/spend' && req.method === 'POST') return await handleAdventureOrbSpend(req, res);
       if ((m = p.match(/^\/api\/adventure\/creature\/([A-Za-z0-9_]{1,64})\/release$/)) && req.method === 'POST') return handleAdventureRelease(req, res, m[1]);
     }
     { let m; if ((m = p.match(/^\/api\/game\/duel\/([A-Za-z0-9_]+)$/)) && req.method === 'GET') return await handleGameDuelStatus(res, m[1]); }

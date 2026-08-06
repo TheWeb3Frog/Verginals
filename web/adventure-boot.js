@@ -27,9 +27,16 @@ async function signIn() {
   if (!provider) {
     throw new Error('No Verginals wallet found on this page. Install the extension, then reload.');
   }
-  const address = await provider.connect();
+  // connect() resolves { address }, not a bare string. Accept either, because getting this wrong
+  // sends "[object Object]" to the challenge endpoint and the failure reads as a bad wallet.
+  const connected = await provider.connect();
+  const address = typeof connected === 'string' ? connected : connected && connected.address;
+  if (!address) throw new Error('The wallet did not return an address. Unlock it and try again.');
   const challenge = await json(`/api/game/challenge?address=${encodeURIComponent(address)}`);
-  const signature = await provider.signMessage(challenge.challenge);
+  // signMessage resolves { signature, address } for the same reason. Same defensive unwrap.
+  const signed = await provider.signMessage(challenge.challenge);
+  const signature = typeof signed === 'string' ? signed : signed && signed.signature;
+  if (!signature) throw new Error('The wallet did not return a signature.');
   const session = await json('/api/game/session', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

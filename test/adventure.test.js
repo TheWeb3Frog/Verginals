@@ -209,6 +209,103 @@ const DAD = { carrierKey: KEY_M };
     assert.strictEqual(a.attend(ADDR, r.id, 'feed').error, 'no such creature');
   });
 
+  // --- fighting (§4.2, §4.4, §5.2) -------------------------------------------------------------------
+
+  /** Breed one descendant and hand back its id, retrying seeds until a pairing takes. */
+  async function aDescendant(a) {
+    for (let i = 0; i < 20; i++) {
+      const open = await a.openPairing(ADDR, MUM, DAD);
+      const r = await a.resolvePairing(ADDR, open.pairingId);
+      if (r.conceived) return r;
+    }
+    throw new Error('twenty unrelated pairings all failed to take');
+  }
+  // A stand-in Arena: records what it was handed, and lets the caller decide who won.
+  const arena = (winner) => {
+    const seen = [];
+    const play = (fighter, loadout) => {
+      seen.push({ fighter, loadout });
+      return { winner: winner === 'player' ? ADDR : 'bot', score: [2, 1] };
+    };
+    return { play, seen };
+  };
+  const LOADOUT = { attacks: ['fire', 'water', 'earth'], poisonRound: 0, potionRound: 1, shieldRound: null };
+
+  await atest('GENETICS NEVER BUYS A COIN FLIP: a descendant enters at the bot own score (§4.2)', async () => {
+    const { a, world } = build();
+    const r = await aDescendant(a);
+    world.t = r.bornAt;
+    const { play, seen } = arena('player');
+    a.fight(ADDR, r.id, LOADOUT, play);
+    // makeBot() gives the bot rarityScore 100. Equal scores mean the rarity nudge between them is
+    // exactly zero, so a well-bred lineage cannot win more coin flips than a first litter.
+    assert.strictEqual(seen[0].fighter.rarityScore, 100);
+    assert.strictEqual(seen[0].fighter.address, ADDR);
+    assert.strictEqual(seen[0].fighter.descendant, r.id);
+    assert.ok(['fire', 'water', 'earth'].includes(seen[0].fighter.house), 'the fighter must carry its House');
+  });
+
+  await atest('a juvenile fights — that is how it learns and how it grows (§4.4, §5.2)', async () => {
+    const { a, world } = build();
+    const r = await aDescendant(a);
+    world.t = r.bornAt;
+    const before = a.roster(ADDR).living[0];
+    assert.strictEqual(before.adult, false);
+    const out = a.fight(ADDR, r.id, LOADOUT, arena('player').play);
+    assert.strictEqual(out.won, true);
+    assert.strictEqual(out.counted, true);
+  });
+
+  await atest('fighting is never refused; only the first three of the day feed growth (§5.2)', async () => {
+    const { a, world } = build();
+    const r = await aDescendant(a);
+    world.t = r.bornAt;
+    let counted = 0;
+    for (let i = 0; i < 25; i++) {
+      const out = a.fight(ADDR, r.id, LOADOUT, arena('bot').play);
+      assert.ok(!out.error, `fight ${i} was refused: ${out.error}`);
+      if (out.counted) counted += 1;
+    }
+    assert.strictEqual(counted, 3);
+    assert.strictEqual(a.stable.state.players[ADDR].creatures[r.id].record.fights, 25);
+  });
+
+  await atest('the win record follows the match result', async () => {
+    const { a, world } = build();
+    const r = await aDescendant(a);
+    world.t = r.bornAt;
+    a.fight(ADDR, r.id, LOADOUT, arena('player').play);
+    a.fight(ADDR, r.id, LOADOUT, arena('bot').play);
+    const rec = a.stable.state.players[ADDR].creatures[r.id].record;
+    assert.strictEqual(rec.fights, 2);
+    assert.strictEqual(rec.wins, 1);
+  });
+
+  await atest('a descendant still gestating cannot fight', async () => {
+    const { a } = build();
+    const r = await aDescendant(a);
+    assert.match(a.fight(ADDR, r.id, LOADOUT, arena('player').play).error, /not been born/);
+  });
+
+  await atest('a released descendant cannot fight, and an unknown id is refused', async () => {
+    const { a, world } = build();
+    const r = await aDescendant(a);
+    world.t = r.bornAt;
+    a.release(ADDR, r.id);
+    assert.match(a.fight(ADDR, r.id, LOADOUT, arena('player').play).error, /no such creature/);
+    assert.match(a.fight(ADDR, 'nope', LOADOUT, arena('player').play).error, /no such creature/);
+  });
+
+  await atest('an Arena that rejects the loadout surfaces its message, it does not throw', async () => {
+    const { a, world } = build();
+    const r = await aDescendant(a);
+    world.t = r.bornAt;
+    const out = a.fight(ADDR, r.id, LOADOUT, () => { throw new Error('loadout needs exactly 3 attacks'); });
+    assert.strictEqual(out.error, 'loadout needs exactly 3 attacks');
+    // A refused fight must not have consumed a counted slot.
+    assert.strictEqual(a.stable.state.players[ADDR].creatures[r.id].record.fights, 0);
+  });
+
   await atest('a descendant does not rest to breed, only Alphas do (§8)', async () => {
     const { a, world } = build();
     let r = null;

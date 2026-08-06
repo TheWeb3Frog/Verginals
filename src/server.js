@@ -2601,7 +2601,8 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'GET' && (p === '/adventure-test' || p === '/adventure-test.html')) {
         return serveStatic(res, 'adventure-test.html');
       }
-      if (req.method === 'GET' && (p === '/adventure.js' || p === '/adventure-boot.js' || p === '/adventure.css')) {
+      if (req.method === 'GET'
+        && (p === '/adventure.js' || p === '/adventure-boot.js' || p === '/adventure-art.js' || p === '/adventure.css')) {
         return serveStatic(res, p.slice(1));
       }
       // Served straight from sprites/, never copied into web/. The kit is the designer's artefact

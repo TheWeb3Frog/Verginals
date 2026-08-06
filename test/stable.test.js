@@ -86,7 +86,8 @@ test('an unrelated Alpha pairing previews at full viability and no warning', () 
 });
 
 test('a resting Alpha blocks the pairing and says when it will be ready', () => {
-  const { s } = fresh();
+  // freeBreeds: 0 puts us past the opening, which is where the rest actually gates (§1.1b).
+  const { s } = fresh({ tuning: { freeBreeds: 0 } });
   const tired = { ...father(), carrier: { time: T0 - 3600, confirmations: 4 } };
   const pv = s.preview(ADDR, mother(), tired);
   assert.strictEqual(pv.ok, false);
@@ -94,6 +95,72 @@ test('a resting Alpha blocks the pairing and says when it will be ready', () => 
   assert.ok(b, 'no resting blocker reported');
   assert.strictEqual(b.side, 'father');
   assert.strictEqual(b.until, T0 - 3600 + 2 * DAY);
+});
+
+// --- the opening: the first three pairings are instant (§1.1b) --------------------------------
+
+test('the first three pairings ignore the rest, the fourth does not', () => {
+  const { s } = fresh();
+  const tired = { time: T0 - 3600, confirmations: 4 };
+  const m = () => ({ ...mother(), carrier: tired });
+  const f = () => ({ ...father(), carrier: tired });
+
+  assert.strictEqual(s.freeBreedsLeft(ADDR), 3);
+  for (let i = 0; i < 3; i++) {
+    const pv = s.preview(ADDR, m(), f());
+    assert.strictEqual(pv.ok, true, `pairing ${i + 1} was blocked: ${JSON.stringify(pv.blockers)}`);
+    assert.strictEqual(pv.freeBreed, true);
+    assert.strictEqual(s.openPairing(ADDR, m(), f()).ok, true);
+  }
+  assert.strictEqual(s.freeBreedsLeft(ADDR), 0);
+
+  const after = s.preview(ADDR, m(), f());
+  assert.strictEqual(after.ok, false);
+  assert.strictEqual(after.freeBreed, false);
+  assert.ok(after.blockers.find((b) => b.kind === 'resting'), 'the rest should gate again');
+});
+
+test('a descendant from the opening is born at once, and still born a juvenile', () => {
+  const { s } = fresh();
+  const r = conceive(s);
+  assert.strictEqual(r.freeBreed, true);
+  const c = s.roster(ADDR).living[0];
+  assert.strictEqual(r.bornAt, T0, 'born the moment it was conceived');
+  assert.strictEqual(c.born, true);
+  // What is skipped is the waiting, never the raising. It arrives with the one passive point every
+  // creature gets for the day it is born on, six short of adult, with its whole budget untouched.
+  assert.strictEqual(c.growth, L.PASSIVE_GROWTH_PER_DAY);
+  assert.strictEqual(c.adult, false);
+  assert.strictEqual(c.attentionsLeft, L.ATTENTIONS_PER_DAY);
+  assert.strictEqual(c.temperament.label, 'Untouched');
+});
+
+test('the waiver is spent on opening, so opening three at once cannot multiply it', () => {
+  const { s } = fresh();
+  for (let i = 0; i < 3; i++) assert.strictEqual(s.openPairing(ADDR, mother(), father()).ok, true);
+  assert.strictEqual(s.freeBreedsLeft(ADDR), 0);
+  // Three commitments are open and none has resolved, so nothing has been born yet.
+  assert.strictEqual(s.roster(ADDR).living.length, 0);
+});
+
+test('past the opening, gestation is two days again', () => {
+  const { s } = fresh({ tuning: { freeBreeds: 0 } });
+  const r = conceive(s);
+  assert.strictEqual(r.freeBreed, false);
+  assert.strictEqual(r.bornAt, T0 + L.GESTATION_DAYS * DAY);
+  assert.strictEqual(s.roster(ADDR).living[0].born, false);
+});
+
+test('a stable written before free breeds existed does not owe its players three', () => {
+  const { s, dir } = fresh({ tuning: { freeBreeds: 0 } });
+  conceive(s);
+  // Simulate the old on-disk shape: a player record with no counter at all.
+  const raw = JSON.parse(fs.readFileSync(path.join(dir, 'stable.json'), 'utf8'));
+  delete raw.players[ADDR].bred;
+  fs.writeFileSync(path.join(dir, 'stable.json'), JSON.stringify(raw));
+
+  const again = new Stable({ dataDir: dir, pool: POOL, now: () => T0 }).load();
+  assert.strictEqual(again.freeBreedsLeft(ADDR), 2, 'one existing descendant should count as one bred');
 });
 
 test('a pairing that is not one female and one male is refused', () => {
@@ -169,7 +236,8 @@ test('the viability roll is the ONLY cost of inbreeding, it never yields a weake
 // --- raising ---------------------------------------------------------------------------------
 
 test('a juvenile cannot be attended to while it gestates, then can', () => {
-  const { s, clock } = fresh();
+  // Past the opening, where there is a gestation to be blocked by at all (§1.1b).
+  const { s, clock } = fresh({ tuning: { freeBreeds: 0 } });
   const r = conceive(s);
   assert.strictEqual(s.attend(ADDR, r.id, 'feed').reason, 'gestating');
   clock.t = r.bornAt;

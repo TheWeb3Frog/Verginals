@@ -106,6 +106,10 @@ class Adventure {
    */
   async alphas(address, opts = {}) {
     const cap = opts.limit || 60;
+    // During the opening the rest does not gate anything, so an Alpha that is technically resting
+    // is still listed as usable. Sorting on the real fertility below would push it to the bottom of
+    // a list whose top half is not actually preferable.
+    const free = this.stable.freeBreedsLeft(address) > 0;
     const held = (await this.holdingsOf(address)) || [];
     const rows = await Promise.all(held.slice(0, cap).map(async (h) => {
       const item = this.byNumber.get(h.number);
@@ -123,9 +127,13 @@ class Adventure {
         carrierKey: h.carrierKey,
         sex: genome.sex,
         traits: G.phenotype(genome, this.pool, `alpha:${h.number}`),
-        fertile: state.fertile,
+        // An unreadable carrier is still unusable: the waiver skips the rest, not the chain read
+        // that proves the player holds the Alpha at all.
+        fertile: state.reason === 'unreadable' ? false : (state.fertile || free),
         readyAt: state.readyAt,
-        label: state.reason === 'unreadable' ? 'Carrier unreadable right now' : F.describe(state),
+        label: state.reason === 'unreadable'
+          ? 'Carrier unreadable right now'
+          : (!state.fertile && free ? 'Ready to breed, first pairings are free' : F.describe(state)),
       };
     }));
     const alphas = rows.filter(Boolean).sort((a, b) => (b.fertile - a.fertile) || (a.readyAt - b.readyAt));
@@ -134,6 +142,7 @@ class Adventure {
       truncated: held.length > cap,
       females: alphas.filter((a) => a.sex === 'F').length,
       males: alphas.filter((a) => a.sex === 'M').length,
+      freeBreedsLeft: this.stable.freeBreedsLeft(address),
     };
   }
 
@@ -147,16 +156,19 @@ class Adventure {
     const pv = this.stable.preview(address, m, f);
     return {
       ...pv,
-      mother: this._side(m),
-      father: this._side(f),
+      mother: this._side(m, pv.freeBreed),
+      father: this._side(f, pv.freeBreed),
     };
   }
 
-  _side(p) {
+  _side(p, free) {
     const out = { id: p.id, sex: p.genome.sex, alpha: p.alpha };
     if (p.carrier) {
       const state = F.fertility(p.carrier, this.now(), this.tuning);
-      out.fertility = { ...state, label: F.describe(state) };
+      out.fertility = {
+        ...state,
+        label: !state.fertile && free ? 'Ready to breed, first pairings are free' : F.describe(state),
+      };
     }
     return out;
   }

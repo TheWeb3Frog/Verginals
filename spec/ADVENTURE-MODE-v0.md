@@ -61,10 +61,31 @@ Consequences worth knowing before this ships:
 
 - Selling an Alpha resets its rest, so a buyer waits two days. At two days this is flavour rather
   than friction: the animal settles in.
-- A brand new player buys an Alpha and cannot breed immediately. Tell them plainly; bot mode and the
-  Arena are there in the meantime. Do not paper over it with an exemption unless it actually hurts.
+- A brand new player buys an Alpha and cannot breed immediately. This one **did** hurt, so it now
+  has an exemption: see §1.1b.
 - Shuffling Alphas between wallets costs fertility every time. That was never the point, but it is a
   pleasant side effect.
+
+### 1.1b The first three pairings are instant
+
+A new player with two Alphas hits the two-day rest, then the two-day gestation, and has nothing to
+look at for four days. That is not anticipation, it is a wall, and it was measured on a real player
+rather than guessed: the game had not started yet, so there was nothing for the waiting to build.
+
+**The first three pairings of a player skip both waits.** No rest gate, and the descendant is born
+the moment it is conceived. Everything after birth is untouched: it arrives as a juvenile with no
+growth, no attentions and no temperament, so what is skipped is the waiting, never the raising.
+
+Three rather than one, because one descendant cannot be bred, has nothing to be compared against,
+and shows none of the variation the genetics exist for. Three is a litter you can read.
+
+The waiver is spent when a pairing **opens**, not when it takes, so opening several at once cannot
+multiply it. That does charge a player for a pairing that fails its viability roll, which is
+acceptable: the opening pairings are Alpha with Alpha and unrelated parents roll 1.0.
+
+The rest is still computed and still shown during the opening. A screen that pretended the rule did
+not exist and then began enforcing it without warning on the fourth pairing would be worse than the
+wait it removed.
 
 ### 1.2 Why six generations is the right number
 

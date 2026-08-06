@@ -17,6 +17,9 @@
 import {
   PALETTE, TRAIT_LAYERS, LAYER_RECTS, spriteUrl, seasonChip, SEASON_DAYS,
 } from './verginals-kit.js';
+import {
+  sprite, elementBadge, moveIcon, attentionIcon, egg, playEffect, effectFor, arena,
+} from './adventure-art.js';
 
 const P = PALETTE;
 const LOCI = ['Background', 'Body', 'Collar', 'Face', 'Rune', 'House'];
@@ -73,6 +76,22 @@ function pips(zygosity, cell = 14) {
     wrap.append(col);
   }
   return wrap;
+}
+
+// The cycle, as one fact rather than three: Fire burns Earth, Earth buries Water, Water douses Fire.
+// Read backwards it answers "what just beat me", which is how a losing round names its attacker
+// without the server revealing a move it is still keeping blind.
+const BEATS = { fire: 'earth', earth: 'water', water: 'fire' };
+const beatenBy = (element) => Object.keys(BEATS).find((k) => BEATS[k] === element) || 'fire';
+
+/** Which arena a creature fights in. Its House is scenery here, never a rule (§4.2). */
+function houseElement(c) {
+  const house = String((c.traits && c.traits.House) || '').toLowerCase();
+  if (house.includes('fire')) return 'fire';
+  if (house.includes('water')) return 'water';
+  if (house.includes('earth')) return 'earth';
+  // Anything else (a Prism, a House the collection spells differently) gets stone.
+  return 'fire';
 }
 
 // --- the creature -----------------------------------------------------------------------------
@@ -163,7 +182,12 @@ export class Adventure {
     const tasks = [];
     // The Orb goes first when it exists: it is the only thing on this screen that expires with the
     // season, and it is the one decision a player must not miss.
-    if (s.orbs) tasks.push({ label: 'SPEND THE DNA ORB', detail: `${s.orbs} held`, on: true, go: () => this.orbPanel() });
+    if (s.orbs) {
+      tasks.push({
+        label: 'SPEND THE DNA ORB', detail: `${s.orbs} held`, on: true, icon: ['orb', 'orbP'],
+        go: () => this.orbPanel(),
+      });
+    }
     tasks.push(
       {
         label: 'BREED',
@@ -184,6 +208,10 @@ export class Adventure {
     for (const t of tasks) {
       const card = el('div', `display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:6px;`
         + `background:${P.panel};border:1px solid ${t.on ? P.edge : P.slab};${t.on ? 'cursor:pointer' : 'opacity:0.5'}`);
+      if (t.icon) {
+        const icon = sprite(t.icon[0], t.icon[1], 2);
+        if (icon) card.append(icon);
+      }
       card.append(el('div', `flex:1;font:13px/1.4 ui-monospace,monospace;color:${P.bone}`, t.label));
       card.append(el('div', `font:11px/1.4 ui-monospace,monospace;color:${P.ash}`, t.detail));
       // Gold only where a tap does something.
@@ -200,11 +228,17 @@ export class Adventure {
     wrap.append(el('div', `font:11px/1 ui-monospace,monospace;letter-spacing:2px;color:${P.ash};margin-bottom:10px`,
       `YOUR LINE · ${s.living.length} LIVING · ${s.slots.used}/${s.slots.cap} SLOTS`));
     if (!s.living.length) {
-      wrap.append(el('div', `padding:20px;background:${P.panel};color:${P.ash};font:12px/1.6 ui-monospace,monospace`,
+      // The empty stable gets the kit's own empty state rather than a paragraph on its own. An
+      // empty screen is the first thing a new player sees, and it should still look drawn.
+      const box = el('div', `display:flex;gap:16px;align-items:center;padding:20px;background:${P.panel}`);
+      const mark = sprite('emptyBox', 'emptyP', 3);
+      if (mark) box.append(mark);
+      box.append(el('div', `color:${P.ash};font:12px/1.6 ui-monospace,monospace`,
         s.freeBreedsLeft
           ? `Nothing alive yet. Breed two Alphas to start a line. Your first ${s.freeBreedsLeft} pairings are `
             + 'born straight away, with no rest and no gestation.'
           : 'Nothing alive yet. Breed two Alphas to start a line. They must have rested two days first.'));
+      wrap.append(box);
       return wrap;
     }
     for (const c of s.living) wrap.append(this.row(c));
@@ -214,15 +248,37 @@ export class Adventure {
   row(c) {
     const card = el('div', `display:flex;gap:14px;align-items:center;padding:12px;margin-bottom:8px;`
       + `background:${P.panel};border:1px solid ${P.slab}`);
-    card.append(creature(c.traits, 72));
+
+    // An unborn creature is an egg, and the egg is further along every time you come back. That is
+    // the wait made visible: no countdown, just something that has changed since you last looked.
+    if (!c.born) {
+      const nest = el('div', 'width:72px;height:78px;display:flex;align-items:center;justify-content:center;flex:none');
+      const span = Math.max(1, c.bornAt - (c.conceivedAt || (c.bornAt - 2 * 86400)));
+      const done = 1 - Math.max(0, Math.min(1, (c.bornAt - Date.now() / 1000) / span));
+      const e = egg(done, 4);
+      if (e) nest.append(e);
+      card.append(nest);
+    } else {
+      card.append(creature(c.traits, 72));
+    }
 
     const mid = el('div', 'flex:1;display:flex;flex-direction:column;gap:8px');
     mid.append(pips(c.zygosity, 14));
     const stateText = !c.born
       ? `Gestating, born in ${Math.max(0, Math.ceil((c.bornAt - Date.now() / 1000) / 3600))}h`
       : c.adult ? `Adult · generation ${c.generation}` : `Growing ${c.growth}/${c.growthToAdult}`;
-    mid.append(el('div', `font:11px/1.4 ui-monospace,monospace;color:${P.fog}`,
+    const stateLine = el('div', 'display:flex;align-items:center;gap:6px');
+    // A juvenile carries the sprout, an adult its House badge. One glance tells you which of your
+    // six is still growing without reading a single number.
+    const mark = c.born && !c.adult ? sprite('sprout', 'sproutP', 2) : (c.born ? elementBadge(houseElement(c), 2) : null);
+    if (mark) stateLine.append(mark);
+    if (c.mutations && c.mutations.length) {
+      const bang = sprite('bang', 'warnP', 2);
+      if (bang) { bang.title = 'This one carries a mutation'; stateLine.append(bang); }
+    }
+    stateLine.append(el('div', `font:11px/1.4 ui-monospace,monospace;color:${P.fog}`,
       `${c.sex === 'F' ? '♀' : '♂'} ${stateText}${c.mutations && c.mutations.length ? ' · MUTATION' : ''}`));
+    mid.append(stateLine);
     if (c.temperament && c.temperament.label !== 'Untouched') {
       mid.append(el('div', `font:11px/1.4 ui-monospace,monospace;color:${P.ash}`, c.temperament.label));
     }
@@ -282,7 +338,24 @@ export class Adventure {
       `FIGHT · ROUND 1 OF ${duel.rounds}`));
     panel.append(el('div', `font:11px/1.6 ui-monospace,monospace;color:${P.fog};margin-bottom:12px`,
       'Fire burns Earth · Earth buries Water · Water douses Fire'));
-    const log = el('div', 'display:flex;flex-direction:column;gap:4px;margin-bottom:12px');
+
+    // The arena. Which one you fight in follows the creature's own House, so a Fire line fights on
+    // warm stone: the backdrop is the one place the element gets to be scenery rather than a rule.
+    const ground = arena(houseElement(c), 160);
+    const stage = el('div', 'position:absolute;left:0;right:0;bottom:14%;display:flex;'
+      + 'align-items:flex-end;justify-content:space-around;padding:0 8%');
+    const youBox = el('div', 'position:relative');
+    youBox.append(creature(c.traits, 84));
+    // The bot is a silhouette until the seed is revealed. Drawing it as a creature would be a lie:
+    // the server has not told us what it looks like, and it must not, or the fight stops being blind.
+    const botBox = el('div', 'position:relative');
+    botBox.append(el('div', `width:84px;height:${Math.round(84 * 624 / 576)}px;background:${P.ink};`
+      + `border:1px solid ${P.slab};opacity:0.85`));
+    stage.append(youBox, botBox);
+    ground.append(stage);
+    panel.append(ground);
+
+    const log = el('div', 'display:flex;flex-direction:column;gap:4px;margin:12px 0');
     const controls = el('div', 'display:flex;gap:6px;align-items:center;flex-wrap:wrap');
     panel.append(log, controls);
     panel.append(el('div', `margin-top:10px;font:9px/1.4 ui-monospace,monospace;color:${P.ash};word-break:break-all`,
@@ -290,9 +363,13 @@ export class Adventure {
 
     const spent = { poison: false, potion: false };
     let pending = { poison: false, potion: false };
+    // Poison is the one effect that loops, because it is the one thing that stays on the board.
+    // It is cleared at the top of the next round.
+    let stopPoison = null;
 
     const send = async (element) => {
       controls.textContent = '';
+      const spentThisRound = { ...pending };
       let r;
       try {
         r = await api(`/duel/${duel.duelId}/round`, {
@@ -305,8 +382,24 @@ export class Adventure {
       pending = { poison: false, potion: false };
 
       const w = r.result.winner === 'p1';
-      log.append(el('div', `font:12px/1.6 ui-monospace,monospace;color:${w ? P.moss : P.ember}`,
-        `Round ${r.round}: ${w ? 'you' : 'the bot'} (${r.result.reason})`));
+
+      // The hit lands on whoever lost it, and it is the winning element that throws it. When the bot
+      // wins on the elemental cycle we can name its element without being told: exactly one element
+      // beats yours. Everything else stays hidden until the seed is revealed.
+      if (stopPoison) { stopPoison(); stopPoison = null; }
+      if (spentThisRound.potion) playEffect(youBox, 'potionDrunk', { scale: 3 });
+      if (spentThisRound.poison) stopPoison = playEffect(botBox, 'poisonOn', { scale: 3 });
+      const hit = r.result.reason === 'element'
+        ? effectFor(w ? element : beatenBy(element))
+        : (r.result.reason === 'poison' ? null : effectFor(element));
+      if (hit) playEffect(w ? botBox : youBox, hit, { scale: 3 });
+
+      const line = el('div', `display:flex;align-items:center;gap:8px;font:12px/1.6 ui-monospace,monospace;`
+        + `color:${w ? P.moss : P.ember}`);
+      const icon = moveIcon(element, 2);
+      if (icon) line.append(icon);
+      line.append(el('span', '', `Round ${r.round}: ${w ? 'you' : 'the bot'} (${r.result.reason})`));
+      log.append(line);
 
       if (!r.done) {
         panel.firstChild.textContent = `FIGHT · ROUND ${r.round + 1} OF ${duel.rounds}`;
@@ -314,6 +407,24 @@ export class Adventure {
       }
       panel.firstChild.textContent = r.won ? 'YOU WON' : 'YOU LOST';
       panel.firstChild.style.color = r.won ? P.moss : P.ember;
+      if (stopPoison) { stopPoison(); stopPoison = null; }
+      // The bot's three moves, now that the seed is out and they cannot influence anything. The
+      // silhouette gets its badges: you finally see what you were fighting.
+      if (r.botMoves && r.botMoves.length) {
+        const reveal = el('div', 'position:absolute;left:50%;top:8px;transform:translateX(-50%);display:flex;gap:3px');
+        for (const m of r.botMoves) {
+          const b = elementBadge(m.element, 2);
+          if (b) reveal.append(b);
+        }
+        botBox.append(reveal);
+      }
+      if (r.won) {
+        const crown = sprite('crown', 'crownP', 3);
+        if (crown) {
+          crown.style.cssText += ';position:absolute;left:50%;top:-14px;transform:translateX(-50%);z-index:3';
+          youBox.append(crown);
+        }
+      }
       log.append(el('div', `margin-top:6px;font:11px/1.6 ui-monospace,monospace;color:${P.ash}`,
         r.counted
           ? (r.adult ? 'Counted toward growth, and it is an adult now.' : 'Counted toward growth.')
@@ -333,8 +444,12 @@ export class Adventure {
     const draw = () => {
       controls.textContent = '';
       for (const element of ['fire', 'earth', 'water']) {
-        const b = el('button', `padding:8px 12px;font:11px/1 ui-monospace,monospace;letter-spacing:1px;`
-          + `background:${P.coal};color:${P.fog};border:1px solid ${P.slab};cursor:pointer`, element.toUpperCase());
+        const b = el('button', `display:flex;align-items:center;gap:6px;padding:6px 12px;`
+          + `font:11px/1 ui-monospace,monospace;letter-spacing:1px;`
+          + `background:${P.coal};color:${P.fog};border:1px solid ${P.slab};cursor:pointer`);
+        const icon = elementBadge(element, 2);
+        if (icon) b.append(icon);
+        b.append(el('span', '', element.toUpperCase()));
         b.onclick = () => send(element);
         controls.append(b);
       }
@@ -368,9 +483,15 @@ export class Adventure {
     const row = el('div', 'display:flex;gap:4px');
     for (const kind of ['spar', 'drill', 'feed', 'play']) {
       const on = c.attentionsLeft > 0;
-      const b = el('button', `padding:6px 8px;font:10px/1 ui-monospace,monospace;letter-spacing:1px;`
+      // Each attention has its own drawing, and they are all the same size. None of them is the
+      // best one, so none of them may look like it.
+      const b = el('button', `display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px;`
+        + `font:9px/1 ui-monospace,monospace;letter-spacing:1px;`
         + `background:${P.slab};color:${on ? P.gold : P.ash};border:1px solid ${on ? P.edge : P.slab};`
-        + `cursor:${on ? 'pointer' : 'default'}`, kind.toUpperCase());
+        + `cursor:${on ? 'pointer' : 'default'};${on ? '' : 'opacity:0.5'}`);
+      const icon = attentionIcon(kind, 2);
+      if (icon) b.append(icon);
+      b.append(el('span', '', kind.toUpperCase()));
       b.disabled = !on;
       b.onclick = async () => {
         b.disabled = true;

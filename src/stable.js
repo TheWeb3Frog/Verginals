@@ -136,6 +136,9 @@ class Stable {
       ...L.status(c.j, now),
       sex: c.sex,
       generation: c.generation,
+      // The UI draws the egg at the stage the gestation has actually reached, which it cannot work
+      // out from bornAt alone once free breeds make some of them instant.
+      conceivedAt: c.j.conceivedAt,
       mother: c.mother,
       father: c.father,
       mutations: c.mutations,

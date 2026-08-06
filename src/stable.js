@@ -132,23 +132,33 @@ class Stable {
   /** Everything the daily-home screen needs, in one call. */
   roster(address) {
     const now = this.now();
-    const living = this._living(address).map((c) => ({
-      ...L.status(c.j, now),
-      sex: c.sex,
-      generation: c.generation,
-      // The UI draws the egg at the stage the gestation has actually reached, which it cannot work
-      // out from bornAt alone once free breeds make some of them instant.
-      conceivedAt: c.j.conceivedAt,
-      mother: c.mother,
-      father: c.father,
-      mutations: c.mutations,
-      traits: G.phenotype(c.genome, this.pool, c.id),
-      // Per-locus zygosity, because the pip bar's shape channel is the one piece of genetics the
-      // UI cannot derive from the visible traits: a creature showing a common face looks identical
-      // whether it carries a second copy of it or a hidden rarity. Sending 'hom'/'het' rather than
-      // the allele pair keeps a player's carriers out of an opponent-readable payload.
-      zygosity: Object.fromEntries(G.LOCI.map((l) => [l, G.zygosity(c.genome, l)])),
-    }));
+    const living = this._living(address).map((c) => {
+      const traits = G.phenotype(c.genome, this.pool, c.id);
+      return {
+        ...L.status(c.j, now),
+        sex: c.sex,
+        generation: c.generation,
+        // The UI draws the egg at the stage the gestation has actually reached, which it cannot
+        // work out from bornAt alone once free breeds make some of them instant.
+        conceivedAt: c.j.conceivedAt,
+        mother: c.mother,
+        father: c.father,
+        mutations: c.mutations,
+        traits,
+        // Per-locus zygosity, because the pip bar's shape channel is the one piece of genetics the
+        // UI cannot derive from the visible traits: a creature showing a common face looks
+        // identical whether it carries a second copy of it or a hidden rarity.
+        zygosity: Object.fromEntries(G.LOCI.map((l) => [l, G.zygosity(c.genome, l)])),
+        // The allele pair itself, expressed first, which is what the design's pip bar draws: top
+        // row expressed, bottom row carried. This is YOUR roster, and knowing what your own line
+        // carries is the whole game, since a Monochrome project is invisible without it. It stays
+        // out of anything an opponent can read: fighterFor() still sends zygosity alone.
+        alleles: Object.fromEntries(G.LOCI.map((l) => {
+          const [a, b] = c.genome.genes[l];
+          return [l, traits[l] === b ? [b, a] : [a, b]];
+        })),
+      };
+    });
     this._save();
     return {
       season: L.seasonClock(this.state.season.startedAt, now, this.tuning),
@@ -336,6 +346,65 @@ class Stable {
    * @param {Function} rarityOf (attributes) -> number, injected so this module never imports the
    *   rarity engine and stays testable without the collection.
    */
+  /**
+   * The whole bloodline, as matings rather than as a list of animals.
+   *
+   * The design reads it as pedigree brackets: the pair on the left rail, everything they produced
+   * on the right, one block per mating. That is why this groups by (mother, father) instead of
+   * returning nodes and edges: the block IS the unit, and a player scanning for a hidden trait is
+   * scanning down the offspring column of one pairing at a time.
+   *
+   * Alphas are founders and are not stored here, so a parent this stable has never seen is reported
+   * by id alone. Released creatures stay: they lived, and their genetics still explain their
+   * descendants (§6).
+   */
+  lineage(address, rarityOf) {
+    const p = this._player(address);
+    const all = Object.values(p.creatures);
+    const ped = this._pedigree(address);
+    const groups = new Map();
+    for (const c of all) {
+      const key = `${c.mother}|${c.father}`;
+      if (!groups.has(key)) {
+        groups.set(key, { mother: c.mother, father: c.father, generation: c.generation, kids: [] });
+      }
+      const g = groups.get(key);
+      g.generation = Math.min(g.generation, c.generation);
+      const traits = G.phenotype(c.genome, this.pool, c.id);
+      g.kids.push({
+        id: c.id,
+        sex: c.sex,
+        generation: c.generation,
+        released: !!c.released,
+        born: L.isBorn(c.j, this.now()),
+        mutations: c.mutations,
+        traits,
+        record: c.record,
+        rarity: rarityOf ? rarityOf(G.toAttributes(c.genome, this.pool, c.id)) : null,
+        alleles: Object.fromEntries(G.LOCI.map((l) => {
+          const [a, b] = c.genome.genes[l];
+          return [l, traits[l] === b ? [b, a] : [a, b]];
+        })),
+      });
+    }
+    // The warning belongs to the mating, not to the animal: it is what this pair would produce if
+    // you ran it again, which is the only actionable form of it.
+    const blocks = [...groups.values()].map((g) => {
+      const rel = G.pairingReport(ped, g.mother, g.father);
+      return {
+        ...g,
+        kids: g.kids.sort((a, b) => a.id.localeCompare(b.id)),
+        relation: rel.relation,
+        penaltyPct: rel.penaltyPct,
+        coefficient: rel.coefficient,
+        // Three levels, because the design gives the left rule exactly three colours: moss, gold,
+        // fire. Anything finer than that cannot be drawn.
+        severity: rel.penaltyPct === 0 ? 'clear' : (rel.penaltyPct < 18 ? 'watch' : 'close'),
+      };
+    }).sort((a, b) => a.generation - b.generation);
+    return { blocks, living: this._living(address).length, total: all.length };
+  }
+
   ladders(address, rarityOf) {
     const all = Object.values(this._player(address).creatures);
     const combat = all

@@ -439,4 +439,65 @@ test('an Orb cannot be spent on a bloodline that was never saved, or with no fre
   assert.match(s.spendOrb(ADDR, a.id).reason, /no free living slot/);
 });
 
+// --- the bloodline, as matings (the pedigree screen) ------------------------------------------
+
+test('the lineage groups by mating, not by animal', () => {
+  const { s } = fresh();
+  conceive(s, 'g1');
+  conceive(s, 'g2');
+  const l = s.lineage(ADDR);
+  assert.strictEqual(l.blocks.length, 1, 'one pair, however many offspring, is one block');
+  assert.strictEqual(l.blocks[0].kids.length, 2);
+  assert.strictEqual(l.total, 2);
+  assert.strictEqual(l.blocks[0].mother, `alpha:${ALPHA_F.number}`);
+});
+
+test('every node carries its allele pair, so a bloodline can be scanned for a carrier', () => {
+  const { s } = fresh();
+  conceive(s);
+  const kid = s.lineage(ADDR).blocks[0].kids[0];
+  for (const locus of G.LOCI) {
+    assert.strictEqual(kid.alleles[locus].length, 2, `${locus} must send both alleles`);
+    assert.strictEqual(kid.alleles[locus][0], kid.traits[locus], 'the expressed allele comes first');
+  }
+});
+
+test('the warning belongs to the mating and has exactly three severities', () => {
+  const { s } = fresh();
+  const a = conceive(s, 'p1');
+  const b = conceive(s, 'p2');
+  const l1 = s.lineage(ADDR);
+  assert.strictEqual(l1.blocks[0].severity, 'clear', 'unrelated Alphas carry no penalty');
+
+  // Now breed the two siblings together and check the block that pairing creates.
+  const mum = { id: a.id, genome: s.state.players[ADDR].creatures[a.id].genome };
+  const dad = { id: b.id, genome: s.state.players[ADDR].creatures[b.id].genome };
+  const F1 = mum.genome.sex === 'F' ? mum : dad;
+  const M1 = mum.genome.sex === 'F' ? dad : mum;
+  if (F1.genome.sex === 'F' && M1.genome.sex === 'M') {
+    for (let i = 0; i < 40; i++) {
+      s.serverSeedFn = () => `sib${i}`.padEnd(64, '0');
+      const open = s.openPairing(ADDR, F1, M1);
+      if (!open.ok) continue;
+      const r = s.resolvePairing(ADDR, open.pairingId, F1, M1);
+      if (!r.conceived) continue;
+      const sib = s.lineage(ADDR).blocks.find((x) => x.mother === F1.id || x.father === F1.id);
+      assert.ok(sib, 'the sibling mating must appear as its own block');
+      assert.notStrictEqual(sib.severity, 'clear', 'full siblings are not a clear pairing');
+      assert.ok(['watch', 'close'].includes(sib.severity), `unexpected severity ${sib.severity}`);
+      return;
+    }
+  }
+});
+
+test('a released descendant stays in the bloodline, because it lived', () => {
+  const { s, clock } = fresh();
+  const r = conceive(s);
+  clock.t = r.bornAt;
+  s.release(ADDR, r.id);
+  const kid = s.lineage(ADDR).blocks[0].kids[0];
+  assert.strictEqual(kid.released, true);
+  assert.strictEqual(s.lineage(ADDR).living, 0);
+});
+
 console.log(`\n${passed} stable tests passed`);

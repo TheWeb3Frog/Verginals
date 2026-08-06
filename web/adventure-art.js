@@ -123,6 +123,33 @@ export function effectFor(element) {
   return { fire: 'fireHit', earth: 'earthHit', water: 'waterHit' }[String(element || '').toLowerCase()] || null;
 }
 
+// --- allele colour ----------------------------------------------------------------------------
+
+// The pip bar draws one colour per allele, and the same allele must be the same colour everywhere
+// or a lineage stops being scannable. Trait values are names, not colours, so a name that already
+// IS a colour uses it and everything else is hashed into the kit's own palette. Deterministic, so
+// two creatures carrying the same hidden Rainbow show the same pip in both their rows.
+const NAMED = {
+  red: P.fire, orange: P.ember, 'bitcoin orange': P.ember, yellow: P.gold, lemon: P.goldLight,
+  green: P.earth, 'sea green': P.moss, emerald: P.moss, blue: P.water, 'sky blue': P.foam,
+  purple: P.prismD, fuchsia: P.prismA, pink: P.prismA, white: P.paper, black: P.ink,
+  'dark grey': P.slab, grey: P.ash, rainbow: P.prismC,
+};
+const HASH_POOL = [
+  P.fire, P.ember, P.earth, P.moss, P.water, P.foam, P.prismA, P.prismB,
+  P.prismC, P.prismD, P.toxic, P.veil, P.gold, P.bone, P.deep, P.loam,
+];
+
+export function alleleColor(value) {
+  const v = String(value === undefined || value === null ? '' : value).toLowerCase().trim();
+  if (!v) return P.slab;
+  if (NAMED[v]) return NAMED[v];
+  for (const key of Object.keys(NAMED)) if (v.includes(key)) return NAMED[key];
+  let h = 0;
+  for (let i = 0; i < v.length; i++) h = (h * 31 + v.charCodeAt(i)) >>> 0;
+  return HASH_POOL[h % HASH_POOL.length];
+}
+
 // --- the arenas -------------------------------------------------------------------------------
 
 // Chroma is held under 8% on every surface. The element is told through silhouette and structure,

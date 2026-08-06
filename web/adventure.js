@@ -15,22 +15,30 @@
 //   greyscale and red-green deficiency. Never draw a pip without its notch.
 
 import {
-  PALETTE, TRAIT_LAYERS, LAYER_RECTS, spriteUrl, seasonChip, SEASON_DAYS,
+  PALETTE, TRAIT_LAYERS, LAYER_RECTS, spriteUrl, seasonChip, SEASON_DAYS, pipBar,
 } from './verginals-kit.js';
 import {
-  sprite, elementBadge, moveIcon, attentionIcon, egg, playEffect, effectFor, arena,
+  sprite, elementBadge, moveIcon, attentionIcon, egg, playEffect, effectFor, arena, alleleColor,
 } from './adventure-art.js';
 
 const P = PALETTE;
 const LOCI = ['Background', 'Body', 'Collar', 'Face', 'Rune', 'House'];
 
-// One hue per trait slot. The kit's pipBar() takes allele COLOURS, but the server deliberately
-// sends zygosity rather than the allele pair. A player's hidden carriers are exactly what an
-// opponent would want to read. So the colour identifies the slot and the notch carries the
-// genetics, which is the channel pass 3a proved load-bearing anyway.
+// The fallback hue per slot, used only when a payload arrives without its allele pair. Real
+// colours come from the alleles themselves now, which is what makes a bloodline scannable: the
+// same hidden trait is the same colour in every row it appears in.
 const SLOT_HUE = {
   Background: P.water, Body: P.ember, Collar: P.veil,
   Face: P.prismA, Rune: P.moss, House: P.fire,
+};
+
+// Ids are `d_12_lx9f`. The middle number is the only part a player ever needs to tell two of their
+// own creatures apart, and the tail is noise on a 150px rail.
+const shortId = (id) => {
+  const raw = String(id || '');
+  if (raw.startsWith('alpha:')) return `Alpha #${raw.slice(6)}`;
+  const parts = raw.split('_');
+  return parts.length > 1 ? `#${parts[1]}` : raw;
 };
 
 const el = (tag, css, text) => {
@@ -56,26 +64,54 @@ const api = async (path, opts) => {
 // --- the pip bar ------------------------------------------------------------------------------
 
 /**
- * Six slots, each a solid pip when homozygous and a notched one when heterozygous.
+ * The kit's own pipBar, called with real allele colours.
  *
- * The notch floors at 2px so it never vanishes in a list row. The designer added that in pass 3a
- * and it is the reason the bar still works at 6px.
+ * This used to be a local reimplementation, drawing one fixed hue per slot because the server only
+ * sent hom/het. That threw away what the bar is for: the design has the top row carrying what is
+ * expressed and the bottom row what is carried, so a whole bloodline can be scanned for a hidden
+ * trait without opening a card. The roster now sends the pair, expressed first, and the drawing is
+ * the designer's again.
+ *
+ * The notch on a heterozygous top pip is the shape channel and survives greyscale and red-green
+ * deficiency. It lives inside the kit. Never draw a pip without it.
  */
-function pips(zygosity, cell = 14) {
-  const wrap = el('div', 'display:flex;gap:2px');
-  const notch = Math.max(2, Math.round(cell / 3));
-  for (const locus of LOCI) {
-    const het = zygosity[locus] === 'het';
-    const col = el('div', 'display:flex;flex-direction:column;gap:2px');
-    const top = el('div', `width:${cell}px;height:${cell}px;background:${SLOT_HUE[locus]};box-shadow:0 0 0 1px ${P.ink}`);
-    if (het) top.style.clipPath = `polygon(0 0, calc(100% - ${notch}px) 0, 100% ${notch}px, 100% 100%, 0 100%)`;
-    const bot = el('div', `width:${cell}px;height:${cell}px;background:${SLOT_HUE[locus]};box-shadow:0 0 0 1px ${P.ink}`
-      + (het ? ';opacity:0.55' : ''));
-    col.append(top, bot);
-    col.title = `${locus}: ${het ? 'heterozygous, carries something hidden' : 'homozygous'}`;
-    wrap.append(col);
+function pips(c, cell = 14) {
+  if (!c.alleles) {
+    // A roster from a server that predates the allele payload. Fall back to the slot hue rather
+    // than drawing nothing: the shape channel still carries the zygosity.
+    const pairs = LOCI.map((l) => {
+      const hue = SLOT_HUE[l];
+      return c.zygosity && c.zygosity[l] === 'het' ? [hue, P.slab] : [hue, hue];
+    });
+    return pipBar(pairs, cell);
   }
-  return wrap;
+  const bar = pipBar(LOCI.map((l) => (c.alleles[l] || []).map(alleleColor)), cell);
+
+  // The kit infers heterozygosity by comparing the two COLOURS, which is right when every allele
+  // has its own. Ours are hashed into a sixteen-colour palette and Face alone has 44 values, so two
+  // different alleles land on the same colour often enough to matter. Left alone the bar would draw
+  // "breeds true" over a creature carrying something hidden, which is the one thing it must never
+  // do. So the shape channel is reconciled against the allele names, which are the truth.
+  const notch = Math.max(2, Math.round(cell / 3));
+  [...bar.children].forEach((col, i) => {
+    const l = LOCI[i];
+    const pair = c.alleles[l] || [];
+    const het = pair.length === 2 && pair[0] !== pair[1];
+    const [top, bottom] = col.children;
+    const drawnHet = top.children.length > 0;
+    if (het && !drawnHet) {
+      const n = document.createElement('div');
+      n.style.cssText = `position:absolute;right:0;top:0;width:${notch}px;height:${notch}px;background:${P.ink}`;
+      top.append(n);
+    } else if (!het && drawnHet) {
+      top.children.length = 0;
+    }
+    bottom.style.cssText = bottom.style.cssText.replace(/;opacity:0\.55/, '') + (het ? ';opacity:0.55' : '');
+    col.title = het
+      ? `${l}: shows ${pair[0]}, carries ${pair[1]}`
+      : `${l}: ${pair[0]} (homozygous, breeds true)`;
+  });
+  return bar;
 }
 
 // The cycle, as one fact rather than three: Fire burns Earth, Earth buries Water, Water douses Fire.
@@ -147,7 +183,7 @@ export class Adventure {
   render() {
     const s = this.state;
     this.body.textContent = '';
-    this.body.append(this.clock(s.season), this.today(s), this.line(s));
+    this.body.append(this.clock(s.season), this.today(s), this.line(s), this.nav());
   }
 
   /** Put a panel where a refresh cannot destroy it. Replaces the previous one. */
@@ -245,6 +281,24 @@ export class Adventure {
     return wrap;
   }
 
+  /**
+   * The two screens that are about the season rather than the day. Below the line, because they
+   * are what you read once the day is cleared, not what you came to do.
+   */
+  nav() {
+    const row = el('div', 'display:flex;gap:8px;margin-top:20px;flex-wrap:wrap');
+    const link = (label, go) => {
+      const b = el('button', `padding:9px 12px;font:10px/1 ui-monospace,monospace;letter-spacing:1px;`
+        + `background:transparent;color:${P.fog};border:1px solid ${P.slab};cursor:pointer`, label);
+      b.onclick = go;
+      return b;
+    };
+    row.append(link('BLOODLINE', () => this.lineagePanel()));
+    row.append(link('LADDERS', () => this.laddersPanel()));
+    row.append(link('HALL OF FAME', () => this.hallPanel()));
+    return row;
+  }
+
   row(c) {
     const card = el('div', `display:flex;gap:14px;align-items:center;padding:12px;margin-bottom:8px;`
       + `background:${P.panel};border:1px solid ${P.slab}`);
@@ -263,7 +317,7 @@ export class Adventure {
     }
 
     const mid = el('div', 'flex:1;display:flex;flex-direction:column;gap:8px');
-    mid.append(pips(c.zygosity, 14));
+    mid.append(pips(c, 14));
     const stateText = !c.born
       ? `Gestating, born in ${Math.max(0, Math.ceil((c.bornAt - Date.now() / 1000) / 3600))}h`
       : c.adult ? `Adult · generation ${c.generation}` : `Growing ${c.growth}/${c.growthToAdult}`;
@@ -518,6 +572,226 @@ export class Adventure {
     return b;
   }
 
+  // --- the bloodline ------------------------------------------------------------------------------
+
+  /**
+   * The pedigree, read as brackets: the pair on the left rail, everything they produced on the
+   * right, one block per mating. Every node carries the pip bar at 7px, which is the whole point:
+   * you can scan a bloodline for a hidden trait without opening a single card.
+   *
+   * Escalation is carried by the left rule and the copy, never by an alert colour over the whole
+   * panel. A red panel would fight the creature art, and the art is what you came to read.
+   */
+  async lineagePanel() {
+    let data;
+    try { data = await api('/lineage'); } catch (e) { return this.toast(e.message); }
+
+    const panel = this.notice(el('div', `padding:16px;background:${P.panel};border:1px solid ${P.edge};margin-bottom:20px`));
+    panel.append(el('div', `font:11px/1 ui-monospace,monospace;letter-spacing:2px;color:${P.ash};margin-bottom:12px`,
+      `BLOODLINE · ${data.total} BRED · ${data.living} LIVING`));
+
+    if (!data.blocks.length) {
+      const box = el('div', 'display:flex;gap:14px;align-items:center');
+      const mark = sprite('emptyBox', 'emptyP', 3);
+      if (mark) box.append(mark);
+      box.append(el('div', `font:12px/1.6 ui-monospace,monospace;color:${P.ash}`,
+        'Nothing bred yet. The first pairing draws the first bracket.'));
+      panel.append(box);
+      return undefined;
+    }
+
+    // Severity lives only on the 6px left rule: moss, gold, fire. Three levels, three colours.
+    const RULE = { clear: P.moss, watch: P.gold, close: P.fire };
+    for (const b of data.blocks) {
+      const block = el('div', `display:flex;gap:12px;padding:10px 0 10px 12px;margin-bottom:10px;`
+        + `border-left:6px solid ${RULE[b.severity] || P.moss};background:${P.coal}`);
+
+      const rail = el('div', 'width:150px;flex:none;display:flex;flex-direction:column;gap:4px');
+      rail.append(el('div', `font:10px/1.4 ui-monospace,monospace;letter-spacing:1px;color:${P.ash}`,
+        `GENERATION ${b.generation}`));
+      rail.append(el('div', `font:11px/1.4 ui-monospace,monospace;color:${P.fog}`, shortId(b.mother)));
+      rail.append(el('div', `font:11px/1.4 ui-monospace,monospace;color:${P.fog}`, shortId(b.father)));
+      rail.append(el('div', `margin-top:4px;font:10px/1.4 ui-monospace,monospace;color:${RULE[b.severity] || P.moss}`,
+        b.penaltyPct > 0 ? `${b.relation}. −${b.penaltyPct}% viability` : b.relation));
+      block.append(rail);
+
+      const kids = el('div', 'flex:1;display:flex;flex-wrap:wrap;gap:10px');
+      for (const k of b.kids) {
+        const node = el('div', `display:flex;flex-direction:column;gap:4px;padding:6px;background:${P.panel};`
+          + `border:1px solid ${P.slab}${k.released ? ';opacity:0.55' : ''}`);
+        node.append(pips(k, 7));
+        const label = el('div', 'display:flex;align-items:center;gap:4px');
+        if (k.mutations && k.mutations.length) {
+          const bang = sprite('bang', 'warnP', 1);
+          if (bang) { bang.title = 'carries a mutation'; label.append(bang); }
+        }
+        if (k.released) {
+          const g = sprite('ghost', 'ghostP', 1);
+          if (g) { g.title = 'released: it left the stable, it did not die'; label.append(g); }
+        }
+        label.append(el('span', `font:9px/1.4 ui-monospace,monospace;color:${P.ash}`,
+          `${k.sex === 'F' ? '♀' : '♂'} ${k.record ? `${k.record.wins}-${k.record.fights - k.record.wins}` : ''}`));
+        node.append(label);
+        node.title = `${shortId(k.id)} · generation ${k.generation}`
+          + (k.rarity ? ` · rarity ${Math.round(k.rarity)}` : '');
+        kids.append(node);
+      }
+      block.append(kids);
+      panel.append(block);
+    }
+    return undefined;
+  }
+
+  // --- the ladders --------------------------------------------------------------------------------
+
+  /**
+   * Two ladders, side by side, because they measure two different things and the whole of §2.1 is
+   * that a breeder and a fighter both get somewhere. Combat is won-lost; Genetics is the rarest
+   * thing you actually managed to express.
+   */
+  async laddersPanel() {
+    let data;
+    try { data = await api('/ladders'); } catch (e) { return this.toast(e.message); }
+
+    const panel = this.notice(el('div', `padding:16px;background:${P.panel};border:1px solid ${P.edge};margin-bottom:20px`));
+    const cols = el('div', 'display:flex;gap:16px;flex-wrap:wrap');
+
+    const board = (title, sub, rows, value) => {
+      const col = el('div', 'flex:1;min-width:220px');
+      col.append(el('div', `font:11px/1 ui-monospace,monospace;letter-spacing:2px;color:${P.bone}`, title));
+      col.append(el('div', `font:9px/1.6 ui-monospace,monospace;letter-spacing:1px;color:${P.ash};margin-bottom:8px`, sub));
+      if (!rows.length) {
+        col.append(el('div', `font:11px/1.6 ui-monospace,monospace;color:${P.ash}`, 'Nothing on this ladder yet.'));
+        return col;
+      }
+      rows.slice(0, 10).forEach((r, i) => {
+        const line = el('div', `display:flex;align-items:center;gap:8px;padding:5px 0;`
+          + `border-bottom:1px solid ${P.slab}${r.released ? ';opacity:0.55' : ''}`);
+        // The leader wears the crown, and only the leader. A rank number under it would be noise.
+        const lead = i === 0 ? sprite('crown', 'crownP', 1) : null;
+        line.append(lead || el('div', `width:16px;font:10px/1 ui-monospace,monospace;color:${P.ash}`, String(i + 1)));
+        if (r.traits) line.append(creature(r.traits, 28));
+        line.append(el('div', `flex:1;font:10px/1.4 ui-monospace,monospace;color:${P.fog}`, shortId(r.id)));
+        line.append(el('div', `font:11px/1 ui-monospace,monospace;color:${i === 0 ? P.gold : P.bone}`, value(r)));
+        col.append(line);
+      });
+      return col;
+    };
+
+    cols.append(board('COMBAT', `SEASON ${String(this.state.season.id || 1).padStart(2, '0')} · W – L`,
+      data.combat, (r) => `${r.wins}–${r.fights - r.wins}`));
+    cols.append(board('GENETICS', 'RAREST EXPRESSED', data.genetics, (r) => String(Math.round(r.score || 0))));
+    panel.append(cols);
+    panel.append(el('div', `margin-top:10px;font:10px/1.6 ui-monospace,monospace;color:${P.ash}`,
+      'The top of either ladder earns a DNA Orb at season end. One per player, however many you top: '
+      + 'the Orb carries one bloodline.'));
+    return undefined;
+  }
+
+  // --- Paradise and the Hall of Fame ---------------------------------------------------------------
+
+  /**
+   * Paradise: where the released are, and the only place in the game whose backdrop is brighter
+   * than the creatures standing on it. Same neutral discipline as the arenas, shifted one step
+   * violet and one step lighter.
+   *
+   * Ghosts drift on a slow sine bob. The light column behind the gate is a single 50% block, not a
+   * gradient: a gradient would read as glow, and this is a gate, not a heaven.
+   */
+  paradise(rows) {
+    const box = el('div', `position:relative;height:190px;overflow:hidden;background:${P.veilDark};`
+      + `border:1px solid ${P.veil}`);
+    const beam = el('div', `position:absolute;left:50%;top:0;bottom:0;width:54px;margin-left:-27px;`
+      + `background:${P.veilLight};opacity:0.5`);
+    box.append(beam);
+    box.append(el('div', `position:absolute;left:0;right:0;bottom:0;height:26%;background:${P.veil};opacity:0.55`));
+
+    const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    rows.slice(0, 8).forEach((r, i) => {
+      const slot = el('div', `position:absolute;bottom:${26 + (i % 2) * 12}%;`
+        + `left:${8 + (i * 11) % 84}%;cursor:pointer`);
+      const g = sprite('ghost', 'ghostP', 3);
+      if (!g) return;
+      slot.append(g);
+      slot.title = `${shortId(r.id)}: released, not dead. It kept its page and its place on the roster.`;
+      box.append(slot);
+      if (still) return;
+      // Each ghost on its own phase, so they never march in step.
+      const phase = i * 0.9;
+      const start = Date.now();
+      setInterval(() => {
+        slot.style.transform = `translateY(${(Math.sin((Date.now() - start) / 1400 + phase) * 5).toFixed(1)}px)`;
+      }, 60);
+    });
+    return box;
+  }
+
+  /**
+   * The Hall of Fame plaque. The frame is the only gold surface in the game outside the DNA Orb,
+   * which is what makes it mean something: two-tone bevel, four corner blocks, and the pip bar on
+   * the plaque underneath, so the genetics stay visible even in the trophy case.
+   */
+  plaque(c, title) {
+    const frame = el('div', `position:relative;padding:10px;background:${P.goldDark};`
+      + `border:3px solid ${P.gold};display:flex;flex-direction:column;align-items:center;gap:6px;width:200px`);
+    for (const [a, b] of [['top', 'left'], ['top', 'right'], ['bottom', 'left'], ['bottom', 'right']]) {
+      frame.append(el('div', `position:absolute;${a}:-3px;${b}:-3px;width:7px;height:7px;background:${P.goldLight}`));
+    }
+    const crown = sprite('crown', 'crownP', 2);
+    if (crown) frame.append(crown);
+    if (c.traits) frame.append(creature(c.traits, 96));
+    frame.append(el('div', `font:12px/1 ui-monospace,monospace;letter-spacing:2px;color:${P.ink}`,
+      shortId(c.id).toUpperCase()));
+    frame.append(el('div', `font:9px/1.4 ui-monospace,monospace;letter-spacing:1px;color:${P.ink}`, title));
+    const plate = el('div', `padding:6px;background:${P.ink};display:flex;justify-content:center;width:100%`);
+    plate.append(pips(c, 9));
+    frame.append(plate);
+    return frame;
+  }
+
+  async hallPanel() {
+    let data;
+    let line;
+    try {
+      data = await api('/ladders');
+      line = await api('/lineage');
+    } catch (e) { return this.toast(e.message); }
+
+    const panel = this.notice(el('div', `padding:16px;background:${P.panel};border:1px solid ${P.edge};margin-bottom:20px`));
+    panel.append(el('div', `font:11px/1 ui-monospace,monospace;letter-spacing:2px;color:${P.ash};margin-bottom:12px`,
+      'HALL OF FAME'));
+
+    // Two plaques, one per ladder, because those are the two ways to be worth remembering. A season
+    // with nothing on either gets told so rather than shown an empty gold frame, which would read
+    // as a bug rather than as an empty season.
+    const best = [];
+    if (data.combat[0] && data.combat[0].fights) {
+      best.push([data.combat[0], `SEASON ${String((this.state.season && this.state.season.id) || 1).padStart(2, '0')} · `
+        + `${data.combat[0].wins} WIN${data.combat[0].wins === 1 ? '' : 'S'}`]);
+    }
+    if (data.genetics[0] && data.genetics[0].score) {
+      best.push([data.genetics[0], `RAREST EXPRESSED · ${Math.round(data.genetics[0].score)}`]);
+    }
+    if (!best.length) {
+      panel.append(el('div', `font:12px/1.6 ui-monospace,monospace;color:${P.ash};margin-bottom:16px`,
+        'Nothing has earned a plaque yet. Win a fight, or breed something rarer than anything else '
+        + 'in your line.'));
+    } else {
+      const row = el('div', 'display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px');
+      for (const [c, title] of best) row.append(this.plaque(c, title));
+      panel.append(row);
+    }
+
+    const released = (line.blocks || []).flatMap((b) => b.kids.filter((k) => k.released));
+    panel.append(el('div', `font:11px/1 ui-monospace,monospace;letter-spacing:2px;color:${P.ash};margin-bottom:8px`,
+      `PARADISE · ${released.length} RELEASED`));
+    panel.append(this.paradise(released));
+    panel.append(el('div', `margin-top:8px;font:10px/1.6 ui-monospace,monospace;color:${P.ash}`,
+      'Released is not dead. They keep their page, their record and their place on the season '
+      + 'roster. Nothing is deleted, ever.'));
+    return undefined;
+  }
+
   // --- picking the parents ------------------------------------------------------------------------
 
   /**
@@ -709,7 +983,7 @@ export class Adventure {
       const name = el('div', `font:13px/1 ui-monospace,monospace;letter-spacing:2px;color:${P.bone};opacity:0`,
         `${c.sex === 'F' ? '♀' : '♂'} GENERATION ${c.generation}`);
       const bar = el('div', 'display:flex;justify-content:center;opacity:0');
-      bar.append(pips(c.zygosity, 18));
+      bar.append(pips(c, 18));
       panel.append(name, bar);
       const reveal = () => { name.style.transition = bar.style.transition = 'opacity .5s'; name.style.opacity = bar.style.opacity = '1'; };
       if (still) reveal(); else setTimeout(reveal, 420);
@@ -775,7 +1049,7 @@ export class Adventure {
       card._base = `display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px;width:300px;background:${P.coal};cursor:pointer`;
       // The bar first and biggest: the decision is genetic, and the record is subordinate to it.
       const plate = el('div', `padding:8px;background:${P.ink};display:flex;justify-content:center`);
-      plate.append(pips(cand.zygosity, 18));
+      plate.append(pips(cand, 18));
       card.append(plate, creature(cand.traits, 96));
       card.append(el('div', `font:11px/1.4 ui-monospace,monospace;color:${P.bone}`,
         `${cand.sex === 'F' ? '♀' : '♂'} generation ${cand.generation}`));

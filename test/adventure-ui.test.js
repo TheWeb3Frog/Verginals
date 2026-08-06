@@ -23,6 +23,8 @@ function makeDoc() {
     set src(v) { this.attrs.src = v; },
     get src() { return this.attrs.src; },
     append(...kids) { this.children.push(...kids); },
+    // The kit reaches for appendChild; our own code uses append. Both, or the kit's pipBar throws.
+    appendChild(kid) { this.children.push(kid); return kid; },
     prepend(...kids) { this.children.unshift(...kids); },
   });
   return { createElement: node };
@@ -53,9 +55,28 @@ function loadModule(src, injected = {}) {
 }
 
 const kit = loadModule(kitSrc);
+
+// The art module draws to a canvas, which this DOM deliberately does not have: the point of a fake
+// document this small is that it stays readable. So the drawing functions are stubbed and the pip
+// bar is the real one from the kit, because the bar is the thing this file is here to check.
+const drawn = [];
+const stubSprite = (name) => { drawn.push(name); const n = document.createElement('canvas'); n.attrs.sprite = name; return n; };
+const art = {
+  sprite: (name) => stubSprite(name),
+  elementBadge: (e) => stubSprite(`badge:${e}`),
+  moveIcon: (e) => stubSprite(`move:${e}`),
+  attentionIcon: (k) => stubSprite(`attention:${k}`),
+  egg: (p) => stubSprite(`egg:${p >= 0.66 ? 2 : p >= 0.33 ? 1 : 0}`),
+  playEffect: (host, fx) => { drawn.push(`fx:${fx}`); return () => {}; },
+  effectFor: (e) => ({ fire: 'fireHit', earth: 'earthHit', water: 'waterHit' }[e] || null),
+  arena: () => document.createElement('div'),
+  alleleColor: (v) => `#${String(v).length.toString(16).padStart(6, '0')}`,
+};
+
 const ui = loadModule(uiSrc, {
   PALETTE: kit.PALETTE, TRAIT_LAYERS: kit.TRAIT_LAYERS, LAYER_RECTS: kit.LAYER_RECTS,
   spriteUrl: kit.spriteUrl, seasonChip: kit.seasonChip, SEASON_DAYS: kit.SEASON_DAYS,
+  pipBar: kit.pipBar, ...art,
 });
 
 // --- the creature renderer --------------------------------------------------------------------
@@ -135,37 +156,76 @@ test('traversal cannot survive the decode-then-revalidate order', () => {
 
 // --- the pip bar ------------------------------------------------------------------------------
 
-const ZYG = { Background: 'het', Body: 'hom', Collar: 'het', Face: 'hom', Rune: 'het', House: 'het' };
+// The bar is the kit's own pipBar now, called with real allele pairs: expressed first, carried
+// second. Four of these six slots are heterozygous.
+const CREATURE = {
+  alleles: {
+    Background: ['Spectrum', 'Void'],
+    Body: ['Bitcoin Orange', 'Bitcoin Orange'],
+    Collar: ['Red', 'Emerald'],
+    Face: ['Rainbow', 'Rainbow'],
+    Rune: ['Fire Red', 'Sun Blue'],
+    House: ['Fire', 'Water'],
+  },
+  zygosity: { Background: 'het', Body: 'hom', Collar: 'het', Face: 'hom', Rune: 'het', House: 'het' },
+};
+const isNotched = (col) => col.children[0].children.length > 0;
 
 test('the pip bar draws six slots, two pips each', () => {
-  const bar = ui.pips(ZYG, 14);
+  const bar = ui.pips(CREATURE, 14);
   assert.strictEqual(bar.children.length, 6);
   for (const col of bar.children) assert.strictEqual(col.children.length, 2);
 });
 
 test('zygosity reads from the NOTCH, so it survives greyscale', () => {
-  const bar = ui.pips(ZYG, 14);
-  const notched = bar.children.filter((c) => c.children[0].style.clipPath);
-  assert.strictEqual(notched.length, 4, 'the four heterozygous slots must be notched');
-  const solid = bar.children.filter((c) => !c.children[0].style.clipPath);
-  assert.strictEqual(solid.length, 2);
+  const bar = ui.pips(CREATURE, 14);
+  assert.strictEqual(bar.children.filter(isNotched).length, 4, 'the four heterozygous slots must be notched');
+  assert.strictEqual(bar.children.filter((c) => !isNotched(c)).length, 2);
 });
 
 test('the notch floors at 2px so it never disappears in a list row', () => {
   for (const cell of [6, 5, 3, 1]) {
-    const bar = ui.pips(ZYG, cell);
-    const clip = bar.children[0].children[0].style.clipPath;
-    const px = Number(/(\d+(?:\.\d+)?)px/.exec(clip)[1]);
+    const bar = ui.pips(CREATURE, cell);
+    const notch = bar.children[0].children[0].children[0];
+    const px = Number(/width:(\d+(?:\.\d+)?)px/.exec(notch.style.cssText)[1]);
     assert.ok(px >= 2, `at cell ${cell}px the notch was ${px}px`);
   }
 });
 
 test('a homozygous slot has no dimmed lower pip, a heterozygous one does', () => {
-  const bar = ui.pips({ ...ZYG }, 14);
-  const het = bar.children[0].children[1].style.cssText;
-  const hom = bar.children[1].children[1].style.cssText;
-  assert.match(het, /opacity:0\.55/);
-  assert.ok(!/opacity/.test(hom));
+  const bar = ui.pips(CREATURE, 14);
+  assert.match(bar.children[0].children[1].style.cssText, /opacity:0\.55/);
+  assert.ok(!/opacity/.test(bar.children[1].children[1].style.cssText));
+});
+
+test('two alleles that collide on one colour are still drawn as heterozygous', () => {
+  // The colour pool is sixteen wide and Face alone has 44 values, so collisions are certain. The
+  // kit compares colours; the names are the truth. Getting this wrong would draw "breeds true"
+  // over a creature carrying something hidden.
+  const collide = { alleles: { ...CREATURE.alleles, Rune: ['Fire Red', 'Sun Blue'] } };
+  const sameColour = art.alleleColor('Fire Red') === art.alleleColor('Sun Blue');
+  assert.ok(sameColour, 'this test is pointless unless the two names really do collide');
+  const bar = ui.pips(collide, 14);
+  assert.ok(isNotched(bar.children[4]), 'a colour collision must not erase the notch');
+  assert.match(bar.children[4].children[1].style.cssText, /opacity:0\.55/);
+});
+
+test('the top pip is what is EXPRESSED and the bottom what is carried', () => {
+  const bar = ui.pips(CREATURE, 14);
+  // Collar shows Red and carries Emerald: two different names, so two different colours.
+  const [top, bottom] = bar.children[2].children.map((p) => /background:(#[0-9a-f]+)/.exec(p.style.cssText)[1]);
+  assert.notStrictEqual(top, bottom, 'a heterozygote must not draw the same colour twice');
+  // Face is homozygous Rainbow, so both pips are the same colour and nothing is hidden.
+  const face = bar.children[3].children.map((p) => /background:(#[0-9a-f]+)/.exec(p.style.cssText)[1]);
+  assert.strictEqual(face[0], face[1]);
+});
+
+test('a payload with no allele pair still draws, and still notches', () => {
+  // A browser holding an older page against a newer server, or the reverse. The bar degrades to
+  // slot hues rather than throwing, and the shape channel still carries the genetics.
+  const bar = ui.pips({ zygosity: CREATURE.zygosity }, 14);
+  assert.strictEqual(bar.children.length, 6);
+  assert.strictEqual(bar.children.filter(isNotched).length, 4);
 });
 
 console.log(`\n${passed} adventure-ui tests passed`);

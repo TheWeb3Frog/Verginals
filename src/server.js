@@ -949,6 +949,31 @@ function getRarity() {
   return rarityCache;
 }
 
+/**
+ * Score a bred descendant against the collection's own trait frequencies.
+ *
+ * computeRarity() scores the 3333 designed Alphas and keys them by number, which a descendant does
+ * not have. The statistical base is the same sum either way (supply over the count of each value
+ * carried), so this reuses the published distribution rather than inventing a second scale: the
+ * Genetics ladder and the collection's rarity page then mean the same thing.
+ *
+ * No combo bonus. Those are curated for the Alpha drop and handing them to descendants would let
+ * breeding buy its way up a ladder that is supposed to measure what you actually bred.
+ */
+function descendantRarity(attributes) {
+  const r = getRarity();
+  if (!r) return 0;
+  let score = 0;
+  for (const a of attributes || []) {
+    if (!a || !a.trait_type) continue;
+    const type = r.traits.find((t) => t.trait_type === String(a.trait_type));
+    if (!type) continue;
+    const hit = type.values.find((v) => String(v.value) === String(a.value));
+    if (hit && hit.count > 0) score += r.supply / hit.count;
+  }
+  return Math.round(score * 100) / 100;
+}
+
 /** GET /api/collection/rarity: the full trait distribution (counts + percentages) + badge tallies. */
 function handleRarity(res) {
   const r = getRarity();
@@ -1345,6 +1370,8 @@ function initAdventure() {
       return { number: ins.collectionNumber };
     },
     carrierTime: carrierTimeFor,
+    // The Genetics ladder scores what you bred on the collection's own trait frequencies.
+    rarityOf: descendantRarity,
     // Alpha Verginals the address holds right now, as { number, carrierKey }. Reads the same
     // indexed payload the gallery does; ownership is re-proved per carrier at breeding time, so a
     // stale index here can only ever show an Alpha that then refuses to breed, never the reverse.
@@ -1364,6 +1391,20 @@ function adventurePlayer(req, res) {
   const address = gamePlayer(req);
   if (!address) { sendJSON(res, 401, { error: 'not signed in' }); return null; }
   return address;
+}
+
+/** GET /api/adventure/lineage: the bloodline as matings, for the pedigree screen. */
+function handleAdventureLineage(req, res) {
+  const address = adventurePlayer(req, res);
+  if (!address) return undefined;
+  return sendJSON(res, 200, adventure.lineage(address));
+}
+
+/** GET /api/adventure/ladders: Combat and Genetics, ranked separately (§2.1). */
+function handleAdventureLadders(req, res) {
+  const address = adventurePlayer(req, res);
+  if (!address) return undefined;
+  return sendJSON(res, 200, adventure.ladders(address));
 }
 
 /** GET /api/adventure/stable: the season clock, the living roster and the slots. */
@@ -2663,6 +2704,8 @@ const server = http.createServer(async (req, res) => {
     if (ADVENTURE_ENABLED) {
       let m; // block-scoped, like the game routes below: the outer `m` belongs to the launchpad block
       if (p === '/api/adventure/stable' && req.method === 'GET') return handleAdventureStable(req, res);
+      if (p === '/api/adventure/lineage' && req.method === 'GET') return handleAdventureLineage(req, res);
+      if (p === '/api/adventure/ladders' && req.method === 'GET') return handleAdventureLadders(req, res);
       if (p === '/api/adventure/alphas' && req.method === 'GET') return await handleAdventureAlphas(req, res);
       if (p === '/api/adventure/preview' && req.method === 'POST') return await handleAdventurePreview(req, res);
       if (p === '/api/adventure/pair' && req.method === 'POST') return await handleAdventurePair(req, res);

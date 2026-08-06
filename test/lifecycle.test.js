@@ -74,7 +74,7 @@ test('three attentions a day, and the fourth is refused rather than erroring', (
 test('attentions and counted fights are separate budgets sharing one growth cap of 3/day', () => {
   const { j, birth } = born();
   // Three counted fights fill the day's growth. Passive drift already took one point of the cap,
-  // so the third fight adds nothing to growth — the day still totals 3 either way, which is the
+  // so the third fight adds nothing to growth. The day still totals 3 either way, which is the
   // invariant that matters.
   for (let i = 0; i < 3; i++) assert.strictEqual(L.recordFight(j, birth).counted, true);
   const s = L.status(j, birth);
@@ -96,7 +96,7 @@ test('neither route can beat two days: six points is the floor either way', () =
   assert.strictEqual(L.isAdult(j), false);
 });
 
-test('fighting is never capped — only the first three of the day count (§5.2)', () => {
+test('fighting is never capped, only the first three of the day count (§5.2)', () => {
   const { j, birth } = born();
   let counted = 0;
   for (let i = 0; i < 30; i++) {

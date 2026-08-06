@@ -63,7 +63,7 @@ test('a missing or malformed carrier time is an error, never a silent pass', () 
   assert.throws(() => fertility(carrier(0), undefined), /unix timestamp/);
 });
 
-test('breeding spends the carrier, so it resets the rest — no cooldown table needed (§1.1)', () => {
+test('breeding spends the carrier, so it resets the rest: no cooldown table needed (§1.1)', () => {
   const after = afterBreeding(T0);
   assert.strictEqual(after.readyAt, T0 + REST_SECONDS);
   assert.strictEqual(fertility({ time: after.time, confirmations: 1 }, T0).fertile, false);
@@ -101,9 +101,9 @@ test('both parents resting are both reported, not just the first', () => {
 
 test('the player-facing line states the wait plainly and never rounds it away', () => {
   assert.strictEqual(describe(fertility(carrier(3 * DAY), T0)), 'Ready to breed');
-  assert.strictEqual(describe(fertility(carrier(0), T0)), 'Resting — ready in 2 days');
-  assert.strictEqual(describe(fertility(carrier(2 * DAY - 5 * 3600), T0)), 'Resting — ready in 5 hours');
-  assert.strictEqual(describe(fertility(carrier(2 * DAY - 600), T0)), 'Resting — ready within the hour');
+  assert.strictEqual(describe(fertility(carrier(0), T0)), 'Resting, ready in 2 days');
+  assert.strictEqual(describe(fertility(carrier(2 * DAY - 5 * 3600), T0)), 'Resting, ready in 5 hours');
+  assert.strictEqual(describe(fertility(carrier(2 * DAY - 600), T0)), 'Resting, ready within the hour');
   assert.strictEqual(
     describe(fertility({ time: T0 - 9 * DAY, confirmations: 0 }, T0)),
     'Waiting for the carrier to confirm',

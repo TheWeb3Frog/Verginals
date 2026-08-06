@@ -217,7 +217,7 @@ function p2shScriptFromHash(h) {
 /**
  * scriptPubKey for ANY address we have been asked to pay, chosen from its version byte.
  *
- * Use this for every output whose address came from outside — a recipient, a counterparty, a fee
+ * Use this for every output whose address came from outside: a recipient, a counterparty, a fee
  * pool. It must never silently fall back to P2PKH: a P2SH address ('E...' on mainnet, e.g. a 2-of-3
  * multisig treasury) wrapped in a P2PKH script would demand a private key for a script hash, and the
  * coins would be unspendable forever. Verge has no segwit, so P2PKH and P2SH are the only two shapes

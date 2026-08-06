@@ -65,7 +65,7 @@ class Adventure {
    * descendant is given as an id and read from the stable.
    *
    * Returns { error } rather than throwing: every failure here is something a player did, not a
-   * bug — they sold the Alpha, they mistyped an id, the carrier moved.
+   * bug: they sold the Alpha, they mistyped an id, the carrier moved.
    */
   async parent(address, ref) {
     if (ref.carrierKey) {
@@ -96,7 +96,7 @@ class Adventure {
   }
 
   /**
-   * GET /adventure/alphas — the breeding stock the player can actually pick from.
+   * GET /adventure/alphas. The breeding stock the player can actually pick from.
    *
    * Sorted so the ones that can breed right now come first and the resting ones sort by how soon
    * they will be ready: a player with a dozen Alphas should not have to hunt for the usable pair.
@@ -137,7 +137,7 @@ class Adventure {
     };
   }
 
-  /** POST /adventure/preview — what the pairing screen shows before the confirm button. */
+  /** POST /adventure/preview. What the pairing screen shows before the confirm button. */
   async preview(address, motherRef, fatherRef) {
     const m = await this.parent(address, motherRef);
     if (m.error) return { error: m.error };
@@ -161,7 +161,7 @@ class Adventure {
     return out;
   }
 
-  /** POST /adventure/pair — commits a seed, returns its hash. Nothing is decided yet. */
+  /** POST /adventure/pair. Commits a seed, returns its hash. Nothing is decided yet. */
   async openPairing(address, motherRef, fatherRef) {
     const m = await this.parent(address, motherRef);
     if (m.error) return { error: m.error };
@@ -178,7 +178,7 @@ class Adventure {
   }
 
   /**
-   * POST /adventure/pair/:id/resolve — reveals the seed and returns the descendant, or the honest
+   * POST /adventure/pair/:id/resolve. Reveals the seed and returns the descendant, or the honest
    * news that the pairing did not take.
    *
    * The parents are re-resolved and re-verified here: a player who sold an Alpha between committing
@@ -219,7 +219,7 @@ class Adventure {
   }
 
   /**
-   * GET /adventure/orb — the save file and what it could carry (§2).
+   * GET /adventure/orb. The save file and what it could carry (§2).
    *
    * The candidates are deliberately NOT ranked. A winner with six heterozygous traits, a rare
    * expression with nothing locked and a weak fighter with three traits fixed are three different
@@ -241,7 +241,7 @@ class Adventure {
     };
   }
 
-  /** POST /adventure/orb/spend — one orb, one bloodline, no undo. */
+  /** POST /adventure/orb/spend. One orb, one bloodline, no undo. */
   spendOrb(address, savedId) {
     const r = this.stable.spendOrb(address, savedId);
     if (!r.ok) return { error: r.reason };
@@ -249,7 +249,7 @@ class Adventure {
     return { ...r, traits: G.phenotype(c.genome, this.pool, r.id), bornAt: c.j.bornAt };
   }
 
-  /** POST /adventure/creature/:id/release — §6, "choosing what not to keep". */
+  /** POST /adventure/creature/:id/release. §6, "choosing what not to keep". */
   release(address, id) {
     const r = this.stable.release(address, id);
     return r.ok ? r : { error: r.reason };
@@ -266,7 +266,7 @@ class Adventure {
    *
    * NEUTRAL_RARITY is the load-bearing line. game.js nudges the deciding coin flip toward the
    * higher rarity score, and handing a descendant its combos.js score would mean a well-bred
-   * lineage literally wins more coin flips — the exact trap §4.2 forbids: "breeding changes how you
+   * lineage literally wins more coin flips, the exact trap §4.2 forbids: "breeding changes how you
    * play, not how much you win", and "old lineages never become mathematically superior, so it does
    * not close to newcomers". A descendant therefore enters at the same score as the bot, so the
    * nudge between them is exactly zero.
@@ -290,7 +290,7 @@ class Adventure {
   }
 
   /**
-   * POST /adventure/creature/:id/duel — open a turn-by-turn bot fight (§4.4).
+   * POST /adventure/creature/:id/duel. Open a turn-by-turn bot fight (§4.4).
    *
    * The duel is persisted rather than held in memory: a fight is three round trips with a human
    * thinking in between, and losing one to a restart would be indistinguishable from the game
@@ -308,7 +308,7 @@ class Adventure {
     return { duelId, creature: id, ...D.publicView(d) };
   }
 
-  /** POST /adventure/duel/:duelId/round — play one round; growth is recorded when the last lands. */
+  /** POST /adventure/duel/:duelId/round. Play one round; growth is recorded when the last lands. */
   playRound(address, duelId, move) {
     const p = this.stable.state.players[address];
     const d = p && p.duels && p.duels[duelId];
@@ -331,7 +331,7 @@ class Adventure {
   }
 
   /**
-   * POST /adventure/creature/:id/fight — one bot duel, resolved by the Arena, then recorded here so
+   * POST /adventure/creature/:id/fight. One bot duel, resolved by the Arena, then recorded here so
    * growth and the win record never live in two places.
    *
    * `play` is injected rather than imported so this module stays free of GameStore: the server

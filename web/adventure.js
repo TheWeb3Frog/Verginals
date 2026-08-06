@@ -2,9 +2,9 @@
 // here costs anything on a server with the feature off.
 //
 // Screens implemented, in the order the art direction settled on (pass 04):
-//   4a  daily home    — the clock, three things to do today, then your living line
-//   1d  pairing       — relatedness and viability BEFORE the commit button
-//   5   nursery       — the three attentions, and what they steer
+//   4a  daily home:     the clock, three things to do today, then your living line
+//   1d  pairing:        relatedness and viability BEFORE the commit button
+//   5   nursery:        the three attentions, and what they steer
 //
 // Two rules carried over from the design review, because they are easy to lose in code:
 //
@@ -22,7 +22,7 @@ const P = PALETTE;
 const LOCI = ['Background', 'Body', 'Collar', 'Face', 'Rune', 'House'];
 
 // One hue per trait slot. The kit's pipBar() takes allele COLOURS, but the server deliberately
-// sends zygosity rather than the allele pair — a player's hidden carriers are exactly what an
+// sends zygosity rather than the allele pair. A player's hidden carriers are exactly what an
 // opponent would want to read. So the colour identifies the slot and the notch carries the
 // genetics, which is the channel pass 3a proved load-bearing anyway.
 const SLOT_HUE = {
@@ -55,8 +55,8 @@ const api = async (path, opts) => {
 /**
  * Six slots, each a solid pip when homozygous and a notched one when heterozygous.
  *
- * The notch floors at 2px so it never vanishes in a list row — the detail the designer added in
- * pass 3a and the reason the bar still works at 6px.
+ * The notch floors at 2px so it never vanishes in a list row. The designer added that in pass 3a
+ * and it is the reason the bar still works at 6px.
  */
 function pips(zygosity, cell = 14) {
   const wrap = el('div', 'display:flex;gap:2px');
@@ -69,7 +69,7 @@ function pips(zygosity, cell = 14) {
     const bot = el('div', `width:${cell}px;height:${cell}px;background:${SLOT_HUE[locus]};box-shadow:0 0 0 1px ${P.ink}`
       + (het ? ';opacity:0.55' : ''));
     col.append(top, bot);
-    col.title = `${locus}: ${het ? 'heterozygous — carries something hidden' : 'homozygous'}`;
+    col.title = `${locus}: ${het ? 'heterozygous, carries something hidden' : 'homozygous'}`;
     wrap.append(col);
   }
   return wrap;
@@ -108,8 +108,8 @@ export class Adventure {
   constructor(root) {
     this.root = root;
     this.state = null;
-    // Two containers, and the split matters. `notices` holds whatever the player has just done —
-    // a hatch, a mutation, a fight result — and is NEVER cleared by a re-render. `body` is the
+    // Two containers, and the split matters. `notices` holds whatever the player has just done
+    // (a hatch, a mutation, a fight result) and is NEVER cleared by a re-render. `body` is the
     // roster and is rebuilt from scratch every time.
     //
     // Without this, every action erased its own outcome: breed() appended "MUTATION · Face became
@@ -139,7 +139,7 @@ export class Adventure {
   }
 
   /**
-   * The season chip. Thirty cells, filled left to right, escalating on density first — it never
+   * The season chip. Thirty cells, filled left to right, escalating on density first. It never
    * touches action gold, because the one thing a player cannot act on should not wear the colour
    * that means "act". Never animate it; it just fills.
    */
@@ -158,18 +158,18 @@ export class Adventure {
 
     const juveniles = s.living.filter((c) => c.born && !c.adult);
     const attentions = juveniles.reduce((n, c) => n + c.attentionsLeft, 0);
-    // Anything born can fight, adult or not — bot mode is where you learn a creature (§4.4).
+    // Anything born can fight, adult or not. Bot mode is where you learn a creature (§4.4).
     const fightable = s.living.filter((c) => c.born);
     const tasks = [];
     // The Orb goes first when it exists: it is the only thing on this screen that expires with the
     // season, and it is the one decision a player must not miss.
     if (s.orbs) tasks.push({ label: 'SPEND THE DNA ORB', detail: `${s.orbs} held`, on: true, go: () => this.orbPanel() });
     tasks.push(
-      { label: 'BREED', detail: s.slots.full ? `Stable full — ${s.slots.used}/${s.slots.cap}` : `${s.slots.free} free slots`, on: !s.slots.full, go: () => this.pickParents() },
+      { label: 'BREED', detail: s.slots.full ? `Stable full (${s.slots.used}/${s.slots.cap})` : `${s.slots.free} free slots`, on: !s.slots.full, go: () => this.pickParents() },
       { label: 'NURSERY', detail: attentions ? `${attentions} attentions left` : 'Nothing to raise today', on: attentions > 0, go: () => this.render() },
       {
         label: 'FIGHT THE BOT',
-        detail: fightable.length ? 'Unlimited — three a day count toward growth' : 'Nothing born yet',
+        detail: fightable.length ? 'Unlimited, three a day count toward growth' : 'Nothing born yet',
         on: fightable.length > 0,
         go: () => this.fightPanel(fightable[0]),
       },
@@ -194,7 +194,7 @@ export class Adventure {
       `YOUR LINE · ${s.living.length} LIVING · ${s.slots.used}/${s.slots.cap} SLOTS`));
     if (!s.living.length) {
       wrap.append(el('div', `padding:20px;background:${P.panel};color:${P.ash};font:12px/1.6 ui-monospace,monospace`,
-        'Nothing alive yet. Breed two Alphas to start a line — they must have rested two days first.'));
+        'Nothing alive yet. Breed two Alphas to start a line. They must have rested two days first.'));
       return wrap;
     }
     for (const c of s.living) wrap.append(this.row(c));
@@ -209,7 +209,7 @@ export class Adventure {
     const mid = el('div', 'flex:1;display:flex;flex-direction:column;gap:8px');
     mid.append(pips(c.zygosity, 14));
     const stateText = !c.born
-      ? `Gestating — born in ${Math.max(0, Math.ceil((c.bornAt - Date.now() / 1000) / 3600))}h`
+      ? `Gestating, born in ${Math.max(0, Math.ceil((c.bornAt - Date.now() / 1000) / 3600))}h`
       : c.adult ? `Adult · generation ${c.generation}` : `Growing ${c.growth}/${c.growthToAdult}`;
     mid.append(el('div', `font:11px/1.4 ui-monospace,monospace;color:${P.fog}`,
       `${c.sex === 'F' ? '♀' : '♂'} ${stateText}${c.mutations && c.mutations.length ? ' · MUTATION' : ''}`));
@@ -237,7 +237,7 @@ export class Adventure {
   /**
    * Pick three elements and where the poison and the potion go, then fight the bot.
    *
-   * NOTE — this is not yet §4.4's turn-by-turn bot. game.js resolves all three rounds from one
+   * NOTE: this is not yet §4.4's turn-by-turn bot. game.js resolves all three rounds from one
    * committed loadout, so a round-at-a-time fight is an engine change rather than a screen. What
    * this does give is the thing §4.4 is actually for: somewhere to learn a creature you have just
    * bred, before committing three moves blind in a tournament.
@@ -248,14 +248,14 @@ export class Adventure {
       c.fightsCountedLeft > 0 ? `FIGHT · ${c.fightsCountedLeft} OF 3 COUNT` : 'FIGHT · PRACTICE');
     b.title = c.fightsCountedLeft > 0
       ? 'Unlimited fights. Three a day feed growth; the rest are practice.'
-      : 'Today\'s three have counted. Fight as much as you like — this is practice now.';
+      : 'Today\'s three have counted. Fight as much as you like. This is practice now.';
     b.onclick = () => this.fightPanel(c);
     return b;
   }
 
   /**
    * A turn-by-turn bot fight (§4.4). One move at a time, each round resolved and read before the
-   * next is chosen — which is the whole point: this is where you learn a creature you have just
+   * next is chosen. That is the whole point: this is where you learn a creature you have just
    * bred, before committing three moves blind in a tournament.
    *
    * The bot's whole match was fixed by the committed seed when the duel opened, so it cannot pick
@@ -296,7 +296,7 @@ export class Adventure {
 
       const w = r.result.winner === 'p1';
       log.append(el('div', `font:12px/1.6 ui-monospace,monospace;color:${w ? P.moss : P.ember}`,
-        `Round ${r.round} — ${w ? 'you' : 'the bot'} (${r.result.reason})`));
+        `Round ${r.round}: ${w ? 'you' : 'the bot'} (${r.result.reason})`));
 
       if (!r.done) {
         panel.firstChild.textContent = `FIGHT · ROUND ${r.round + 1} OF ${duel.rounds}`;
@@ -306,8 +306,8 @@ export class Adventure {
       panel.firstChild.style.color = r.won ? P.moss : P.ember;
       log.append(el('div', `margin-top:6px;font:11px/1.6 ui-monospace,monospace;color:${P.ash}`,
         r.counted
-          ? (r.adult ? 'Counted toward growth — and it is an adult now.' : 'Counted toward growth.')
-          : "Practice — today's three have already counted. Fight as much as you like."));
+          ? (r.adult ? 'Counted toward growth, and it is an adult now.' : 'Counted toward growth.')
+          : "Practice. Today's three have already counted. Fight as much as you like."));
       // Revealed only now, when there is nothing left for it to influence.
       log.append(el('div', `font:9px/1.4 ui-monospace,monospace;color:${P.ash};word-break:break-all`,
         `seed ${r.seed}`));
@@ -349,7 +349,7 @@ export class Adventure {
 
   /**
    * The three attentions. Each matures the juvenile by the same amount and steers it somewhere
-   * different — a "best" attention would collapse the choice, so they are drawn identically.
+   * different. A "best" attention would collapse the choice, so they are drawn identically.
    */
   attentions(c) {
     const box = el('div', 'display:flex;flex-direction:column;gap:4px;align-items:flex-end');
@@ -390,7 +390,7 @@ export class Adventure {
   // --- picking the parents ------------------------------------------------------------------------
 
   /**
-   * Choose two Alphas. Only Alphas start a line — that is what makes them the permanent breeding
+   * Choose two Alphas. Only Alphas start a line, which is what makes them the permanent breeding
    * stock and the reason to own one (§1).
    *
    * The wall this screen has to explain: every descendant of ONE Alpha pair is a full sibling, so
@@ -414,12 +414,12 @@ export class Adventure {
     }
     if (!data.females || !data.males) {
       panel.append(el('div', `font:12px/1.6 ui-monospace,monospace;color:${P.ember}`,
-        `Breeding needs one of each. You hold ${data.females} female and ${data.males} male `
-        + '— pink ears are female, grey are male.'));
+        `Breeding needs one of each. You hold ${data.females} female and ${data.males} male. `
+        + 'Pink ears are female, grey are male.'));
     } else if (data.females + data.males < 4) {
       panel.append(el('div', `font:12px/1.6 ui-monospace,monospace;color:${P.fog};margin-bottom:12px`,
         'Every descendant of one pair is a full sibling, so this line will stall at the first '
-        + 'generation. Going deeper needs unrelated blood — a second pair, or another player\'s Alpha.'));
+        + 'generation. Going deeper needs unrelated blood: a second pair, or another player\'s Alpha.'));
     }
 
     const sel = { mother: null, father: null };
@@ -536,7 +536,7 @@ export class Adventure {
       return undefined;
     }
     panel.append(el('div', `margin-top:8px;font:12px/1.6 ui-monospace,monospace;color:${P.moss}`,
-      `Expecting. Born in two days — generation ${r.generation}.`));
+      `Expecting. Born in two days, generation ${r.generation}.`));
     if (r.mutations && r.mutations.length) {
       for (const m of r.mutations) {
         panel.append(el('div', `font:12px/1.6 ui-monospace,monospace;color:${P.prismB}`,
@@ -553,8 +553,8 @@ export class Adventure {
    * The hatch (design pass 3e). Egg, a hard two-frame split, a white burst, then the juvenile.
    *
    * The sequencing is the design call and it is worth keeping: the animal settles FIRST, and the
-   * name and the pip bar arrive after. The genetics are the actual reveal, so they land last —
-   * a player who is shown a bar and a creature at the same instant reads the bar.
+   * name and the pip bar arrive after. The genetics are the actual reveal, so they land last.
+   * A player who is shown a bar and a creature at the same instant reads the bar.
    *
    * Honours prefers-reduced-motion by going straight to the settled state; nothing here is load
    * bearing except the order.
@@ -607,8 +607,8 @@ export class Adventure {
   /**
    * Spending the DNA Orb (design pass 4b). One orb, one bloodline, no undo.
    *
-   * The decision is genetic, so the pip bar is drawn at 18px here — larger than anywhere else in
-   * the game — and the win record sits under it as a subordinate line. The candidates are NOT
+   * The decision is genetic, so the pip bar is drawn at 18px here (larger than anywhere else in
+   * the game) and the win record sits under it as a subordinate line. The candidates are NOT
    * ranked, and the button stays inert until one is chosen.
    */
   async orbPanel() {

@@ -1,4 +1,4 @@
-# systemd unit for the Verginals server. Template — adjust the paths marked <...> and install with:
+# systemd unit for the Verginals server. Template: adjust the paths marked <...> and install with:
 #   sudo useradd --system --home /opt/verginals --shell /usr/sbin/nologin verginals
 #   sudo cp deploy/verginals.service /etc/systemd/system/verginals.service
 #   sudo install -d -o verginals -g verginals -m 750 /etc/verginals /var/lib/verginals/data

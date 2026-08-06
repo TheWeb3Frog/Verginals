@@ -245,7 +245,7 @@ const DAD = { carrierKey: KEY_M };
     assert.ok(['fire', 'water', 'earth'].includes(seen[0].fighter.house), 'the fighter must carry its House');
   });
 
-  await atest('a juvenile fights — that is how it learns and how it grows (§4.4, §5.2)', async () => {
+  await atest('a juvenile fights, which is how it learns and how it grows (§4.4, §5.2)', async () => {
     const { a, world } = build();
     const r = await aDescendant(a);
     world.t = r.bornAt;

@@ -3,7 +3,7 @@
 //   node extension/test-address.mjs
 //
 // Why this file exists. Every output used to be built with p2pkhScript(), which ignores the
-// address version byte. Paying a P2SH address ('E...' on Verge mainnet — a multisig treasury, say)
+// address version byte. Paying a P2SH address ('E...' on Verge mainnet, a multisig treasury say)
 // therefore wrapped a SCRIPT hash in a P2PKH script: an output demanding a private key for a hash
 // that is not a public-key hash, i.e. coins destroyed with no way back. The first test below
 // reproduces exactly that, so if the dispatch is ever removed the failure is visible rather than
@@ -32,7 +32,7 @@ const bjs = (n) => ({
 const hex = (u8) => V.bytesToHex(u8);
 const oracle = (addr, net) => bitcoin.address.toOutputScript(addr, bjs(net)).toString('hex');
 
-// A real Verge mainnet 2-of-3 P2SH address, produced by `createmultisig` on verge 26.5.0 — the
+// A real Verge mainnet 2-of-3 P2SH address, produced by `createmultisig` on verge 26.5.0. The
 // exact shape a multisig treasury would use. Mainnet scriptHash is 33 (0x21), giving an 'E' prefix.
 const P2SH_MAIN = 'EewdNAAk84J6E7gHcekX1wsVLUC7Dgtmxa';
 const P2PKH_MAIN = 'DU8rvf7eHDwyvshWGJMqBduPRs1X6K652M';

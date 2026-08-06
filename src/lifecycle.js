@@ -11,7 +11,7 @@
 // to subtract something, it is the wrong change.
 //
 // Pure, like the rest of the game core: every function takes state and returns new state. No clock
-// is read here — the caller supplies `now`, so a whole season can be simulated in a test.
+// is read here: the caller supplies `now`, so a whole season can be simulated in a test.
 //
 // --- reconciling §5.1, §5.2 and §5.3 --------------------------------------------------------
 //
@@ -22,8 +22,8 @@
 //
 // Read as two separate growth sources they allow 6 points a day and an adult overnight, which
 // contradicts §5.3's own "maturation: 2 days at full attention". So: attentions and counted fights
-// are two separate ACTION budgets — which is what the daily-home screen shows, "2 of 3 attentions
-// left" beside "3 of 3 count today" — feeding ONE shared growth cap of 3 per day. A player who
+// are two separate ACTION budgets (which is what the daily-home screen shows, "2 of 3 attentions
+// left" beside "3 of 3 count today") feeding ONE shared growth cap of 3 per day. A player who
 // only nurses and a player who only fights both progress; nobody has to do both.
 
 const GROWTH_TO_ADULT = 6;      // §5.3
@@ -40,7 +40,7 @@ const GESTATION_DAYS = 2;       // §5.3
 const LIVING_SLOTS = 6;         // §6, "tuning: start around 6"
 const SEASON_DAYS = 30;         // §1
 
-// The four attentions (§5.1). Each matures the juvenile by the same amount — they differ in where
+// The four attentions (§5.1). Each matures the juvenile by the same amount. They differ in where
 // they steer it, never in how fast. A "best" attention would collapse the choice.
 const ATTENTIONS = ['spar', 'drill', 'feed', 'play'];
 
@@ -83,7 +83,7 @@ function isAdult(j) { return j.growth >= GROWTH_TO_ADULT; }
 
 /**
  * Passive growth, applied lazily. Called before any action and by status(), so a player who leaves
- * for a week comes back to a creature that grew while they were gone — the mechanical expression
+ * for a week comes back to a creature that grew while they were gone, the mechanical expression
  * of "absence never subtracts".
  *
  * Days already credited by attention or fighting are not topped up: the cap is the cap. This walks
@@ -124,7 +124,7 @@ function status(j, now) {
 }
 
 /**
- * Spend one attention. Returns { ok, reason, growth } — a refusal is never an error, because every
+ * Spend one attention. Returns { ok, reason, growth }. A refusal is never an error, because every
  * refusal here is a budget the player has already used, not a mistake.
  *
  * The growth may be 0 when the daily cap is already full from fighting. The attention still counts
@@ -150,7 +150,7 @@ function attend(j, kind, now) {
 
 /**
  * Record a bot fight. Fighting is never capped (§5.2: "Thirty bot fights an evening is fine, and
- * encouraged") — only the first few of the day feed growth, which is what stops maturation
+ * encouraged"). Only the first few of the day feed growth, which is what stops maturation
  * collapsing into two minutes of clicking without ever capping the fun.
  */
 function recordFight(j, now) {
@@ -170,7 +170,7 @@ function recordFight(j, now) {
 
 /**
  * How the individual turned out. Two identical genomes raised differently are different creatures
- * (§5.1) — this is what makes a DNA Orb preserve a bloodline without preserving the animal.
+ * (§5.1). This is what makes a DNA Orb preserve a bloodline without preserving the animal.
  *
  * Ties resolve to null rather than to an arbitrary winner: an evenly raised creature is genuinely
  * balanced, and saying so is more honest than picking whichever attention sorts first.

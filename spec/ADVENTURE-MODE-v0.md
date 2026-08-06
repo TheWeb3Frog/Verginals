@@ -34,8 +34,8 @@ a single artificial cap.
 | At season end | every descendant dies; Alphas are untouched |
 | Carried into the next season | Alphas, DNA Orbs, the Hall of Fame |
 
-**Only an Alpha can start a lineage.** Within a season descendants breed freely with each other —
-that is where the depth lives — but a new season always begins from Generation Zero.
+**Only an Alpha can start a lineage.** Within a season descendants breed freely with each other
+(that is where the depth lives) but a new season always begins from Generation Zero.
 
 This is what protects the collection. An Alpha is not a one-time key: it is the only permanent
 breeding stock, required again every single month. Two Alphas means two starting lines and two
@@ -60,7 +60,7 @@ it is available again two days later.
 Consequences worth knowing before this ships:
 
 - Selling an Alpha resets its rest, so a buyer waits two days. At two days this is flavour rather
-  than friction — the animal settles in.
+  than friction: the animal settles in.
 - A brand new player buys an Alpha and cannot breed immediately. Tell them plainly; bot mode and the
   Arena are there in the meantime. Do not paper over it with an exemption unless it actually hurts.
 - Shuffling Alphas between wallets costs fertility every time. That was never the point, but it is a
@@ -68,7 +68,7 @@ Consequences worth knowing before this ships:
 
 ### 1.2 Why six generations is the right number
 
-A serious genetic project — a Monochrome, say — needs the same recessive to converge across every
+A serious genetic project (a Monochrome, say) needs the same recessive to converge across every
 slot. Six or seven generations gets you closer and does not get you there.
 
 That is deliberate, and it is what gives the DNA Orb its job: a season is not long enough to finish
@@ -80,7 +80,7 @@ It also makes each pairing matter. With fifteen you experiment; with six you thi
 
 ## 2. The DNA Orb
 
-The Orb is **not a trophy. It is the save file for your breeding work** — the right to clone one
+The Orb is **not a trophy. It is the save file for your breeding work**: the right to clone one
 fighter and carry its genome into the next season.
 
 It is the only thing besides an Alpha that crosses a season boundary, which is what makes it the
@@ -90,7 +90,7 @@ So the motivation loop is not "compete to earn". It is **compete so you don't lo
 
 ### 2.1 Two ladders, because there are two ways to play
 
-Orbs are awarded to the **top 10% of each ladder** — a percentage rather than a fixed number, so a
+Orbs are awarded to the **top 10% of each ladder**, a percentage rather than a fixed number, so a
 small community still has winners and it scales on its own if the game grows.
 
 | Ladder | Measures | Who it is for |
@@ -125,7 +125,7 @@ This falls straight out of the existing rarity engine, and it is the best thing 
 **Monochrome is a recessive convergence.** For a slot to show a recessive colour it must come from
 both parents; for a creature to be monochrome that convergence must happen on *every* slot at once.
 That is why there are nine in 1,264. Chasing one means accumulating invisible carriers over many
-generations, crossing, and hoping — which is exactly what real breeders chasing a recessive coat do.
+generations, crossing, and hoping, which is exactly what real breeders chasing a recessive coat do.
 
 **Double Rainbow is the opposite: maximum divergence.** You must avoid convergence everywhere.
 
@@ -135,7 +135,7 @@ writing no new rules.
 ### 3.4 Inbreeding, and why depth limits itself
 
 Implement Wright's coefficient. A closed stable converges genetically and expresses its deleterious
-recessives: vigour drops, fertility falls. The remedy is never to stop — it is to bring in unrelated
+recessives: vigour drops, fertility falls. The remedy is never to stop, it is to bring in unrelated
 blood from another player.
 
 Surface it as **one number, before the pairing is confirmed**: *"Shared grandparent. Offspring
@@ -150,10 +150,10 @@ someone else owns.
 
 So the community becomes the resource without anyone being forced to socialise. A large holder cannot
 breed in autarky either, but that is a side effect and not the point: at current volumes the
-concentration of Alphas is not a real problem. Inbreeding earns its place as **game design** — it is
+concentration of Alphas is not a real problem. Inbreeding earns its place as **game design**: it is
 what makes depth cost something and what makes other players worth talking to.
 
-**Nothing else limits generational depth.** No decay per generation, no tax on breeding deep — that
+**Nothing else limits generational depth.** No decay per generation, no tax on breeding deep. Either
 would punish the exact behaviour the game is about. Depth is paced by gestation time and by living
 slots, and regulated by biology.
 
@@ -166,12 +166,12 @@ slots, and regulated by biology.
 Both players choose their three moves in advance, then everything is revealed and resolved.
 
 This is not a degraded turn-based fight, it is a different genre. You do not read your opponent in
-real time — you **model** them, from their past fights, their creature's genetics and their habits.
+real time. You **model** them, from their past fights, their creature's genetics and their habits.
 That metagame layer does not exist in real time. Frozen Synapse is built entirely on this and is
 well regarded for it.
 
 It also solves three problems at once: it works across time zones, it never needs two players online
-simultaneously — essential for a small global community — and it **is already the architecture**.
+simultaneously (essential for a small global community) and it **is already the architecture**.
 `game.js` commits and reveals a seed for provable fairness; committed moves slot into the same
 mechanism, and anyone can re-run `resolveMatch()` afterwards to verify nothing was altered.
 
@@ -186,7 +186,7 @@ Three consequences, all load-bearing:
 
 - the game stays about reads rather than stats
 - old lineages never become mathematically superior, so it does not close to newcomers
-- **breeding changes how you play, not how much you win** — which is the trap every breeding game
+- **breeding changes how you play, not how much you win**, which is the trap every breeding game
   falls into
 
 ### 4.3 Not Pokémon
@@ -199,7 +199,7 @@ plus poison and potion. Short, sharp, and shareable as a link.
 
 ### 4.4 Bot mode: turn by turn
 
-Fought interactively against an AI, and its job is not consolation — **it is where you learn your own
+Fought interactively against an AI, and its job is not consolation: **it is where you learn your own
 creature.** You have just bred a descendant and you do not yet know what it can do.
 
 The two modes feed each other: the bot teaches you the tool, the tournament asks you to use it blind.
@@ -210,7 +210,7 @@ One principle governs the whole table, and breaking it breaks the game:
 
 > **Rarity buys strangeness, not strength.**
 
-A plain creature is never weak. The rare types trade simplicity for specialisation — they change the
+A plain creature is never weak. The rare types trade simplicity for specialisation: they change the
 *rules of the exchange* rather than adding damage. This is §4.2 applied to types, and it is what keeps
 a three-year-old bloodline from being mathematically superior to a newcomer's first litter.
 
@@ -221,10 +221,10 @@ Water douses Fire. Always relevant, learnable in ten seconds.
 
 | Type | Source | What it changes |
 |---|---|---|
-| **Prism** | Double Rainbow — 3 exist | **Has no element at all.** The cycle does not apply to it, in either direction |
-| **Void** | Monochrome — 9 exist | **Zero variance**: it does exactly what you committed, every time. And it is the only thing that can pin a Prism — against Prism, the elemental cycle applies again |
+| **Prism** | Double Rainbow, 3 exist | **Has no element at all.** The cycle does not apply to it, in either direction |
+| **Void** | Monochrome, 9 exist | **Zero variance**: it does exactly what you committed, every time. And it is the only thing that can pin a Prism: against Prism, the elemental cycle applies again |
 | **Toxic** | Harlequin and poison traits | Its hits **resolve one round late** |
-| **Veil** | Camouflage — 186 exist | Its committed move **stays hidden on reveal** for one round |
+| **Veil** | Camouflage, 186 exist | Its committed move **stays hidden on reveal** for one round |
 
 Why each of these is interesting rather than strong:
 
@@ -232,14 +232,14 @@ Why each of these is interesting rather than strong:
 read is worthless against it, and it has no elemental advantage of its own either. Fighting one feels
 alien, and that is the point. Three exist, and they should feel like an event.
 
-**Void** is the kingslayer. Monochrome is one colour everywhere — purity, focus — and zero variance is
+**Void** is the kingslayer. Monochrome is one colour everywhere (purity, focus) and zero variance is
 the exact expression of that: in a game with a seeded coin flip, a creature that never rolls badly is
 distinctive without hitting harder. It is devastating for a good planner and useless for someone who
 reads their opponent wrong. And it gives the legendary exactly one predator, which is what stops
 Prism from warping the meta.
 
 **Toxic** rewards thinking a round ahead: commit the poison now, collect next round. In a
-three-round blind fight that is a genuinely different rhythm. Its weakness is built in — if the fight
+three-round blind fight that is a genuinely different rhythm. Its weakness is built in: if the fight
 resolves early, the setup never pays.
 
 **Veil** is information denial, which in a pre-committed game is the perfect common-tier power. With
@@ -248,7 +248,7 @@ resolves early, the setup never pays.
 **Stacking:** one trait type per creature, rarest wins. Readability beats expressiveness here.
 
 **Left open:** Duotone, Chromatic, Perfect Pair, Tailored and Prismatic have no type. They may become
-small passives, or nothing at all. Seven things to learn is already the ceiling — resist inventing
+small passives, or nothing at all. Seven things to learn is already the ceiling, so resist inventing
 eight more.
 
 ---
@@ -278,11 +278,11 @@ A juvenile can absorb **three attentions per day**. Which three is the interesti
 Each one matures the juvenile, and each one steers it somewhere different. You never have enough
 attentions to do everything, so **you are deciding what this creature becomes**, not filling a bar.
 
-This is what makes two identical genomes produce two different individuals — and therefore what makes
+This is what makes two identical genomes produce two different individuals, and therefore what makes
 a DNA Orb worth having. The Orb preserves the bloodline; the individual has to be raised again, and
 it can turn out differently.
 
-### 5.2 Fight as much as you like — only the first few count
+### 5.2 Fight as much as you like, only the first few count
 
 Thirty bot fights an evening is fine, and encouraged: it is how you learn a new creature before
 committing three blind moves in a tournament.
@@ -301,7 +301,7 @@ season        ~6-7 generations
 ```
 
 Six or seven generations makes a season a project where every pairing counts, rather than a race. It
-also makes the DNA Orb genuinely necessary for any serious genetic goal — which is exactly what gives
+also makes the DNA Orb genuinely necessary for any serious genetic goal, which is exactly what gives
 winning its meaning.
 
 **Watch when playing:** three attentions per creature across a whole litter may get tedious. It may
@@ -325,7 +325,7 @@ Descendants die **of age, at season end, all together**. Never from neglect, nev
 never from failing to log in.
 
 Every fighter that ever lived keeps a permanent page: its genome, its lineage, its record. Nothing is
-deleted, ever — and the record lives **on chain**, not in a database, so it survives this project.
+deleted, ever, and the record lives **on chain**, not in a database, so it survives this project.
 
 ### 7.1 What gets inscribed
 
@@ -366,7 +366,7 @@ full attention.
 Two things this settles:
 
 **§3.4 is correctly calibrated.** Careful breeding with unrelated blood beats inbreeding on both
-axes at once — more depth *and* twice the descendants. Forcing a single line is not a shortcut, it
+axes at once: more depth *and* twice the descendants. Forcing a single line is not a shortcut, it
 is a worse strategy that also feels bad. Nothing needs tuning.
 
 **§1.2's "six or seven generations" is conditional, and the condition is not season length.** It is
@@ -374,22 +374,22 @@ having roughly four unrelated Alphas to draw on. Every descendant of one Alpha p
 sibling, so F = 0.25 at generation 2 and viability sits at the floor. A player with a single pair
 who breeds sensibly stops at generation 1.
 
-That is §3.4 working exactly as designed — *"the remedy is never to stop, it is to bring in
-unrelated blood from another player"* — but it must be said out loud in the UI. A new player who
+That is §3.4 working exactly as designed, *"the remedy is never to stop, it is to bring in
+unrelated blood from another player"*, but it must be said out loud in the UI. A new player who
 hits this wall with no explanation will read it as the game being broken, not as an invitation.
 
 ---
 
 ## 8. Open, not decided
 
-**What a season's ranking actually measures** — win rate, a proper Elo, or points — and how a player
+**What a season's ranking actually measures** (win rate, a proper Elo, or points) and how a player
 who joins mid-season is treated.
 
 **Who pays for the roster inscription.** It is a few tenths of a XVG in network fees, not revenue for
 anyone, but somebody's wallet has to sign it.
 
 **Whether a descendant also needs rest to breed**, or only Alphas. Applying it to descendants too
-would slow within-season depth considerably — fifteen generations assumes back-to-back breeding.
+would slow within-season depth considerably: fifteen generations assumes back-to-back breeding.
 Probably Alphas only, but it should be a conscious choice rather than an oversight.
 
 ---

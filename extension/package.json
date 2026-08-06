@@ -5,6 +5,6 @@
   "type": "module",
   "description": "Verginals wallet: a minimal MV3 Chrome extension for Verge (XVG) that signs P2PKH transactions and exposes an inscription-safe transfer to verginals.com.",
   "scripts": {
-    "test": "node test-verge.mjs"
+    "test": "for f in test-*.mjs; do echo \"== $f\"; node \"$f\" || exit 1; done"
   }
 }

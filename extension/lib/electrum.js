@@ -20,9 +20,10 @@ export const DEFAULT_SERVERS = [
   'wss://electrum-verge.cloud:50004',  // fallback, separate operator (host 68.183.133.141)
 ];
 
-/** Electrum scripthash for a P2PKH address = reverse(sha256(scriptPubKey)) as hex. */
+/** Electrum scripthash for an address = reverse(sha256(scriptPubKey)) as hex. */
 export async function addressToScripthash(address) {
-  const spk = await verge.p2pkhScript(address);
+  const spk = await verge.outputScript(address); // P2PKH or P2SH: querying the wrong shape returns nothing
+
   const h = await verge.sha256(spk);
   const rev = new Uint8Array(h.length);
   for (let i = 0; i < h.length; i++) rev[i] = h[h.length - 1 - i];

@@ -17,14 +17,14 @@
 //
 //      Two alleles of comparable frequency are instead CO-DOMINANT: the individual expresses one of
 //      them, drawn from its own genome. Without this the engine is strictly Mendelian and every
-//      litter from a given pair is phenotypically identical — measured at 100% of 300 real Alpha
+//      litter from a given pair is phenotypically identical, measured at 100% of 300 real Alpha
 //      pairings. That is correct biology (F1 uniformity, Mendel's first law) and a broken game:
 //      phase 1 of the spec is "breed two Alphas", and it would always return the same creature.
 //      Co-dominance restores variation in F1 without touching the recessive machinery that makes
 //      the grails hard, because a grail allele is by definition far rarer than its partner.
 //
 //   2. ALPHAS ARE HOMOZYGOUS for what they show. An Alpha's genome is therefore fully determined
-//      by its on-chain metadata — no hidden server-side allele, nothing a player has to trust us
+//      by its on-chain metadata: no hidden server-side allele, nothing a player has to trust us
 //      about. The invisible carriers the game runs on are created by the first cross, not handed
 //      out at genesis.
 //
@@ -34,13 +34,13 @@
 //
 // House needs no special case once rule 1 is stated that way: the three Houses are 1111/1111/1111,
 // exactly tied by design, so they are the most co-dominant pair in the collection and a
-// heterozygote expresses one of its two at random. Which is what §4.5 requires — any fixed
+// heterozygote expresses one of its two at random. Which is what §4.5 requires: any fixed
 // ordering would permanently tilt a combat layer built on a three-way cycle.
 
 const { rngFromSeed } = require('./game');
 
 // The six heritable loci. Ears is deliberately absent: it is 1671/1662 pink/grey across the
-// collection and src/combos.js already discards it as "near 50/50 noise" — it is the sex locus
+// collection and src/combos.js already discards it as "near 50/50 noise". It is the sex locus
 // (§3.1), inherited by sexOf() below rather than as a trait.
 //
 // Background IS here, and has to be: Double Rainbow needs a rainbow Face *and* a Spectrum
@@ -87,7 +87,7 @@ function mutationOdds(rate = MUTATION_RATE, loci = LOCI.length) {
 // Inbreeding depression. The spec fixes one point on this line by example: "Shared grandparent.
 // Offspring viability -18%." Parents sharing a single grandparent give F = 1/32, so the slope is
 // 0.18 / 0.03125 = 5.76. The cap exists because §3.4 is explicit that the remedy is never to stop
-// breeding — a closed line must get fragile, not sterile.
+// breeding: a closed line must get fragile, not sterile.
 const VIABILITY_SLOPE = 5.76;
 const VIABILITY_FLOOR = 0.40;
 
@@ -167,7 +167,7 @@ function coDominant(pool, locus, a, b) {
  * Which of a pair is expressed (rule 1).
  *
  * The rng is per locus and derived from the genome itself, so expression is a fixed property of an
- * individual — a creature never changes appearance between two reads — while remaining a pure
+ * individual (a creature never changes appearance between two reads) while remaining a pure
  * function of data anyone can recompute.
  */
 function expressedAt(pool, locus, pair, rng) {
@@ -206,13 +206,13 @@ function toAttributes(genome, pool, seed) {
  * Meiosis at one locus: one allele from the parent, or rarely a brand new one.
  *
  * The mutation draws from the locus's own allele universe and excludes both of the parent's
- * alleles, so a mutation is always "a value present in neither parent" as §3.2 requires — it can
+ * alleles, so a mutation is always "a value present in neither parent" as §3.2 requires. It can
  * never quietly resolve to what the parent already carried.
  */
 function transmit(pool, locus, pair, rng, rate, exclude) {
   const inherited = rng() < 0.5 ? pair[0] : pair[1];
   if (rate > 0 && rng() < rate) {
-    // Every other value this trait can take, each equally likely — so a mutation is as able to
+    // Every other value this trait can take, each equally likely, so a mutation is as able to
     // land on the rarest face in the collection as on the commonest. That is what makes mutation
     // the one route to a trait nobody in your line carries, rather than a slow drift toward the
     // average.
@@ -327,7 +327,7 @@ function depth(pedigree, id) {
  * The one number the player sees before confirming a pairing (§3.4): "Shared grandparent.
  * Offspring viability -18%."
  *
- * Viability is not combat power and must never become it — it is the chance the pairing produces a
+ * Viability is not combat power and must never become it. It is the chance the pairing produces a
  * live descendant at all, which is why §3.4 can call inbreeding a cost without breaking §4.2.
  */
 function pairingReport(pedigree, motherId, fatherId) {

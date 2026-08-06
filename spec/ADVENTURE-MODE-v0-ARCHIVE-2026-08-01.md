@@ -1,6 +1,6 @@
 # Verginals Adventure Mode: breeding, genetics and living lineages
 
-Design notes, not yet implemented. Inspiration: **Creatures 2 / 3** (Norns) — real genetics, learning,
+Design notes, not yet implemented. Inspiration: **Creatures 2 / 3** (Norns): real genetics, learning,
 mortality, a world that lives without you. The goal is to capture that magic while avoiding the trap
 that killed every 2021 breeding game.
 
@@ -158,7 +158,7 @@ This is the missing link between breeding and the Arena: two Verglings with iden
 different temperament do not fight alike.
 
 It also creates a real trade-off: chase a beautiful Monochrome, *or* a killer temperament. **The
-rarest is not automatically the strongest** — essential, or everyone converges on one combo and the
+rarest is not automatically the strongest**. Essential, or everyone converges on one combo and the
 meta dies.
 
 ---
@@ -245,7 +245,7 @@ Retirement comes from **age only, never from neglect**.
 
 ## 10. Immortalisation and the 1/1 collection
 
-An exceptional Vergling — rare genetics **plus** an Arena record — can be **immortalised**: inscribed
+An exceptional Vergling (rare genetics **plus** an Arena record) can be **immortalised**: inscribed
 for real on-chain as a 1/1 in the companion collection.
 
 This is the only path by which breeding creates an NFT, and it must stay extremely rare: a seasonal

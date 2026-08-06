@@ -529,7 +529,7 @@ export class Wallet {
   /**
    * The subset of `coins` that a transaction stamped `nTime = t` may legally spend (rule R1:
    * tx.nTime >= the nTime of every input's creating transaction). A coin whose time cannot be read
-   * is dropped rather than assumed usable — building an unspendable transaction is worse than
+   * is dropped rather than assumed usable: building an unspendable transaction is worse than
    * skipping a coin.
    */
   async _coinsOlderThan(coins, t) {
@@ -541,7 +541,7 @@ export class Wallet {
    * The nTime to stamp on a transaction spending `utxos`: the oldest value rule R1 allows, i.e. the
    * newest input's own nTime.
    *
-   * Stamping `now` instead would be legal but wasteful — the change output would be born "new", and
+   * Stamping `now` instead would be legal but wasteful: the change output would be born "new", and
    * since a listing variant can only be funded by coins older than its nTime, a wallet that had just
    * paid for anything (a mint, most obviously) would lose the ability to buy aged listings until its
    * change caught up. Inheriting the age means SPENDING NEVER MAKES YOUR COINS YOUNGER; only
@@ -650,7 +650,7 @@ export class Wallet {
     // MARKETPLACE-SPEC-v0 §2.1: the order book serves the variant with the largest nTime that is
     // already minable, chosen INDEPENDENTLY of us; we then spend only coins older than that nTime.
     // Announcing our whole balance instead (the old `?coins=` call) let a single freshly received
-    // coin veto a variant every one of our other coins could have satisfied — so any wallet that
+    // coin veto a variant every one of our other coins could have satisfied, so any wallet that
     // had just paid for anything, a mint included, could not buy an aged listing at all.
     let variant, carrierOffset;
     try {
@@ -676,7 +676,7 @@ export class Wallet {
     const eligible = await this._coinsOlderThan(sorted, variant.time);
     if (eligible.reduce((s, u) => s + u.value, 0) < need) {
       throw new Error(eligible.length === 0
-        ? 'All of your XVG is more recent than this listing, so an instant buy is not possible yet. Use "Make an offer" instead — offers have no such limit and work right away.'
+        ? 'All of your XVG is more recent than this listing, so an instant buy is not possible yet. Use "Make an offer" instead, which has no such limit and works right away.'
         : 'Your coins that are old enough for this listing do not cover the price. Use "Make an offer" instead, which can spend your whole balance.');
     }
     const { pads, funds } = await this._ensurePads(eligible, need);
@@ -948,7 +948,7 @@ export class Wallet {
       if (undetermined && !spendable.length) {
         throw new Error('None of your coins could be cleared for spending: their inscription or asset '
           + `status could not be determined (${undetermined} of ${utxos.length}). This is a connection `
-          + 'problem, not a balance problem — try again in a moment.');
+          + 'problem, not a balance problem. Try again in a moment.');
       }
       throw new Error(`insufficient spendable funds: need ${amount + fee}, have ${total}`);
     }

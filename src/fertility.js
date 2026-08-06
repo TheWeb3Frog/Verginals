@@ -6,7 +6,7 @@
 // This is the one rule in Adventure Mode that is not server state. Verge's R1 consensus rule stamps
 // every transaction with an nTime bounded below by the nTime of every coin it spends, so a carrier's
 // timestamp can only ever move forward along its chain of custody. A player can therefore verify
-// their own fertility — and ours — from blocks alone, with no trust in our indexer and no height
+// their own fertility, and ours, from blocks alone, with no trust in our indexer and no height
 // proof to reconstruct. That is why fertility is a timestamp comparison and nothing more.
 //
 // Breeding SPENDS the carrier, moving it to a fresh output (§1.1). The reset is therefore not a
@@ -20,7 +20,7 @@
 const DAY = 86400;
 
 // Two days, per §1.1. Long enough that shuffling Alphas between wallets costs something, short
-// enough that the spec can call it "flavour rather than friction — the animal settles in".
+// enough that the spec can call it "flavour rather than friction: the animal settles in".
 const REST_SECONDS = 2 * DAY;
 
 // A carrier still in the mempool has an nTime, but a reorg can replace it. Requiring one
@@ -82,9 +82,9 @@ function describe(state) {
   if (state.fertile) return 'Ready to breed';
   if (state.reason === 'unconfirmed') return 'Waiting for the carrier to confirm';
   const h = Math.ceil(state.remaining / 3600);
-  if (h > 24) return `Resting — ready in ${Math.ceil(h / 24)} days`;
-  if (h > 1) return `Resting — ready in ${h} hours`;
-  return 'Resting — ready within the hour';
+  if (h > 24) return `Resting, ready in ${Math.ceil(h / 24)} days`;
+  if (h > 1) return `Resting, ready in ${h} hours`;
+  return 'Resting, ready within the hour';
 }
 
 /**

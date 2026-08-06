@@ -9,7 +9,7 @@
 // The wallet used to do the opposite: it announced its ENTIRE balance as `?coins=`, the server took
 // the maximum of their times as a floor, and any single fresh coin then vetoed a variant that every
 // other coin could have funded. Because ordinary sends are stamped at `now`, the change from a mint
-// payment was exactly such a coin — so "mint a Verginal, then buy one" was impossible for days. The
+// payment was exactly such a coin, so "mint a Verginal, then buy one" was impossible for days. The
 // last test reproduces that scenario and pins the fix.
 
 const store = new Map();

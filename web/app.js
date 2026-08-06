@@ -877,11 +877,11 @@ function renderCollStats(m, holders) {
   const stat = (label, value, sub) =>
     `<div class="coll-stat"><span class="cs-val">${value}</span><span class="cs-lbl">${label}</span>${sub ? `<span class="cs-sub">${sub}</span>` : ''}</div>`;
   box.innerHTML = [
-    stat('Floor', floorXvg != null ? `${fmt(floorXvg)} XVG` : '—', floorXvg != null ? usdStr(floorXvg) : ''),
-    stat('Listed', m.listedCount != null ? m.listedCount : '—'),
-    stat('Items', m.minted != null ? fmt(m.minted) : '—', m.total ? `of ${fmt(m.total)}` : ''),
-    stat('Holders', holders != null ? fmt(holders) : '—'),
-    stat('Volume', volXvg ? `${fmt(volXvg)} XVG` : '—', volXvg ? usdStr(volXvg) : ''),
+    stat('Floor', floorXvg != null ? `${fmt(floorXvg)} XVG` : '-', floorXvg != null ? usdStr(floorXvg) : ''),
+    stat('Listed', m.listedCount != null ? m.listedCount : '-'),
+    stat('Items', m.minted != null ? fmt(m.minted) : '-', m.total ? `of ${fmt(m.total)}` : ''),
+    stat('Holders', holders != null ? fmt(holders) : '-'),
+    stat('Volume', volXvg ? `${fmt(volXvg)} XVG` : '-', volXvg ? usdStr(volXvg) : ''),
   ].join('');
 }
 
@@ -2439,7 +2439,7 @@ async function loadArenaProfile() {
     const rate = p.matches ? Math.round((p.wins / p.matches) * 100) : 0;
     $('#arena-profile').innerHTML = `
       <div class="arena-stats">
-        <div class="as"><b>${p.elo != null ? p.elo : '—'}</b><span>Elo</span></div>
+        <div class="as"><b>${p.elo != null ? p.elo : '-'}</b><span>Elo</span></div>
         <div class="as"><b>${p.wins || 0}-${p.losses || 0}</b><span>Win / Loss</span></div>
         <div class="as"><b>${rate}%</b><span>Win rate</span></div>
         <div class="as"><b>${p.streak || 0} 🔥</b><span>Streak (best ${p.bestStreak || 0})</span></div>

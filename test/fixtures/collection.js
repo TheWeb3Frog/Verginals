@@ -1,8 +1,8 @@
 'use strict';
 // A synthetic Alpha collection for tests.
 //
-// verginals/metadata.json is gitignored — the real trait dump is served from the live API rather
-// than shipped, to keep clones small — so nothing in the suite may depend on it being present.
+// verginals/metadata.json is gitignored. The real trait dump is served from the live API rather
+// than shipped, to keep clones small, so nothing in the suite may depend on it being present.
 // test/mint.test.js already establishes the convention: synthesise a collection, do not read the
 // dump. This module is that convention, shared.
 //

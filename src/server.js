@@ -88,13 +88,13 @@ const INDEX_FROM = Number(process.env.VERGINALS_INDEX_FROM || (NETWORK === 'main
 const ARENA_ENABLED = process.env.VERGINALS_ARENA_ENABLED === '1';
 // Adventure Mode (breeding, genetics, seasons) rides on the Arena but ships separately, so it gets
 // its own switch: the Arena can run without it, and it cannot run without the Arena. Its five
-// modules are required LAZILY inside initAdventure() rather than at the top of this file — the
+// modules are required LAZILY inside initAdventure() rather than at the top of this file. The
 // Arena's own requires are unconditional up there, which is exactly why a VPS missing one of them
 // crash-loops on MODULE_NOT_FOUND with the feature switched off. Set VERGINALS_ADVENTURE_ENABLED=1.
 const ADVENTURE_ENABLED = ARENA_ENABLED && process.env.VERGINALS_ADVENTURE_ENABLED === '1';
 // Fungible assets (ASSETS-SPEC-v0) are built and tested but not launched: no /api/assets/* route
 // exists yet. This flag is what /api/info reports, and it must stay false until an indexer is
-// actually serving proofs — a wallet told "assets are live" by a server that cannot prove balances
+// actually serving proofs: a wallet told "assets are live" by a server that cannot prove balances
 // will refuse to spend anything at all.
 const ASSETS_ENABLED = process.env.VERGINALS_ASSETS_ENABLED === '1';
 const MAX_BODY = 8 * 1024 * 1024; // 8 MB JSON cap
@@ -333,14 +333,14 @@ function serveSpriteKit(res) {
  * by the route, and the file name to [A-Za-z0-9 ]; this re-derives the path and checks containment
  * anyway, because a static-file handler is exactly where that check is worth repeating.
  *
- * These are immutable build artefacts — the same 157 files that were hashed into the collection's
- * provenance — so they are cached hard.
+ * These are immutable build artefacts (the same 157 files that were hashed into the collection's
+ * provenance) so they are cached hard.
  */
 function serveSprite(res, layer, encodedName) {
   let name;
   try { name = decodeURIComponent(encodedName); } catch (_) { name = null; }
   // Re-validated AFTER decoding, which is the only order that is safe: %2e%2e%2f decodes to "../".
-  // Letters, digits and spaces only — no dot, no slash, so the join below cannot escape.
+  // Letters, digits and spaces only: no dot, no slash, so the join below cannot escape.
   if (!name || !/^[A-Za-z0-9 ]{1,40}$/.test(name)) {
     writeHead(res, 404, { 'content-type': 'text/plain' });
     return res.end('not found');
@@ -1415,7 +1415,7 @@ async function handleAdventureAttend(req, res, id) {
 /**
  * POST /api/adventure/creature/:id/fight: one bot duel with a descendant.
  *
- * Bot mode never touches the ladder, which is what lets §5.2 be true — fight thirty times an
+ * Bot mode never touches the ladder, which is what lets §5.2 be true: fight thirty times an
  * evening if you like, only the first three of the day feed growth. The response says which this
  * one was rather than leaving the player to infer it from a bar that stopped moving.
  */
@@ -1467,7 +1467,7 @@ async function handleAdventureDuelRound(req, res, duelId) {
 /**
  * POST /api/adventure/creature/:id/tournament: enter a descendant in a tournament (§4.1).
  *
- * The tournament machinery is the Arena's and is reused whole — brackets, blind submission, beacon
+ * The tournament machinery is the Arena's and is reused whole: brackets, blind submission, beacon
  * seeds. All this adds is a fighter that comes from the stable instead of a carrier outpoint, at
  * the same neutral rarity, so a bred lineage enters on equal arithmetic (§4.2).
  */
@@ -1491,11 +1491,11 @@ async function handleAdventureTournamentJoin(req, res, id) {
  *
  * This route existing at all is the point. Every extension wallet asks it before spending, and
  * treats no answer as "I cannot tell", which it then treats as "do not touch". With the route
- * absent, every coin was undetermined and no wallet could send anything — see the 0.10.6 fix.
+ * absent, every coin was undetermined and no wallet could send anything. See the 0.10.6 fix.
  *
  * While the protocol is not launched the honest answer is the empty state: nothing has ever been
  * etched, so no outpoint carries anything, and the empty root proves it. Once an indexer is running
- * this must serve real balances with real merkle paths — a wallet verifies every one against the
+ * this must serve real balances with real merkle paths. A wallet verifies every one against the
  * root and discards what does not check out, so serving an empty answer THEN would be a lie a
  * wallet cannot catch, and would let someone burn a token by spending its carrier as change.
  */

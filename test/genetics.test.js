@@ -56,7 +56,7 @@ test('dominance rank is population frequency: the commonest value in a locus is 
   assert.strictEqual(POOL.count.Face.get('Rainbow'), 2);
 });
 
-test('Ears is not a heritable locus — it is the sex locus (combos.js discards it as noise)', () => {
+test('Ears is not a heritable locus, it is the sex locus (combos.js discards it as noise)', () => {
   assert.ok(!LOCI.includes('Ears'));
   assert.ok(LOCI.includes('Background'), 'Background must be heritable or Double Rainbow is unreachable');
 });
@@ -70,7 +70,7 @@ test('an Alpha is homozygous everywhere, so its genome is fully determined by it
   assert.strictEqual(g.alpha, true);
 });
 
-test("an Alpha's phenotype round-trips its metadata exactly — even a fully recessive Rainbow", () => {
+test("an Alpha's phenotype round-trips its metadata exactly, even a fully recessive Rainbow", () => {
   const src = RAINBOW_F;
   const p = phenotype(genomeFromItem(src, POOL), POOL);
   for (const a of src.attributes) assert.strictEqual(p[a.trait_type], a.value, a.trait_type);
@@ -109,7 +109,7 @@ test('the rare allele hides in F1: a Happy/Rainbow carrier shows Happy', () => {
   assert.strictEqual(phenotype(kid, POOL).Face, 'Happy');
 });
 
-test('a recessive only surfaces on convergence — the Monochrome mechanic in miniature (§3.3)', () => {
+test('a recessive only surfaces on convergence: the Monochrome mechanic in miniature (§3.3)', () => {
   // Cross two carriers. Over many seeds ~1/4 of the litter is Rainbow/Rainbow, and those are the
   // only ones that show Rainbow. Nothing else in the run may express it.
   const carrierF = { ...breed(mumHappy, dadRainbow, 'c1', { pool: POOL, mutationRate: 0 }), sex: 'F', id: 'cf' };
@@ -149,7 +149,7 @@ test('co-dominant alleles vary inside one litter, and only ever show one of the 
 });
 
 whenReal('REGRESSION: a real Alpha pairing must not produce a litter of clones', () => {
-  // Strict frequency dominance made every kid of a given pair phenotypically identical — correct
+  // Strict frequency dominance made every kid of a given pair phenotypically identical. Correct
   // Mendelian F1 uniformity, and a dead phase 1, since the spec's first playable loop is exactly
   // "breed two Alphas". Measured at 100% of 300 pairings before co-dominance was introduced.
   const items = REAL;
@@ -303,7 +303,7 @@ test('an unrelated pairing has full viability and says so', () => {
   assert.strictEqual(r.relation, 'Unrelated');
 });
 
-test('a closed line gets fragile but never sterile — viability floors, it does not reach zero', () => {
+test('a closed line gets fragile but never sterile: viability floors, it does not reach zero', () => {
   const r = pairingReport(PED, 'fullSibA', 'fullSibB');
   assert.ok(r.viability >= VIABILITY_FLOOR - 1e-9, `viability ${r.viability} fell through the floor`);
   assert.ok(r.penaltyPct > 18, 'full siblings must cost more than a shared grandparent');

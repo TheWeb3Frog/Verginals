@@ -4,7 +4,7 @@
 // The cause was a safety rule meeting a server that never had the endpoint it depended on.
 // _annotateAssets marks every coin undetermined, asks /api/assets/balances, and leaves them
 // undetermined if the answer does not verify. spendableForPayment then refuses anything
-// undetermined — correct once assets exist, catastrophic before they do, because src/server.js has
+// undetermined: correct once assets exist, catastrophic before they do, because src/server.js has
 // no /api/assets/* route at all. Every coin stayed undetermined, so every send failed, and the
 // message blamed the balance.
 //
@@ -118,7 +118,7 @@ test('a genuinely empty wallet still says insufficient funds', () => {
 // --- the already-installed wallet ------------------------------------------------------------------
 
 await atest('THE DEPLOYED FIX: the server answer clears coins for a wallet that never heard of the flag', async () => {
-  // The published extension does not read info.assets — it only knows /api/assets/balances. So the
+  // The published extension does not read info.assets, it only knows /api/assets/balances. So the
   // route has to exist and has to return something that verifies, or every wallet already out there
   // stays broken until Google finishes reviewing an update.
   const { AssetState } = require('../src/assets/indexer');

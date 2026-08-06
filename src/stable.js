@@ -24,7 +24,7 @@
 // a lost fight, or a missed login.
 //
 // So release() is not death. A released descendant leaves your six slots, stops being breedable,
-// and keeps its permanent page — it is still on the season roster, still in the Hall of Fame if it
+// and keeps its permanent page. It is still on the season roster, still in the Hall of Fame if it
 // earned that. §7's "nothing is deleted, ever" holds. This was measured to be load-bearing rather
 // than cosmetic: with six slots and no way out, a season stops at generation 1 (spec §7bis).
 
@@ -90,7 +90,7 @@ class Stable {
     return this.state.players[address];
   }
 
-  /** Living descendants only — Alphas are owned on chain, never stored here. */
+  /** Living descendants only. Alphas are owned on chain, never stored here. */
   _living(address) {
     return Object.values(this._player(address).creatures).filter((c) => !c.released);
   }
@@ -134,7 +134,7 @@ class Stable {
 
   /**
    * The pairing preview: everything the player weighs BEFORE confirming, in the shape §3.4 asks
-   * for — one relation, one percentage. Never mutates anything.
+   * for: one relation, one percentage. Never mutates anything.
    *
    * @param {object} mother { id, genome, carrier? }  carrier only for Alphas
    * @param {object} father same
@@ -257,7 +257,7 @@ class Stable {
   }
 
   /**
-   * Step out of the stable — §6's "choosing what not to keep". Not a death and not a deletion: the
+   * Step out of the stable, §6's "choosing what not to keep". Not a death and not a deletion: the
    * creature keeps its page, its record and its place on the season roster.
    */
   release(address, id) {
@@ -274,7 +274,7 @@ class Stable {
 
   /**
    * Every descendant dies, together, of age (§7). Returns each player's roster for the single
-   * inscription per player per season that §7.1 specifies — released creatures included, because
+   * inscription per player per season that §7.1 specifies, released creatures included, because
    * they lived.
    */
   /**
@@ -282,7 +282,7 @@ class Stable {
    *
    * Combat measures the Arena record; Genetics measures the rarity of what was bred, scored by the
    * engine that already runs in production. The second exists because a player who breeds something
-   * extraordinary but cannot fight would otherwise lose a month of work — and the breeder archetype
+   * extraordinary but cannot fight would otherwise lose a month of work, and the breeder archetype
    * is real.
    *
    * @param {Function} rarityOf (attributes) -> number, injected so this module never imports the
@@ -300,12 +300,12 @@ class Stable {
   }
 
   /**
-   * Grant DNA Orbs. Top 10% of each ladder (§2.1) — a percentage rather than a fixed number, so a
+   * Grant DNA Orbs. Top 10% of each ladder (§2.1), a percentage rather than a fixed number, so a
    * small community still has winners and it scales on its own if the game grows. At least one, or
    * a season with nine players would award nothing at all.
    *
    * An Orb is not a trophy. It is the save file for a month of breeding work, and the only thing
-   * besides an Alpha that crosses a season boundary — which is what makes it the most desirable
+   * besides an Alpha that crosses a season boundary, which is what makes it the most desirable
    * object in the game while being worth nothing in money.
    */
   grantOrbs(address, rarityOf, opts = {}) {
@@ -324,7 +324,7 @@ class Stable {
    * Spend the Orb: clone one bloodline into the season now running (§2).
    *
    * The genome carries; the individual does not. The clone is born a juvenile with no attentions, no
-   * record and no temperament, because §5.1 is what makes the Orb interesting — two identical
+   * record and no temperament, because §5.1 is what makes the Orb interesting: two identical
    * genomes raised differently are different creatures, so winning does not hand you last month's
    * animal back, it hands you another go at it.
    */
@@ -344,7 +344,7 @@ class Stable {
       genome: { ...saved.genome, id, alpha: false },
       sex: saved.genome.sex,
       // The clone is its own founder: its parents died with the season, so nothing in this season's
-      // pedigree relates it to anything. That is deliberate — a carried bloodline is fresh blood
+      // pedigree relates it to anything. That is deliberate: a carried bloodline is fresh blood
       // for everyone else, which is the §3.4 remedy arriving from somewhere.
       mother: null,
       father: null,

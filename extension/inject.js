@@ -33,7 +33,7 @@
       const timer = setTimeout(() => {
         if (!pending.has(id)) return;
         pending.delete(id);
-        reject(new Error('the wallet did not respond in time. If you approved the action, it may still have gone through — check My Wallet before retrying.'));
+        reject(new Error('the wallet did not respond in time. If you approved the action, it may still have gone through. Check My Wallet before retrying.'));
       }, 120000);
       pending.set(id, {
         resolve: (r) => { clearTimeout(timer); resolve(r); },

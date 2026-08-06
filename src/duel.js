@@ -1,7 +1,7 @@
 'use strict';
 // Turn-by-turn bot duels. See spec/ADVENTURE-MODE-v0.md §4.4.
 //
-//   "Fought interactively against an AI, and its job is not consolation — it is where you learn
+//   "Fought interactively against an AI, and its job is not consolation: it is where you learn
 //    your own creature. The two modes feed each other: the bot teaches you the tool, the tournament
 //    asks you to use it blind."
 //
@@ -19,7 +19,7 @@
 //
 // That padding is sound rather than lucky: resolveRound() draws from the rng only when a round ties
 // all the way down to the coin flip, so the stream position after round N depends on rounds 1..N and
-// never on what comes after. Rounds already shown therefore cannot change when later moves arrive —
+// never on what comes after. Rounds already shown therefore cannot change when later moves arrive,
 // which is exactly what a turn-by-turn fight has to guarantee, and what test/duel.test.js pins.
 
 const crypto = require('crypto');
@@ -33,7 +33,7 @@ const PAD = { element: ELEMENTS[0] };
  * "the bot cannot react" checkable rather than promised.
  *
  * Its power-ups are placed the way a player places them: one poison and one potion, each in a single
- * round, sometimes not at all — a bot that always spends everything is a bot you stop reading.
+ * round, sometimes not at all. A bot that always spends everything is a bot you stop reading.
  */
 function botLoadoutFrom(seed, rounds = DEFAULT_CONFIG.rounds) {
   const rng = rngFromSeed(`bot:${seed}`);
@@ -111,7 +111,7 @@ function playRound(d, move) {
   if (d.playerMoves.length < d.rounds) {
     return { ...publicView(d), round: d.playerMoves.length, result: d.results[d.results.length - 1] };
   }
-  // The last call used no padding, so this IS the canonical match — the same object a committed
+  // The last call used no padding, so this IS the canonical match, the same object a committed
   // duel would produce, replayable from (moves, seed) by anyone.
   d.done = true;
   d.match = full;

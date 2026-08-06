@@ -12,7 +12,7 @@ Written 2026-08-01, after the regtest probe described in §0.
 Verified against a real regtest chain (verge 26.5.0, the same binary that runs mainnet):
 
 - **An OP_RETURN carrying value is relayed and mined, and the coins are provably destroyed.**
-  `gettxout` on the nulldata output returns null — it never enters the UTXO set. The UTXO-set total
+  `gettxout` on the nulldata output returns null: it never enters the UTXO set. The UTXO-set total
   moved by exactly one block's subsidy minus the burned amount, so the destruction is arithmetic,
   not inference.
 - **Verge accepts MULTIPLE OP_RETURN outputs per transaction.** Two and three were both broadcast
@@ -23,7 +23,7 @@ Not verified, and load-bearing for everything below:
 - **Mainnet relay.** Only regtest was tested. If any mainnet relay node enforces `multi-op-return`,
   multi-output transactions propagate badly. Test before depending on it.
 - **The interpretation rule.** The spec assumes one OP_RETURN. Two indexers reading several
-  differently is a protocol split. The conservative rule — *first one wins, the rest are ignored* —
+  differently is a protocol split. The conservative rule (*first one wins, the rest are ignored*)
   must be pinned in the spec before any third party indexes, whether or not the capacity is used.
 
 Measured capacity, with the project's own codec: a 7-byte header, then **7 bytes per edict**, so
@@ -44,7 +44,7 @@ logic into indexer-interpreted **data**, where Verge is strong, rather than into
 is weak.
 
 The three ideas below share one structure: they spend time and data, which Verge has, where Bitcoin
-would have to spend capital and script. That is what makes them non-transposable — not clever, just
+would have to spend capital and script. That is what makes them non-transposable. Not clever, just
 priced differently.
 
 ## 2. Coin age as sybil resistance
@@ -59,7 +59,7 @@ resource that cannot be bought or parallelised. A thousand freshly created walle
 thousand wallets aged zero.
 
 Applied to an open mint, the claimable amount becomes a function of coin age. Runes open mints are
-races won by bots bidding up fees — that is, won by capital. An age-weighted mint is won by patience.
+races won by bots bidding up fees, that is, won by capital. An age-weighted mint is won by patience.
 Given what wallet rotation at scale already looks like on this chain, that is a materially different
 distribution mechanism, and a fairer one.
 
@@ -69,7 +69,7 @@ what the observed abuse actually was.
 
 ## 3. On-chain indexer attestation
 
-ASSETS-SPEC-v0 §8 gives light clients merkle proofs against a state root — the thing no Bitcoin
+ASSETS-SPEC-v0 §8 gives light clients merkle proofs against a state root, the thing no Bitcoin
 metaprotocol offers. It leaves one question open: *which root should a wallet believe?*
 
 Proposal: **every indexer publishes its state root on chain, in an OP_RETURN, permissionlessly.**
@@ -82,7 +82,7 @@ one root per 100 blocks  =  every ~50 minutes  =  0.2 XVG per attestation
 28.8 attestations/day × $0.000379  ≈  $4 per indexer per year
 ```
 
-The same cadence on Bitcoin costs thousands of dollars a year — roughly a 1300× difference, which is
+The same cadence on Bitcoin costs thousands of dollars a year, roughly a 1300× difference, which is
 what moves the idea from impossible to trivial.
 
 Conceptually it replaces *"trust an indexer"* with *"observe agreement between indexers"*, with no
@@ -107,7 +107,7 @@ For Adventure Mode this is the natural shape: a creature carrying its own food, 
 in one output. Transfer the creature and everything it holds travels with it, indivisibly. No escrow,
 no wrapper, no second transaction that can fail halfway.
 
-Nobody has this as a native primitive, and not because nobody wanted it — on Bitcoin the two
+Nobody has this as a native primitive, and not because nobody wanted it. On Bitcoin the two
 protocols cannot see each other.
 
 ## 5. If only two things are taken from this file
@@ -118,4 +118,4 @@ simply ignore. Bitcoin metaprotocols must version *inside* one blob, which makes
 painful; this costs nothing.
 
 Everything else in this file is open design space. It should be explored once the protocol is running
-in production with real users — and not before.
+in production with real users, and not before.

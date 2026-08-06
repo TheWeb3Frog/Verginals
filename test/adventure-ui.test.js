@@ -78,7 +78,7 @@ test('no layer is painted twice', () => {
   assert.strictEqual(new Set(layers).size, layers.length, 'a layer was rendered more than once');
 });
 
-test('Background and House are not sprite layers — they are data, not art', () => {
+test('Background and House are not sprite layers, they are data, not art', () => {
   const layers = ui.creature(TRAITS, 128).children.map((i) => decodeURIComponent(i.src).split('/')[2]);
   assert.ok(!layers.includes('Background'));
   assert.ok(!layers.includes('House'));

@@ -140,7 +140,7 @@ test('a pairing can only be resolved once', () => {
   assert.deepStrictEqual(again, { ok: false, reason: 'unknown pairing' });
 });
 
-test('the viability roll is the ONLY cost of inbreeding — it never yields a weaker fighter (§4.2)', () => {
+test('the viability roll is the ONLY cost of inbreeding, it never yields a weaker fighter (§4.2)', () => {
   const { s } = fresh();
   const a = conceive(s, 'va');
   const b = conceive(s, 'vb');
@@ -221,7 +221,7 @@ test('releasing frees a slot without deleting the creature (§6 vs §7)', () => 
   assert.strictEqual(s.release(ADDR, a.id).ok, true);
   assert.strictEqual(s.roster(ADDR).living.length, 1);
   assert.strictEqual(s.roster(ADDR).released, 1);
-  // Still on record — "nothing is deleted, ever".
+  // Still on record: "nothing is deleted, ever".
   assert.ok(s.state.players[ADDR].creatures[a.id], 'a released creature was deleted');
   assert.strictEqual(s.openPairing(ADDR, mother(), father()).ok, true);
 });
@@ -246,7 +246,7 @@ test('season end kills every descendant and hands back one roster per player', (
   const end = s.endSeason();
   assert.strictEqual(end.season.id, 2);
   const roster = end.rosters[ADDR];
-  assert.strictEqual(roster.length, 2, 'a released creature must still be on the roster — it lived');
+  assert.strictEqual(roster.length, 2, 'a released creature must still be on the roster, it lived');
   assert.ok(roster.some((r) => r.id === a.id));
   assert.ok(roster.some((r) => r.id === b.id && r.released === true));
   for (const r of roster) assert.ok(r.genes && r.sex && r.mother && r.father, 'the roster must carry the genome and lineage');

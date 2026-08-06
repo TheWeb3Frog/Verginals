@@ -1,6 +1,6 @@
 // Turn-by-turn bot duels (§4.4). The two properties under test are the two the design rests on:
 // a round already shown never changes, and the turn-by-turn result is the SAME result a committed
-// match would produce — not an approximation of it.
+// match would produce, not an approximation of it.
 // Run: node test/duel.test.js
 const assert = require('assert');
 const { openBotDuel, playRound, publicView, botLoadoutFrom, PAD } = require('../src/duel');

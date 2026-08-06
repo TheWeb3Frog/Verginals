@@ -1,4 +1,4 @@
-# Verginals Arena — Phase 1 spec (v0)
+# Verginals Arena: Phase 1 spec (v0)
 
 An elemental duelling game for Verginals holders. Ported from the existing Runekoz/Wardinals
 game (Bitcoin Ordinals), rebuilt on the Verge stack. Non-custodial by construction: the game
@@ -24,7 +24,7 @@ Status: design. No code yet. This document is the contract we build Phase 1 agai
 **Out (later phases)**
 - Any XVG stake / wagered duel. Stays off until a French lawyer signs it off.
 - Asset duel (winner takes the loser's Verginal). Designed later on the swap primitive.
-- The PixiJS/WebGL visual glow-up (Phase 2 — the renderer is swappable, see §11).
+- The PixiJS/WebGL visual glow-up (Phase 2, the renderer is swappable, see §11).
 - A real XVG prize pool funded by marketplace fees (only after fees exist and legal is clear).
 
 **Legal framing.** Free entry means no *mise* (stake). No stake + chance + prize = a
@@ -111,7 +111,7 @@ time), then resolves. Clients render the result; they never decide it.
 
 Two regimes, each matched to its latency needs.
 
-**A. 1v1 duels — commit-reveal seed pair (instant, no chain wait).**
+**A. 1v1 duels: commit-reveal seed pair (instant, no chain wait).**
 1. At match start the server generates `serverSeed`, sends the player `serverSeedHash =
    SHA256(serverSeed)` and the `matchId`. (Commitment: the server is now bound to that seed.)
 2. The player's client contributes a `clientSeed` (random, sent with the first move).
@@ -121,7 +121,7 @@ Two regimes, each matched to its latency needs.
    `SHA256(serverSeed) == serverSeedHash` and can recompute the whole outcome. The server could
    not have biased the result without breaking the hash commitment.
 
-**B. Tournament rounds — Verge block-hash beacon (maximally trustless, scheduled).**
+**B. Tournament rounds: Verge block-hash beacon (maximally trustless, scheduled).**
 Tournament rounds resolve on a schedule (cron), so we can afford to wait for a block.
 1. When a round is scheduled, the server publicly commits: "this round is seeded by the hash of
    Verge block height `H`" where `H` is a small margin above the current tip (announced before `H`
@@ -153,7 +153,7 @@ Initial barème (tunable in `game_config`, starts conservative):
   Verginal), never a round win on its own.
 
 Balance is a `game_config` row so we can retune without redeploying. If Phase 1 launch wants "pure
-skill" first, we ship with all modifiers set to zero and turn them on once tuned — same code path.
+skill" first, we ship with all modifiers set to zero and turn them on once tuned, same code path.
 
 ---
 
@@ -178,7 +178,7 @@ skill" first, we ship with all modifiers set to zero and turn them on once tuned
 Adapt the Runekoz schema; drop custodial tables. Keys are Verge addresses, not BTC wallets.
 
 - `seasons(id, name, started_at, ends_at, status)`
-- `players(season_id, address, elo, wins, losses, matches, house, best_streak, updated_at)` —
+- `players(season_id, address, elo, wins, losses, matches, house, best_streak, updated_at)`:
   `house` cached from the player's chosen Verginal.
 - `matches_1v1(id, season_id, p1_address, p2_address, p1_verginal, p2_verginal, moves_json,
   server_seed_hash, server_seed, client_seed, winner_address, status, created_at)`
@@ -188,11 +188,11 @@ Adapt the Runekoz schema; drop custodial tables. Keys are Verge addresses, not B
 - `tournament_participants(tournament_id, address, verginal, house, seed, eliminated_round)`
 - `tournament_matches(id, tournament_id, round, p1_address, p2_address, moves_json, seed,
   winner_address, status)`
-- `house_scores(season_id, house, points, wins)` — House Wars aggregation (§ option #2).
+- `house_scores(season_id, house, points, wins)`: House Wars aggregation (§ option #2).
 - `badges(badge_key, name, description, icon, category)` + `player_badges(address, badge_key,
-  earned_at, tournament_id)` — ported catalogue.
-- `game_config(key, value)` — trait barème, season length, tournament sizes, feature flags.
-- `replays(id, kind, payload, created_at)` — optional cache for shareable replay links (§10).
+  earned_at, tournament_id)`: ported catalogue.
+- `game_config(key, value)`: trait barème, season length, tournament sizes, feature flags.
+- `replays(id, kind, payload, created_at)`: optional cache for shareable replay links (§10).
 
 `matches_1v1.moves_json` + seeds are enough to fully reconstruct any fight (needed for replays and
 audits).
@@ -206,7 +206,7 @@ unique trophy and sends it straight to the champion's address.** The winner rece
 never claim from a pot the server holds.
 
 - Reuse the existing inscription pipeline (the same `buildPlan` / reveal path the mint and the
-  promo funding use — the promo already lets the server *pay for* an inscription delivered to a
+  promo funding use: the promo already lets the server *pay for* an inscription delivered to a
   user's address; the trophy is that mechanism, generalised).
 - **Trophy artwork** is generated server-side: the champion's Verginal + a crown + season number +
   tournament name, composed into an image (the Runekoz repo already has a Python sprite compositor
@@ -236,7 +236,7 @@ server round-trip needed to watch. Great for X: "watch this final". Optionally b
 
 Phase 1 ships the **existing Canvas renderer**, reskinned for Verginals, plus a cheap "juice" pass
 (hit-stop, screen shake, easing, anticipation/follow-through, damage pops). Because the battle is
-deterministic **data**, the renderer is a pure consumer of it — so Phase 2 can swap Canvas for a
+deterministic **data**, the renderer is a pure consumer of it, so Phase 2 can swap Canvas for a
 **PixiJS/WebGL** VFX layer (particles, elemental shaders, 60fps) and add procedural sprite
 animation **without touching game logic, seeds, or anti-cheat**. Optional premium: signature
 special-move effects tied to rare RUNE traits (loops back to §6).
@@ -263,7 +263,7 @@ special-move effects tied to rare RUNE traits (loops back to §6).
 ## 13. Build milestones
 
 1. `src/game.js`: DB schema + pure combat engine (ported rules + traits + seed), unit-tested
-   hermetically (no chain, no wallet) — same style as `rarity.js` / `swap.js` tests.
+   hermetically (no chain, no wallet), same style as `rarity.js` / `swap.js` tests.
 2. Auth (§3) + ownership (§2) wired into `src/server.js`.
 3. 1v1 duel loop end-to-end with commit-reveal seed (§5A) + badges + ELO + streaks.
 4. House Wars aggregation (§ option #2) on top of duel results.

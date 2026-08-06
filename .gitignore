@@ -46,3 +46,10 @@ verginals/designs.json
 
 # Full per-token trait dump: served from the live API, not shipped in the repo.
 verginals/metadata.json
+
+# The designer's export folders. Re-exported wholesale on every design pass (the runtime in
+# support.js is generated, "do not edit"), so tracking them would be churn with no review value.
+# The one file the server actually serves, sprites/verginals-kit.js, IS tracked.
+sprites/Genetics Game UI Review*/
+sprites/genetics-game-ui-review/
+sprites/*.zip

@@ -53,3 +53,7 @@ verginals/metadata.json
 sprites/Genetics Game UI Review*/
 sprites/genetics-game-ui-review/
 sprites/*.zip
+
+# Local design harness for Adventure Mode. It stubs fetch() with inline scripts, which the site CSP
+# (default-src 'self') correctly refuses to run, so it can only ever work on a local dev server.
+web/adventure-preview.html

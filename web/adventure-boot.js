@@ -23,9 +23,9 @@ async function json(path, opts) {
 }
 
 async function signIn() {
-  const provider = window.VerginalsArena;
+  const provider = window.verge;
   if (!provider) {
-    throw new Error('The Verginals wallet extension is not installed, or this page was opened before it loaded.');
+    throw new Error('No Verginals wallet found on this page. Install the extension, then reload.');
   }
   const address = await provider.connect();
   const challenge = await json(`/api/game/challenge?address=${encodeURIComponent(address)}`);
@@ -65,7 +65,20 @@ async function start() {
 
 $('#connect').addEventListener('click', () => { $('#connect').hidden = true; start(); });
 
-// The extension injects its provider on document load, so give it a beat before deciding it is
-// missing. If it is already there we go straight in.
-if (window.VerginalsArena) start();
-else setTimeout(() => { if (window.VerginalsArena) start(); else { say('Waiting for the Verginals wallet extension.'); $('#connect').hidden = false; } }, 800);
+// The extension defines window.verge and then fires verge#initialized. Listening for the event is
+// the only reliable way in: a timer races the injection and loses on a slow load, which is exactly
+// what "the extension is not installed" meant the first time round.
+let started = false;
+const once = () => { if (!started) { started = true; start(); } };
+
+if (window.verge) once();
+else {
+  window.addEventListener('verge#initialized', once, { once: true });
+  // If the event never comes the extension really is absent, so offer the button rather than
+  // leaving the page sitting on "Loading".
+  setTimeout(() => {
+    if (started) return;
+    if (window.verge) once();
+    else { say('No Verginals wallet detected. Install the extension and reload, or connect manually.'); $('#connect').hidden = false; }
+  }, 3000);
+}

@@ -36,11 +36,15 @@ const el = (tag, css, text) => {
   if (text !== undefined) n.textContent = text;
   return n;
 };
+// The session token from the Arena sign-in. Every adventure route is gated on it, so without this
+// the whole module 401s on its first call.
+let TOKEN = null;
+export function setToken(t) { TOKEN = t; }
+
 const api = async (path, opts) => {
-  const r = await fetch(`/api/adventure${path}`, {
-    ...opts,
-    headers: { 'content-type': 'application/json', ...(opts && opts.headers) },
-  });
+  const headers = { 'content-type': 'application/json', ...(opts && opts.headers) };
+  if (TOKEN) headers.authorization = `Bearer ${TOKEN}`;
+  const r = await fetch(`/api/adventure${path}`, { ...opts, headers });
   const body = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(body.error || `request failed (${r.status})`);
   return body;

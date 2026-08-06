@@ -2587,7 +2587,14 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && (p === '/app.js' || p === '/wallet.js' || p === '/style.css')) return serveStatic(res, p.slice(1));
     if (req.method === 'GET' && p === '/vendor/qrcode.js') return serveStatic(res, 'vendor/qrcode.js');
     if (ADVENTURE_ENABLED) {
-      if (req.method === 'GET' && (p === '/adventure.js' || p === '/adventure.css' || p === '/adventure-preview.html')) return serveStatic(res, p.slice(1));
+      // Unlinked on purpose: /adventure-test is handed out by hand while the loop is being tuned,
+      // so it stays off the nav and out of search results (the page carries a noindex).
+      if (req.method === 'GET' && (p === '/adventure-test' || p === '/adventure-test.html')) {
+        return serveStatic(res, 'adventure-test.html');
+      }
+      if (req.method === 'GET' && (p === '/adventure.js' || p === '/adventure-boot.js' || p === '/adventure.css')) {
+        return serveStatic(res, p.slice(1));
+      }
       // Served straight from sprites/, never copied into web/. The kit is the designer's artefact
       // and it is re-exported wholesale on every design pass; a second copy under web/ would go
       // stale the first time that happened, which is exactly how the project copy ended up three

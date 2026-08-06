@@ -1486,6 +1486,33 @@ async function handleAdventureTournamentJoin(req, res, id) {
   catch (e) { return sendJSON(res, 400, { error: e.message }); }
 }
 
+/**
+ * POST /api/assets/balances: the fungible assets a set of outpoints carries (ASSETS-SPEC-v0 §8).
+ *
+ * This route existing at all is the point. Every extension wallet asks it before spending, and
+ * treats no answer as "I cannot tell", which it then treats as "do not touch". With the route
+ * absent, every coin was undetermined and no wallet could send anything — see the 0.10.6 fix.
+ *
+ * While the protocol is not launched the honest answer is the empty state: nothing has ever been
+ * etched, so no outpoint carries anything, and the empty root proves it. Once an indexer is running
+ * this must serve real balances with real merkle paths — a wallet verifies every one against the
+ * root and discards what does not check out, so serving an empty answer THEN would be a lie a
+ * wallet cannot catch, and would let someone burn a token by spending its carrier as change.
+ */
+function handleAssetBalances(req, res) {
+  if (ASSETS_ENABLED) {
+    // Deliberately not a lie-by-default: when the flag is on, an indexer must be wired in here.
+    return sendJSON(res, 503, { error: 'the asset indexer is not available on this server' });
+  }
+  const { AssetState } = require('./assets/indexer');
+  const { stateRoot } = require('./assets/checkpoint');
+  return sendJSON(res, 200, {
+    root: Array.from(stateRoot(new AssetState())),
+    entries: [],
+    launched: false,
+  });
+}
+
 /** GET /api/adventure/orb: what the player holds and which bloodlines it could carry (§2). */
 function handleAdventureOrb(req, res) {
   const address = adventurePlayer(req, res);
@@ -2644,6 +2671,7 @@ const server = http.createServer(async (req, res) => {
       if ((m = p.match(/^\/api\/market\/accept\/([0-9a-fA-F]{64}:\d+)\/([a-km-zA-HJ-NP-Z1-9]{25,40})$/)) && req.method === 'GET') return await handleMarketAcceptData(res, m[1], m[2]);
     }
     if (req.method === 'GET' && p.startsWith('/api/job/')) return await handleJob(res, p.slice('/api/job/'.length));
+    if (req.method === 'POST' && p === '/api/assets/balances') return handleAssetBalances(req, res);
     if (req.method === 'GET' && p === '/api/inscriptions') return await handleInscriptions(res, url.searchParams.get('owner'));
     if (req.method === 'GET' && p.startsWith('/api/content/')) return await handleContent(res, p.slice('/api/content/'.length));
     if (req.method === 'POST' && p === '/api/inscriptions/at') return await handleInscriptionsAt(req, res);

@@ -14,10 +14,12 @@
 // Run: node extension/test-assetgate.mjs
 import assert from 'node:assert';
 import { webcrypto } from 'node:crypto';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
 
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 
-const { spendableForPayment } = await import('./lib/assets.js');
+const { spendableForPayment, verifiedBalances } = await import('./lib/assets.js');
 const { Wallet } = await import('./lib/wallet.js');
 
 let passed = 0;
@@ -111,6 +113,26 @@ test('a genuinely empty wallet still says insufficient funds', () => {
   assert.strictEqual(spendableForPayment(u).length, 2, 'cleared coins are spendable');
   // Cleared but too small: that IS a balance problem and must keep saying so.
   assert.ok(spendableForPayment(u).reduce((s, c) => s + c.value, 0) < 1_500_000);
+});
+
+// --- the already-installed wallet ------------------------------------------------------------------
+
+await atest('THE DEPLOYED FIX: the server answer clears coins for a wallet that never heard of the flag', async () => {
+  // The published extension does not read info.assets — it only knows /api/assets/balances. So the
+  // route has to exist and has to return something that verifies, or every wallet already out there
+  // stays broken until Google finishes reviewing an update.
+  const { AssetState } = require('../src/assets/indexer');
+  const { stateRoot } = require('../src/assets/checkpoint');
+  const answer = { root: Array.from(stateRoot(new AssetState())), entries: [], launched: false };
+
+  // Exactly what the old _annotateAssets does with that answer.
+  assert.ok(answer.root && Array.isArray(answer.entries), 'the answer must pass the shape check');
+  const { balances, rejected } = await verifiedBalances(answer, Uint8Array.from(answer.root));
+  assert.strictEqual(rejected, 0, 'an empty answer must not look like an unproven one');
+
+  const u = coins();
+  for (const c of u) c.assets = balances.get(`${c.txid}:${c.vout}`) || {};
+  assert.strictEqual(spendableForPayment(u).length, 2, 'the old wallet must be able to spend again');
 });
 
 console.log(`\n${passed} asset-gate tests passed`);

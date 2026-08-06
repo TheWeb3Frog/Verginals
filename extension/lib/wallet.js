@@ -775,6 +775,16 @@ export class Wallet {
   async _annotateAssets(utxos) {
     for (const u of utxos) u.assets = undefined; // undetermined until proven otherwise
     try {
+      // Is the asset protocol even running here? This question has to be asked first, and getting it
+      // wrong bricks the wallet: "undetermined" is the right answer when an indexer exists and fails,
+      // but on a chain where nothing has ever been etched there is nothing to be undetermined ABOUT.
+      // Treating that case as unsafe left every coin unspendable and reported it as "insufficient
+      // funds", which is how a full wallet came to say it had nothing.
+      const info = await this._get('/api/info').catch(() => null);
+      if (info && info.assets === false) {
+        for (const u of utxos) u.assets = {};
+        return;
+      }
       const outpoints = utxos.map((u) => `${u.txid}:${u.vout}`);
       const answer = await this._post('/api/assets/balances', { outpoints });
       if (!answer || !answer.root || !Array.isArray(answer.entries)) return; // leave undetermined
@@ -930,7 +940,18 @@ export class Wallet {
     }
     const estSize = 14 + inputs.length * 148 + 2 * 34;
     const fee = Math.max(feePerKb, Math.ceil((estSize / 1000) * feePerKb));
-    if (total < amount + fee) throw new Error(`insufficient spendable funds: need ${amount + fee}, have ${total}`);
+    if (total < amount + fee) {
+      // Say which problem this is. "Insufficient funds" on a full wallet sends a user looking for
+      // money they already have; the real cause is almost always that no coin could be CLEARED for
+      // spending, which is a different thing and has a different fix.
+      const undetermined = utxos.filter((u) => u.assets === undefined || u.inscription === undefined).length;
+      if (undetermined && !spendable.length) {
+        throw new Error('None of your coins could be cleared for spending: their inscription or asset '
+          + `status could not be determined (${undetermined} of ${utxos.length}). This is a connection `
+          + 'problem, not a balance problem — try again in a moment.');
+      }
+      throw new Error(`insufficient spendable funds: need ${amount + fee}, have ${total}`);
+    }
 
     const outputs = [{ address: toAddress, value: amount }];
     const change = total - amount - fee;

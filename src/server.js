@@ -92,6 +92,11 @@ const ARENA_ENABLED = process.env.VERGINALS_ARENA_ENABLED === '1';
 // Arena's own requires are unconditional up there, which is exactly why a VPS missing one of them
 // crash-loops on MODULE_NOT_FOUND with the feature switched off. Set VERGINALS_ADVENTURE_ENABLED=1.
 const ADVENTURE_ENABLED = ARENA_ENABLED && process.env.VERGINALS_ADVENTURE_ENABLED === '1';
+// Fungible assets (ASSETS-SPEC-v0) are built and tested but not launched: no /api/assets/* route
+// exists yet. This flag is what /api/info reports, and it must stay false until an indexer is
+// actually serving proofs — a wallet told "assets are live" by a server that cannot prove balances
+// will refuse to spend anything at all.
+const ASSETS_ENABLED = process.env.VERGINALS_ASSETS_ENABLED === '1';
 const MAX_BODY = 8 * 1024 * 1024; // 8 MB JSON cap
 
 const toXVG = (units) => units / COIN;
@@ -356,6 +361,11 @@ async function handleInfo(res) {
   sendJSON(res, 200, {
     network: NETWORK, tip, indexFrom: INDEX_FROM, indexedThrough: lastScanned, arena: ARENA_ENABLED,
     adventure: ADVENTURE_ENABLED && !!adventure,
+    // Whether this server indexes fungible assets (ASSETS-SPEC-v0). The wallet needs this, and the
+    // reason is not cosmetic: it treats a coin whose asset status it cannot determine as untouchable,
+    // which is right once assets exist and catastrophic before they do. With no indexer there is
+    // nothing to carry, so saying so plainly is what lets a wallet spend its own coins.
+    assets: ASSETS_ENABLED,
     // Marketplace fee the seller's wallet must bake into a listing (basis points + destination).
     marketFeeBps: MARKET_FEE_BPS,
     marketFeeAddress: MARKET_FEE_BPS > 0 ? MARKET_FEE_ADDRESS : null,

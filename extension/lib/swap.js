@@ -50,7 +50,7 @@ export async function signListingVariant({ carrier, priceUnits, sellerAddress, p
     vout: [
       { value: 0, script: new Uint8Array(0) },
       { value: 0, script: new Uint8Array(0) },
-      { value: sellerReceive, script: await V.p2pkhScript(sellerAddress) },
+      { value: sellerReceive, script: await V.outputScript(sellerAddress) },
     ],
   };
   const sighash = await V.legacySighash(tx, SELLER_INDEX, carrierScript, LISTING_SIGHASH);
@@ -89,8 +89,8 @@ export async function completeListing({ variant, pads, funds, buyerAddress, priv
   const carrierValue = variant.carrier.value;
   if (carrierValue - g < post) throw new Error('carrier is too small to reset the inscription onto a fresh postage');
 
-  const buyerScript = await V.p2pkhScript(buyerAddress);
-  const sellerScript = await V.p2pkhScript(variant.sellerAddress);
+  const buyerScript = await V.outputScript(buyerAddress);
+  const sellerScript = await V.outputScript(variant.sellerAddress);
   const padTotal = pads.reduce((s, u) => s + u.value, 0);
   const fundsTotal = funds.reduce((s, u) => s + u.value, 0);
   const totalIn = padTotal + carrierValue + fundsTotal;
@@ -106,7 +106,7 @@ export async function completeListing({ variant, pads, funds, buyerAddress, priv
     { value: post, script: buyerScript },
     { value: sellerReceive, script: sellerScript },
   ];
-  if (marketFee > 0) vout.push({ value: marketFee, script: await V.p2pkhScript(variant.feeAddress) });
+  if (marketFee > 0) vout.push({ value: marketFee, script: await V.outputScript(variant.feeAddress) });
   if (change > 0) vout.push({ value: change, script: buyerScript });
 
   const sellerScriptSig = hexToBytes(variant.scriptSig);
@@ -141,8 +141,8 @@ export async function buildBid({ carrier, priceUnits, sellerAddress, pads, funds
   if (sellerReceive <= 0) throw new Error('fee cannot exceed the price');
   if (marketFee > 0 && !feeAddress) throw new Error('a fee needs a fee address');
   const nTime = time == null ? Math.floor(Date.now() / 1000) : time;
-  const buyerScript = await V.p2pkhScript(buyerAddress);
-  const sellerScript = await V.p2pkhScript(sellerAddress);
+  const buyerScript = await V.outputScript(buyerAddress);
+  const sellerScript = await V.outputScript(sellerAddress);
   const padTotal = pads.reduce((s, u) => s + u.value, 0);
   const fundsTotal = funds.reduce((s, u) => s + u.value, 0);
   const totalIn = padTotal + carrier.value + fundsTotal;
@@ -155,7 +155,7 @@ export async function buildBid({ carrier, priceUnits, sellerAddress, pads, funds
     { value: post, script: buyerScript },
     { value: sellerReceive, script: sellerScript },
   ];
-  if (marketFee > 0) vout.push({ value: marketFee, script: await V.p2pkhScript(feeAddress) });
+  if (marketFee > 0) vout.push({ value: marketFee, script: await V.outputScript(feeAddress) });
   if (change > 0) vout.push({ value: change, script: buyerScript });
 
   const vin = [

@@ -510,9 +510,51 @@ export class Wallet {
    * inherit the age of its source coins; this gives us that age.
    */
   async _txTime(txid) {
-    const hex = await this.electrum.getTransaction(txid, false);
-    const b = verge.hexToBytes(hex.slice(8, 16)); // 4 bytes at byte offset 4
-    return (b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24)) >>> 0;
+    // A transaction's nTime is immutable, so this cache never goes stale. We cache the PROMISE, not
+    // the value: a split produces pad/pad/change from one txid, so the three coins are looked up
+    // concurrently and a value cache would still fire three identical round-trips.
+    if (!this._txTimes) this._txTimes = new Map();
+    const hit = this._txTimes.get(txid);
+    if (hit) return hit;
+    const p = (async () => {
+      const hex = await this.electrum.getTransaction(txid, false);
+      const b = verge.hexToBytes(hex.slice(8, 16)); // 4 bytes at byte offset 4
+      return (b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24)) >>> 0;
+    })();
+    this._txTimes.set(txid, p);
+    p.catch(() => this._txTimes.delete(txid)); // never cache a failure
+    return p;
+  }
+
+  /**
+   * The subset of `coins` that a transaction stamped `nTime = t` may legally spend (rule R1:
+   * tx.nTime >= the nTime of every input's creating transaction). A coin whose time cannot be read
+   * is dropped rather than assumed usable — building an unspendable transaction is worse than
+   * skipping a coin.
+   */
+  async _coinsOlderThan(coins, t) {
+    const times = await Promise.all(coins.map((u) => this._txTime(u.txid).catch(() => Infinity)));
+    return coins.filter((_, i) => times[i] <= t);
+  }
+
+  /**
+   * The nTime to stamp on a transaction spending `utxos`: the oldest value rule R1 allows, i.e. the
+   * newest input's own nTime.
+   *
+   * Stamping `now` instead would be legal but wasteful — the change output would be born "new", and
+   * since a listing variant can only be funded by coins older than its nTime, a wallet that had just
+   * paid for anything (a mint, most obviously) would lose the ability to buy aged listings until its
+   * change caught up. Inheriting the age means SPENDING NEVER MAKES YOUR COINS YOUNGER; only
+   * receiving from outside does, which is the honest behaviour.
+   *
+   * A coin whose time cannot be read falls back to `now`, which is always legal (R2 keeps every
+   * confirmed coin's nTime at or below wall clock) and simply forfeits the optimisation.
+   */
+  async _spendTime(utxos) {
+    if (!utxos || !utxos.length) return Math.floor(Date.now() / 1000);
+    const now = Math.floor(Date.now() / 1000);
+    const times = await Promise.all(utxos.map((u) => this._txTime(u.txid).catch(() => now)));
+    return Math.max(...times);
   }
 
   /**
@@ -549,8 +591,7 @@ export class Wallet {
     if (change < need) {
       throw new Error('Not enough spendable XVG for this swap plus fees. Top up this wallet and try again.');
     }
-    const times = await Promise.all(sorted.map((u) => this._txTime(u.txid).catch(() => Math.floor(Date.now() / 1000))));
-    const splitTime = Math.max(...times); // >= every source coin's nTime, so R1 holds for the split
+    const splitTime = await this._spendTime(sorted); // >= every source coin's nTime, so R1 holds
     const built = await verge.buildAndSignP2PKH({
       inputs: sorted.map((u) => ({ txid: u.txid, vout: u.vout, value: u.value, privateKey: this._priv })),
       outputs: [
@@ -606,15 +647,17 @@ export class Wallet {
     this._requireUnlocked();
     const { sorted } = await this._marketCoins(null);
     if (!sorted.length) throw new Error('This wallet has no spendable XVG. Top it up, wait for the deposit to confirm, then try again.');
-    // The pads a split would create inherit the age of these coins, so the coin-age floor is the
-    // same whether or not we split: pick the variant with the current coins before touching them.
-    const coinParam = sorted.map((u) => `${u.txid}:${u.vout}`).join(',');
+    // MARKETPLACE-SPEC-v0 §2.1: the order book serves the variant with the largest nTime that is
+    // already minable, chosen INDEPENDENTLY of us; we then spend only coins older than that nTime.
+    // Announcing our whole balance instead (the old `?coins=` call) let a single freshly received
+    // coin veto a variant every one of our other coins could have satisfied — so any wallet that
+    // had just paid for anything, a mint included, could not buy an aged listing at all.
     let variant, carrierOffset;
     try {
-      ({ variant, carrierOffset } = await this._get(`/api/market/buy/${carrierOutpoint}?coins=${encodeURIComponent(coinParam)}`));
+      ({ variant, carrierOffset } = await this._get(`/api/market/buy/${carrierOutpoint}`));
     } catch (e) {
       if (/variant|usable|coins/i.test(e.message || '')) {
-        throw new Error('Your coins are too recent for an instant buy on this listing. Wait a few minutes, or use "Make an offer" instead (offers work right away).');
+        throw new Error('This listing has no variant available right now. Use "Make an offer" instead (offers work right away).');
       }
       throw e;
     }
@@ -627,7 +670,16 @@ export class Wallet {
     }
 
     const feeUnits = 300000; // ~0.3 XVG, a small padded swap
-    const { pads, funds } = await this._ensurePads(sorted, variant.priceUnits + feeUnits);
+    const need = variant.priceUnits + feeUnits;
+    // Only coins older than the variant's nTime may fund it (R1). Newer ones are simply left
+    // alone rather than allowed to block the purchase.
+    const eligible = await this._coinsOlderThan(sorted, variant.time);
+    if (eligible.reduce((s, u) => s + u.value, 0) < need) {
+      throw new Error(eligible.length === 0
+        ? 'All of your XVG is more recent than this listing, so an instant buy is not possible yet. Use "Make an offer" instead — offers have no such limit and work right away.'
+        : 'Your coins that are old enough for this listing do not cover the price. Use "Make an offer" instead, which can spend your whole balance.');
+    }
+    const { pads, funds } = await this._ensurePads(eligible, need);
     const built = await swap.completeListing({
       variant, pads, funds,
       buyerAddress: this._address, priv: this._priv, feeUnits,
@@ -844,7 +896,7 @@ export class Wallet {
       toAddress,
       changeAddress: this._address,
       feePerKb,
-      time: Math.floor(Date.now() / 1000),
+      timeOf: (ins) => this._spendTime(ins), // change inherits the age of the coins it came from
     });
 
     if (!broadcast) return { hex: built.hex, txid: built.txid, size: built.size };
@@ -887,7 +939,7 @@ export class Wallet {
     const built = await verge.buildAndSignP2PKH({
       inputs: inputs.map((u) => ({ txid: u.txid, vout: u.vout, value: u.value, privateKey: this._priv })),
       outputs,
-      time: Math.floor(Date.now() / 1000),
+      time: await this._spendTime(inputs), // change inherits the age of what paid for it
     });
     if (!broadcast) return { hex: built.hex, txid: built.txid, size: built.size };
     const { txid } = await this.broadcast(built.hex);

@@ -195,7 +195,7 @@ export async function wifToPrivateKey(wif) {
   return { privateKey: priv, compressed, network: net };
 }
 
-/** Decode a P2PKH address -> { hash160: Uint8Array(20), version }. */
+/** Decode a base58check address -> { hash160: Uint8Array(20), version }. */
 export async function decodeAddress(addr) {
   const payload = await base58CheckDecode(addr);
   return { version: payload[0], hash160: payload.slice(1) };
@@ -204,10 +204,36 @@ export async function decodeAddress(addr) {
 /** scriptPubKey for a P2PKH output: OP_DUP OP_HASH160 <20> OP_EQUALVERIFY OP_CHECKSIG. */
 export async function p2pkhScript(addr) {
   const { hash160: h } = await decodeAddress(addr);
-  return concatBytes(new Uint8Array([0x76, 0xa9, 0x14]), h, new Uint8Array([0x88, 0xac]));
+  return p2pkhScriptFromHash(h);
 }
 function p2pkhScriptFromHash(h) {
   return concatBytes(new Uint8Array([0x76, 0xa9, 0x14]), h, new Uint8Array([0x88, 0xac]));
+}
+/** scriptPubKey for a P2SH output: OP_HASH160 <20> OP_EQUAL. */
+function p2shScriptFromHash(h) {
+  return concatBytes(new Uint8Array([0xa9, 0x14]), h, new Uint8Array([0x87]));
+}
+
+/**
+ * scriptPubKey for ANY address we have been asked to pay, chosen from its version byte.
+ *
+ * Use this for every output whose address came from outside — a recipient, a counterparty, a fee
+ * pool. It must never silently fall back to P2PKH: a P2SH address ('E...' on mainnet, e.g. a 2-of-3
+ * multisig treasury) wrapped in a P2PKH script would demand a private key for a script hash, and the
+ * coins would be unspendable forever. Verge has no segwit, so P2PKH and P2SH are the only two shapes
+ * that exist here; an unrecognised version byte is refused rather than guessed.
+ *
+ * Signing is unaffected: the wallet only holds P2PKH keys, so the sighash scriptCode stays P2PKH.
+ * This is about paying TO a P2SH address, not spending FROM one.
+ */
+export async function outputScript(addr) {
+  const { version, hash160: h } = await decodeAddress(addr);
+  if (h.length !== 20) throw new Error(`address ${addr}: expected a 20-byte hash, got ${h.length}`);
+  for (const net of Object.values(NETWORKS)) {
+    if (version === net.pubKeyHash) return p2pkhScriptFromHash(h);
+    if (version === net.scriptHash) return p2shScriptFromHash(h);
+  }
+  throw new Error(`address ${addr}: unknown version byte ${version}, refusing to guess an output script`);
 }
 
 // ---------------------------------------------------------------------------
@@ -423,7 +449,8 @@ export async function signMessage(message, priv, compressed = true) {
  */
 export async function buildAndSignP2PKH({ inputs, outputs, time, version = 1, locktime = 0 }) {
   const vout = [];
-  for (const o of outputs) vout.push({ value: o.value, script: await p2pkhScript(o.address) });
+  // Inputs are always P2PKH (we only hold P2PKH keys); outputs may pay any address shape.
+  for (const o of outputs) vout.push({ value: o.value, script: await outputScript(o.address) });
   const vin = inputs.map((inp) => ({ txid: inp.txid, vout: inp.vout, sequence: 0xffffffff, script: new Uint8Array(0) }));
   const tx = { version, time, vin, vout, locktime };
 
@@ -458,9 +485,13 @@ export async function buildAndSignP2PKH({ inputs, outputs, time, version = 1, lo
  * @param {string} p.changeAddress  where change (and the carrier's own key) returns
  * @param {number} p.feePerKb       fee rate in atomic units per 1000 bytes (>= 200000 = 0.2 XVG)
  * @param {number} p.time           nTime
+ * @param {function} [p.timeOf]     async (inputs) => nTime, called with the inputs actually chosen.
+ *   Funders are picked inside this function, so a caller that wants to derive nTime from them (e.g.
+ *   the R1 floor, so the change output inherits their age) cannot compute it up front. Takes
+ *   precedence over `time`.
  * @param {number} [p.dustThreshold=100000]  min output value in atomic units
  */
-export async function buildInscriptionTransfer({ carrier, funders, toAddress, changeAddress, feePerKb, time, dustThreshold = 100000 }) {
+export async function buildInscriptionTransfer({ carrier, funders, toAddress, changeAddress, feePerKb, time, timeOf, dustThreshold = 100000 }) {
   if (!carrier || carrier.privateKey == null) throw new Error('carrier + its privateKey required');
   const safeFunders = (funders || []).filter((u) => !u.inscription);
   // Estimate size: ~148 B per P2PKH input + ~34 B per output + ~14 B overhead. Iterate to
@@ -490,5 +521,5 @@ export async function buildInscriptionTransfer({ carrier, funders, toAddress, ch
   if (change >= dustThreshold) outputs.push({ address: changeAddress, value: change });
   // else: change is dust, it is absorbed into the fee.
 
-  return buildAndSignP2PKH({ inputs, outputs, time });
+  return buildAndSignP2PKH({ inputs, outputs, time: timeOf ? await timeOf(inputs) : time });
 }

@@ -128,6 +128,7 @@ class Stable {
       slots: L.slots(living, this.tuning),
       living,
       released: this._player(address).released.length,
+      orbs: this._player(address).orbs || 0,
     };
   }
 
@@ -276,6 +277,89 @@ class Stable {
    * inscription per player per season that §7.1 specifies — released creatures included, because
    * they lived.
    */
+  /**
+   * The two ladders (§2.1), scored over one player's season.
+   *
+   * Combat measures the Arena record; Genetics measures the rarity of what was bred, scored by the
+   * engine that already runs in production. The second exists because a player who breeds something
+   * extraordinary but cannot fight would otherwise lose a month of work — and the breeder archetype
+   * is real.
+   *
+   * @param {Function} rarityOf (attributes) -> number, injected so this module never imports the
+   *   rarity engine and stays testable without the collection.
+   */
+  ladders(address, rarityOf) {
+    const all = Object.values(this._player(address).creatures);
+    const combat = all
+      .map((c) => ({ id: c.id, wins: c.record.wins, fights: c.record.fights }))
+      .sort((a, b) => b.wins - a.wins || a.fights - b.fights);
+    const genetics = all
+      .map((c) => ({ id: c.id, score: rarityOf(G.toAttributes(c.genome, this.pool, c.id)) }))
+      .sort((a, b) => b.score - a.score);
+    return { combat, genetics };
+  }
+
+  /**
+   * Grant DNA Orbs. Top 10% of each ladder (§2.1) — a percentage rather than a fixed number, so a
+   * small community still has winners and it scales on its own if the game grows. At least one, or
+   * a season with nine players would award nothing at all.
+   *
+   * An Orb is not a trophy. It is the save file for a month of breeding work, and the only thing
+   * besides an Alpha that crosses a season boundary — which is what makes it the most desirable
+   * object in the game while being worth nothing in money.
+   */
+  grantOrbs(address, rarityOf, opts = {}) {
+    const share = opts.share === undefined ? 0.1 : opts.share;
+    const l = this.ladders(address, rarityOf);
+    const take = (rows) => rows.slice(0, Math.max(1, Math.ceil(rows.length * share))).map((r) => r.id);
+    const winners = new Set([...take(l.combat), ...take(l.genetics)]);
+    const p = this._player(address);
+    // One Orb per player per season however many ladders they topped: the Orb carries ONE bloodline
+    // (§2), so a second would not mean anything to spend.
+    p.orbs = (p.orbs || 0) + (winners.size ? 1 : 0);
+    return { orbs: p.orbs, eligible: [...winners], ladders: l };
+  }
+
+  /**
+   * Spend the Orb: clone one bloodline into the season now running (§2).
+   *
+   * The genome carries; the individual does not. The clone is born a juvenile with no attentions, no
+   * record and no temperament, because §5.1 is what makes the Orb interesting — two identical
+   * genomes raised differently are different creatures, so winning does not hand you last month's
+   * animal back, it hands you another go at it.
+   */
+  spendOrb(address, savedId) {
+    const p = this._player(address);
+    if (!p.orbs) return { ok: false, reason: 'you have no DNA Orb' };
+    const saved = (p.saved || []).find((s) => s.id === savedId);
+    if (!saved) return { ok: false, reason: 'that bloodline is not on your saved roster' };
+    if (L.slots(this._living(address), this.tuning).full) return { ok: false, reason: 'no free living slot' };
+
+    const now = this.now();
+    const id = this._id('d');
+    p.orbs -= 1;
+    p.saved = [];  // one Orb, one bloodline, no undo
+    p.creatures[id] = {
+      id,
+      genome: { ...saved.genome, id, alpha: false },
+      sex: saved.genome.sex,
+      // The clone is its own founder: its parents died with the season, so nothing in this season's
+      // pedigree relates it to anything. That is deliberate — a carried bloodline is fresh blood
+      // for everyone else, which is the §3.4 remedy arriving from somewhere.
+      mother: null,
+      father: null,
+      generation: 0,
+      mutations: [],
+      conceivedAt: now - (this.tuning.gestationDays === undefined ? L.GESTATION_DAYS : this.tuning.gestationDays) * L.DAY,
+      j: L.newJuvenile(id, now - (this.tuning.gestationDays === undefined ? L.GESTATION_DAYS : this.tuning.gestationDays) * L.DAY, this.tuning),
+      released: false,
+      record: { fights: 0, wins: 0 },
+      clonedFrom: savedId,
+    };
+    this._save();
+    return { ok: true, id, orbs: p.orbs };
+  }
+
   endSeason() {
     const rosters = {};
     for (const [address, p] of Object.entries(this.state.players)) {
@@ -291,9 +375,17 @@ class Stable {
         generation: byId.get(r.id).generation,
         released: byId.get(r.id).released,
       }));
+      // Kept so an Orb has something to spend on. Everything else about the season is gone.
+      p.saved = rosters[address].map((r) => ({
+        id: r.id,
+        genome: byId.get(r.id).genome,
+        record: r.record,
+        generation: byId.get(r.id).generation,
+      }));
       p.creatures = {};
       p.released = [];
       p.pending = {};
+      p.duels = {};
     }
     this.state.season = { id: this.state.season.id + 1, startedAt: this.now() };
     this._save();

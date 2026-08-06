@@ -156,7 +156,11 @@ export class Adventure {
     const attentions = juveniles.reduce((n, c) => n + c.attentionsLeft, 0);
     // Anything born can fight, adult or not — bot mode is where you learn a creature (§4.4).
     const fightable = s.living.filter((c) => c.born);
-    const tasks = [
+    const tasks = [];
+    // The Orb goes first when it exists: it is the only thing on this screen that expires with the
+    // season, and it is the one decision a player must not miss.
+    if (s.orbs) tasks.push({ label: 'SPEND THE DNA ORB', detail: `${s.orbs} held`, on: true, go: () => this.orbPanel() });
+    tasks.push(
       { label: 'BREED', detail: s.slots.full ? `Stable full — ${s.slots.used}/${s.slots.cap}` : `${s.slots.free} free slots`, on: !s.slots.full, go: () => this.pickParents() },
       { label: 'NURSERY', detail: attentions ? `${attentions} attentions left` : 'Nothing to raise today', on: attentions > 0, go: () => this.render() },
       {
@@ -165,7 +169,7 @@ export class Adventure {
         on: fightable.length > 0,
         go: () => this.fightPanel(fightable[0]),
       },
-    ];
+    );
     for (const t of tasks) {
       const card = el('div', `display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:6px;`
         + `background:${P.panel};border:1px solid ${t.on ? P.edge : P.slab};${t.on ? 'cursor:pointer' : 'opacity:0.5'}`);
@@ -211,6 +215,14 @@ export class Adventure {
     card.append(mid);
 
     const actions = el('div', 'display:flex;flex-direction:column;gap:6px;align-items:flex-end');
+    // Freshly out of the egg and untouched: offer the reveal rather than dropping it into a list row.
+    const unmet = c.born && c.growth <= 1 && c.temperament && c.temperament.label === 'Untouched';
+    if (unmet) {
+      const meet = el('button', `padding:8px 10px;font:10px/1 ui-monospace,monospace;letter-spacing:1px;`
+        + `background:${P.gold};color:${P.ink};border:none;cursor:pointer`, 'MEET IT');
+      meet.onclick = () => this.hatch(c);
+      actions.append(meet);
+    }
     if (c.born) actions.append(this.fightButton(c));
     if (c.born && !c.adult) actions.append(this.attentions(c));
     else if (c.born) actions.append(this.releaseButton(c));
@@ -530,6 +542,124 @@ export class Adventure {
     panel.append(el('div', `margin-top:6px;font:10px/1.6 ui-monospace,monospace;color:${P.ash};word-break:break-all`,
       `seed ${r.seed}`));
     await this.refresh();
+    return undefined;
+  }
+
+  /**
+   * The hatch (design pass 3e). Egg, a hard two-frame split, a white burst, then the juvenile.
+   *
+   * The sequencing is the design call and it is worth keeping: the animal settles FIRST, and the
+   * name and the pip bar arrive after. The genetics are the actual reveal, so they land last —
+   * a player who is shown a bar and a creature at the same instant reads the bar.
+   *
+   * Honours prefers-reduced-motion by going straight to the settled state; nothing here is load
+   * bearing except the order.
+   */
+  hatch(c) {
+    const panel = this.notice(el('div', `padding:24px;background:${P.panel};border:1px solid ${P.edge};`
+      + 'margin-bottom:20px;display:flex;flex-direction:column;align-items:center;gap:12px'));
+    const stage = el('div', 'position:relative;display:flex;align-items:flex-end;justify-content:center;height:180px');
+    panel.append(stage);
+
+    const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const settle = () => {
+      stage.textContent = '';
+      // The adult-width ground shadow: a juvenile is the same drawing at a smaller scale, so the
+      // shadow is what tells you it is small rather than far away.
+      const shadow = el('div', `position:absolute;bottom:6px;width:120px;height:8px;border-radius:50%;`
+        + `background:${P.ink};opacity:0.55`);
+      stage.append(shadow, creature(c.traits, 132));
+      const name = el('div', `font:13px/1 ui-monospace,monospace;letter-spacing:2px;color:${P.bone};opacity:0`,
+        `${c.sex === 'F' ? '♀' : '♂'} GENERATION ${c.generation}`);
+      const bar = el('div', 'display:flex;justify-content:center;opacity:0');
+      bar.append(pips(c.zygosity, 18));
+      panel.append(name, bar);
+      const reveal = () => { name.style.transition = bar.style.transition = 'opacity .5s'; name.style.opacity = bar.style.opacity = '1'; };
+      if (still) reveal(); else setTimeout(reveal, 420);
+      if (c.mutations && c.mutations.length) {
+        for (const m of c.mutations) {
+          panel.append(el('div', `font:12px/1.6 ui-monospace,monospace;color:${P.prismB}`,
+            `MUTATION · ${m.locus} became ${m.value}, from neither parent.`));
+        }
+      }
+    };
+
+    if (still) return settle();
+    const egg = el('div', `width:96px;height:112px;background:${P.bone};border:4px solid ${P.ink};`
+      + 'border-radius:50% 50% 46% 46%;image-rendering:pixelated');
+    stage.append(egg);
+    setTimeout(() => { egg.style.transform = 'translateX(-6px)'; }, 260);
+    setTimeout(() => { egg.style.transform = 'translateX(6px)'; }, 400);
+    setTimeout(() => {
+      const burst = el('div', `position:absolute;bottom:24px;width:150px;height:150px;border-radius:50%;`
+        + `background:${P.paper};transition:opacity .35s`);
+      stage.append(burst);
+      setTimeout(() => { burst.style.opacity = '0'; }, 60);
+      setTimeout(settle, 300);
+    }, 560);
+    return undefined;
+  }
+
+  /**
+   * Spending the DNA Orb (design pass 4b). One orb, one bloodline, no undo.
+   *
+   * The decision is genetic, so the pip bar is drawn at 18px here — larger than anywhere else in
+   * the game — and the win record sits under it as a subordinate line. The candidates are NOT
+   * ranked, and the button stays inert until one is chosen.
+   */
+  async orbPanel() {
+    let data;
+    try { data = await api('/orb'); } catch (e) { return this.toast(e.message); }
+    const panel = this.notice(el('div', `padding:16px;background:${P.panel};border:1px solid ${P.gold};margin-bottom:20px`));
+    panel.append(el('div', `font:12px/1 ui-monospace,monospace;letter-spacing:2px;color:${P.gold}`,
+      `DNA ORB ×${data.orbs}`));
+    if (!data.orbs || !data.candidates.length) {
+      panel.append(el('div', `margin-top:8px;font:12px/1.6 ui-monospace,monospace;color:${P.fog}`,
+        data.orbs ? 'Nothing saved to carry.' : 'You hold no Orb. They go to the top of each ladder at season end.'));
+      return undefined;
+    }
+    panel.append(el('div', `margin-top:4px;margin-bottom:14px;font:12px/1.6 ui-monospace,monospace;color:${P.fog}`,
+      'Carries one bloodline into the next season. Everything else you bred is gone.'));
+
+    let chosen = null;
+    const grid = el('div', 'display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px');
+    const go = el('button', '', 'SPEND THE ORB');
+    const paint = () => {
+      for (const card of grid.children) {
+        card.style.cssText = card._base + `;border:1px solid ${card._c === chosen ? P.gold : P.slab}`;
+      }
+      go.style.cssText = `padding:10px 14px;font:12px/1 ui-monospace,monospace;letter-spacing:1px;border:none;`
+        + `background:${chosen ? P.gold : P.slab};color:${chosen ? P.ink : P.ash};cursor:${chosen ? 'pointer' : 'default'}`;
+      go.disabled = !chosen;
+    };
+    for (const cand of data.candidates) {
+      const card = el('div');
+      card._c = cand;
+      card._base = `display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px;width:300px;background:${P.coal};cursor:pointer`;
+      // The bar first and biggest: the decision is genetic, and the record is subordinate to it.
+      const plate = el('div', `padding:8px;background:${P.ink};display:flex;justify-content:center`);
+      plate.append(pips(cand.zygosity, 18));
+      card.append(plate, creature(cand.traits, 96));
+      card.append(el('div', `font:11px/1.4 ui-monospace,monospace;color:${P.bone}`,
+        `${cand.sex === 'F' ? '♀' : '♂'} generation ${cand.generation}`));
+      card.append(el('div', `font:10px/1.4 ui-monospace,monospace;color:${P.ash}`,
+        `${cand.record.wins} wins in ${cand.record.fights}`));
+      card.onclick = () => { chosen = chosen === cand ? null : cand; paint(); };
+      grid.append(card);
+    }
+    go.onclick = async () => {
+      go.disabled = true;
+      let r;
+      try { r = await api('/orb/spend', { method: 'POST', body: JSON.stringify({ id: chosen.id }) }); }
+      catch (e) { return this.toast(e.message); }
+      await this.refresh();
+      this.hatch({ traits: r.traits, zygosity: chosen.zygosity, sex: chosen.sex, generation: 0, mutations: [] });
+      return undefined;
+    };
+    panel.append(grid, go);
+    panel.append(el('div', `margin-top:8px;font:10px/1.4 ui-monospace,monospace;color:${P.ash}`,
+      'This cannot be undone, and there is no second orb.'));
+    paint();
     return undefined;
   }
 

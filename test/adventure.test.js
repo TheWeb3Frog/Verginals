@@ -306,6 +306,68 @@ const DAD = { carrierKey: KEY_M };
     assert.strictEqual(a.stable.state.players[ADDR].creatures[r.id].record.fights, 0);
   });
 
+  // --- turn-by-turn duels (§4.4) ---------------------------------------------------------------------
+
+  const BOT = { address: 'bot', house: 'water', rarityScore: 100, comeback: false, shield: false };
+
+  await atest('a turn-by-turn duel opens with a hash, plays three rounds, then records growth', async () => {
+    const { a, world } = build();
+    const r = await aDescendant(a);
+    world.t = r.bornAt;
+    const open = a.openDuel(ADDR, r.id, BOT);
+    assert.ok(open.duelId && open.serverSeedHash);
+    assert.strictEqual(open.seed, undefined, 'the seed must not go out while rounds remain');
+
+    const one = a.playRound(ADDR, open.duelId, { element: 'fire' });
+    assert.strictEqual(one.round, 1);
+    assert.strictEqual(one.done, false);
+    assert.ok(one.result.winner);
+    a.playRound(ADDR, open.duelId, { element: 'water', poison: true });
+    const three = a.playRound(ADDR, open.duelId, { element: 'earth' });
+    assert.strictEqual(three.done, true);
+    assert.ok(three.seed, 'the seed must be revealed once the duel is over');
+    assert.strictEqual(three.counted, true, 'a finished duel must feed growth');
+    assert.strictEqual(a.stable.state.players[ADDR].creatures[r.id].record.fights, 1);
+  });
+
+  await atest('an abandoned duel costs nothing: growth is recorded only when the last round lands', async () => {
+    const { a, world } = build();
+    const r = await aDescendant(a);
+    world.t = r.bornAt;
+    const open = a.openDuel(ADDR, r.id, BOT);
+    a.playRound(ADDR, open.duelId, { element: 'fire' });
+    a.playRound(ADDR, open.duelId, { element: 'water' });
+    assert.strictEqual(a.stable.state.players[ADDR].creatures[r.id].record.fights, 0);
+  });
+
+  await atest('a duel survives a restart, because a fight is three round trips with a human in between', async () => {
+    const { a, world } = build();
+    const r = await aDescendant(a);
+    world.t = r.bornAt;
+    const open = a.openDuel(ADDR, r.id, BOT);
+    a.playRound(ADDR, open.duelId, { element: 'fire' });
+    // Reload the store from disk, as a restart would.
+    a.stable.load();
+    const two = a.playRound(ADDR, open.duelId, { element: 'water' });
+    assert.strictEqual(two.round, 2, 'the duel did not survive the reload');
+  });
+
+  await atest('an unknown duel id is refused, and a finished one cannot be played again', async () => {
+    const { a, world } = build();
+    const r = await aDescendant(a);
+    world.t = r.bornAt;
+    assert.match(a.playRound(ADDR, 'duel_nope', { element: 'fire' }).error, /unknown duel/);
+    const open = a.openDuel(ADDR, r.id, BOT);
+    for (const e of ['fire', 'water', 'earth']) a.playRound(ADDR, open.duelId, { element: e });
+    assert.match(a.playRound(ADDR, open.duelId, { element: 'fire' }).error, /unknown duel/);
+  });
+
+  await atest('a gestating descendant cannot open a duel either', async () => {
+    const { a } = build();
+    const r = await aDescendant(a);
+    assert.match(a.openDuel(ADDR, r.id, BOT).error, /not been born/);
+  });
+
   await atest('a descendant does not rest to breed, only Alphas do (§8)', async () => {
     const { a, world } = build();
     let r = null;

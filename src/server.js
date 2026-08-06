@@ -86,6 +86,12 @@ const INDEX_FROM = Number(process.env.VERGINALS_INDEX_FROM || (NETWORK === 'main
 // flag unset, initGame() never runs, the /arena page and every /api/game/* route are inert, and the
 // site hides the Arena tab. Set VERGINALS_ARENA_ENABLED=1 in the systemd env to turn it on.
 const ARENA_ENABLED = process.env.VERGINALS_ARENA_ENABLED === '1';
+// Adventure Mode (breeding, genetics, seasons) rides on the Arena but ships separately, so it gets
+// its own switch: the Arena can run without it, and it cannot run without the Arena. Its five
+// modules are required LAZILY inside initAdventure() rather than at the top of this file — the
+// Arena's own requires are unconditional up there, which is exactly why a VPS missing one of them
+// crash-loops on MODULE_NOT_FOUND with the feature switched off. Set VERGINALS_ADVENTURE_ENABLED=1.
+const ADVENTURE_ENABLED = ARENA_ENABLED && process.env.VERGINALS_ADVENTURE_ENABLED === '1';
 const MAX_BODY = 8 * 1024 * 1024; // 8 MB JSON cap
 
 const toXVG = (units) => units / COIN;
@@ -304,12 +310,52 @@ function serveStatic(res, file) {
   fs.createReadStream(full).pipe(res);
 }
 
+const SPRITE_DIR = path.join(__dirname, '..', 'sprites');
+
+/** The UI kit, from its one canonical location. Not cached: it changes with every design pass. */
+function serveSpriteKit(res) {
+  const full = path.join(SPRITE_DIR, 'verginals-kit.js');
+  if (!fs.existsSync(full)) {
+    writeHead(res, 404, { 'content-type': 'text/plain' });
+    return res.end('not found');
+  }
+  writeHead(res, 200, { 'content-type': STATIC_TYPES['.js'] });
+  return fs.createReadStream(full).pipe(res);
+}
+
+/**
+ * One trait layer for the creature renderer. The layer name is already constrained to a fixed set
+ * by the route, and the file name to [A-Za-z0-9 ]; this re-derives the path and checks containment
+ * anyway, because a static-file handler is exactly where that check is worth repeating.
+ *
+ * These are immutable build artefacts — the same 157 files that were hashed into the collection's
+ * provenance — so they are cached hard.
+ */
+function serveSprite(res, layer, encodedName) {
+  let name;
+  try { name = decodeURIComponent(encodedName); } catch (_) { name = null; }
+  // Re-validated AFTER decoding, which is the only order that is safe: %2e%2e%2f decodes to "../".
+  // Letters, digits and spaces only — no dot, no slash, so the join below cannot escape.
+  if (!name || !/^[A-Za-z0-9 ]{1,40}$/.test(name)) {
+    writeHead(res, 404, { 'content-type': 'text/plain' });
+    return res.end('not found');
+  }
+  const full = path.join(SPRITE_DIR, layer, `${name}.webp`);
+  if (!full.startsWith(SPRITE_DIR + path.sep) || !fs.existsSync(full)) {
+    writeHead(res, 404, { 'content-type': 'text/plain' });
+    return res.end('not found');
+  }
+  writeHead(res, 200, { 'content-type': 'image/webp', 'cache-control': 'public, max-age=31536000, immutable' });
+  return fs.createReadStream(full).pipe(res);
+}
+
 // --- API handlers ------------------------------------------------------------------------
 
 async function handleInfo(res) {
   const tip = await chain.getBlockCount();
   sendJSON(res, 200, {
     network: NETWORK, tip, indexFrom: INDEX_FROM, indexedThrough: lastScanned, arena: ARENA_ENABLED,
+    adventure: ADVENTURE_ENABLED && !!adventure,
     // Marketplace fee the seller's wallet must bake into a listing (basis points + destination).
     marketFeeBps: MARKET_FEE_BPS,
     marketFeeAddress: MARKET_FEE_BPS > 0 ? MARKET_FEE_ADDRESS : null,
@@ -1218,6 +1264,150 @@ function initGame() {
   const gdir = path.join(DATA_DIR, 'game');
   try { fs.mkdirSync(gdir, { recursive: true }); } catch (_) { /* already there */ }
   gameStore = new GameStore({ dataDir: gdir }).load();
+}
+
+// --- Adventure Mode (spec/ADVENTURE-MODE-v0.md) ------------------------------------------------
+
+let adventure = null;
+
+/**
+ * The nTime of the transaction that created a carrier output, plus its confirmations. Fertility is
+ * a fact about a UTXO (§1.1), so it is read from the chain on every request and never cached into
+ * our own state, where it would drift the moment an Alpha moved.
+ *
+ * getRevealVerbose is reused because it already solves the hard half: a node without txindex still
+ * resolves a confirmed tx through the wallet's blockhash.
+ */
+async function carrierTimeFor(carrierKey) {
+  const [txid, voutStr] = String(carrierKey || '').split(':');
+  if (!/^[0-9a-f]{64}$/.test(txid || '')) return null;
+  const tx = await getRevealVerbose(txid);
+  if (!tx || !Number.isFinite(tx.time)) return null;
+  // Confirmations come from the live UTXO, not the tx: an output already spent is not breeding
+  // stock, and gettxout returning nothing is the cheapest way to know that.
+  let confirmations = 0;
+  try {
+    const out = await client.call('gettxout', [txid, Number(voutStr), true]);
+    if (!out) return null; // spent
+    confirmations = Number(out.confirmations) || 0;
+  } catch (_) { return null; }
+  return { time: tx.time, confirmations };
+}
+
+/**
+ * Lazily construct the controller. Every require in here is deliberate: with the flag off, none of
+ * the five Adventure modules is ever loaded, so a deploy that is missing one of them serves the
+ * rest of the site normally instead of crash-looping.
+ */
+function initAdventure() {
+  if (!mintCtl) {
+    console.warn('adventure: no collection loaded, Adventure Mode stays off');
+    return;
+  }
+  const { Adventure } = require('./adventure');
+  const adir = path.join(DATA_DIR, 'adventure');
+  try { fs.mkdirSync(adir, { recursive: true }); } catch (_) { /* already there */ }
+  adventure = new Adventure({
+    dataDir: adir,
+    items: [...mintCtl.byNumber.values()],
+    ownerOf: async (address, carrierKey) => {
+      const [txid, voutStr] = String(carrierKey || '').split(':');
+      if (!/^[0-9a-f]{64}:\d+$/.test(carrierKey || '')) return { error: 'a Verginal outpoint (txid:vout) is required' };
+      const info = await carrierOwner(txid, Number(voutStr));
+      if (!info || info.spent) return { error: 'that Verginal outpoint has been spent' };
+      if (info.address !== address) return { error: 'you do not currently hold that Verginal' };
+      if (!info.inscription) return { error: 'that outpoint does not carry a Verginal' };
+      const ins = info.inscription;
+      // Same rule as the Arena: identify by the inscription, which follows the sat through every
+      // transfer, never by the carrier txid, which changes the moment an Alpha is sold.
+      if (ins.collectionNumber == null || ins.collectionSlug) {
+        return { error: 'only Alpha Verginals can breed right now' };
+      }
+      return { number: ins.collectionNumber };
+    },
+    carrierTime: carrierTimeFor,
+    // Alpha Verginals the address holds right now, as { number, carrierKey }. Reads the same
+    // indexed payload the gallery does; ownership is re-proved per carrier at breeding time, so a
+    // stale index here can only ever show an Alpha that then refuses to breed, never the reverse.
+    holdingsOf: async (address) => {
+      if (!address) return [];
+      const payload = await getInscriptionsPayload();
+      return (payload.inscriptions || [])
+        .filter((i) => i.ownerAddress === address && i.collectionNumber != null && !i.collectionSlug && i.location)
+        .map((i) => ({ number: i.collectionNumber, carrierKey: i.location }));
+    },
+  });
+}
+
+/** Every Adventure route funnels through this: enabled, signed in, rate limited. */
+function adventurePlayer(req, res) {
+  if (!adventure) { sendJSON(res, 404, { error: 'Adventure Mode is not enabled on this server' }); return null; }
+  const address = gamePlayer(req);
+  if (!address) { sendJSON(res, 401, { error: 'not signed in' }); return null; }
+  return address;
+}
+
+/** GET /api/adventure/stable: the season clock, the living roster and the slots. */
+function handleAdventureStable(req, res) {
+  const address = adventurePlayer(req, res);
+  if (!address) return undefined;
+  return sendJSON(res, 200, adventure.roster(address));
+}
+
+/** GET /api/adventure/alphas: the breeding stock, fertile first. One chain read per Alpha. */
+async function handleAdventureAlphas(req, res) {
+  const address = adventurePlayer(req, res);
+  if (!address) return undefined;
+  if (!allowQuote(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
+  return sendJSON(res, 200, await adventure.alphas(address));
+}
+
+/** POST /api/adventure/preview: relatedness, viability and fertility, before anything is committed. */
+async function handleAdventurePreview(req, res) {
+  const address = adventurePlayer(req, res);
+  if (!address) return undefined;
+  let body;
+  try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); } catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+  const r = await adventure.preview(address, body.mother || {}, body.father || {});
+  return sendJSON(res, r.error ? 400 : 200, r);
+}
+
+/** POST /api/adventure/pair: commit a breeding seed and publish its hash. Decides nothing yet. */
+async function handleAdventurePair(req, res) {
+  const address = adventurePlayer(req, res);
+  if (!address) return undefined;
+  if (!allowQuote(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
+  let body;
+  try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); } catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+  const r = await adventure.openPairing(address, body.mother || {}, body.father || {});
+  return sendJSON(res, r.error ? 400 : 200, r);
+}
+
+/** POST /api/adventure/pair/:id/resolve: reveal the seed and hand back the descendant, or the news
+ *  that the pairing did not take. The parents are re-verified on chain before anything is written. */
+async function handleAdventureResolve(req, res, pairingId) {
+  const address = adventurePlayer(req, res);
+  if (!address) return undefined;
+  const r = await adventure.resolvePairing(address, pairingId);
+  return sendJSON(res, r.error ? 400 : 200, r);
+}
+
+/** POST /api/adventure/creature/:id/attend: spend one of the day's three attentions. */
+async function handleAdventureAttend(req, res, id) {
+  const address = adventurePlayer(req, res);
+  if (!address) return undefined;
+  let body;
+  try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); } catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+  const r = adventure.attend(address, id, String(body.kind || ''));
+  return sendJSON(res, r.error ? 400 : 200, r);
+}
+
+/** POST /api/adventure/creature/:id/release: §6, choosing what not to keep. Not a death. */
+function handleAdventureRelease(req, res, id) {
+  const address = adventurePlayer(req, res);
+  if (!address) return undefined;
+  const r = adventure.release(address, id);
+  return sendJSON(res, r.error ? 400 : 200, r);
 }
 
 /**
@@ -2268,6 +2458,22 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && (p === '/app.js' || p === '/wallet.js' || p === '/style.css')) return serveStatic(res, p.slice(1));
     if (req.method === 'GET' && p === '/vendor/qrcode.js') return serveStatic(res, 'vendor/qrcode.js');
+    if (ADVENTURE_ENABLED) {
+      if (req.method === 'GET' && (p === '/adventure.js' || p === '/adventure.css' || p === '/adventure-preview.html')) return serveStatic(res, p.slice(1));
+      // Served straight from sprites/, never copied into web/. The kit is the designer's artefact
+      // and it is re-exported wholesale on every design pass; a second copy under web/ would go
+      // stale the first time that happened, which is exactly how the project copy ended up three
+      // passes behind. One canonical file, one direction of travel.
+      if (req.method === 'GET' && p === '/verginals-kit.js') return serveSpriteKit(res);
+      // The 157 trait layers the creature renderer composites. The layer is checked against a fixed
+      // list and the name against a conservative pattern, so nothing here can walk out of the dir.
+      let m;
+      // Percent-encoded: url.pathname keeps the encoding, and trait values have spaces
+      // ("Bitcoin Orange"). serveSprite decodes and re-validates before touching the disk.
+      if (req.method === 'GET' && (m = p.match(/^\/sprites\/(Body|Ears|Collar|Face|Rune)\/([A-Za-z0-9%]{1,60})\.webp$/))) {
+        return serveSprite(res, m[1], m[2]);
+      }
+    }
     if (req.method === 'GET' && (p === '/favicon.svg' || p === '/favicon.ico')) return serveStatic(res, 'favicon.svg');
     if (req.method === 'GET' && p === '/alpha-avatar.webp') return serveStatic(res, 'alpha-avatar.webp');
     if (req.method === 'GET' && p === '/api/info') return await handleInfo(res);
@@ -2309,6 +2515,16 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/game/admin/tournament/resolve' && req.method === 'POST') return await handleGameAdminResolve(req, res);
     if (p === '/api/game/admin/tournament/trophy' && req.method === 'POST') return await handleGameAdminTrophy(req, res);
     if (p === '/api/game/admin/tournament/mint-trophies' && req.method === 'POST') return await handleGameAdminMintTrophies(req, res);
+    if (ADVENTURE_ENABLED) {
+      let m; // block-scoped, like the game routes below: the outer `m` belongs to the launchpad block
+      if (p === '/api/adventure/stable' && req.method === 'GET') return handleAdventureStable(req, res);
+      if (p === '/api/adventure/alphas' && req.method === 'GET') return await handleAdventureAlphas(req, res);
+      if (p === '/api/adventure/preview' && req.method === 'POST') return await handleAdventurePreview(req, res);
+      if (p === '/api/adventure/pair' && req.method === 'POST') return await handleAdventurePair(req, res);
+      if ((m = p.match(/^\/api\/adventure\/pair\/([A-Za-z0-9_]{1,64})\/resolve$/)) && req.method === 'POST') return await handleAdventureResolve(req, res, m[1]);
+      if ((m = p.match(/^\/api\/adventure\/creature\/([A-Za-z0-9_]{1,64})\/attend$/)) && req.method === 'POST') return await handleAdventureAttend(req, res, m[1]);
+      if ((m = p.match(/^\/api\/adventure\/creature\/([A-Za-z0-9_]{1,64})\/release$/)) && req.method === 'POST') return handleAdventureRelease(req, res, m[1]);
+    }
     { let m; if ((m = p.match(/^\/api\/game\/duel\/([A-Za-z0-9_]+)$/)) && req.method === 'GET') return await handleGameDuelStatus(res, m[1]); }
     { let m; if ((m = p.match(/^\/api\/game\/tournament\/([A-Za-z0-9_]+)$/)) && req.method === 'GET') return await handleGameTournament(res, m[1]); }
     if (p === '/api/market/listings' && req.method === 'GET') return await handleMarketListings(res);
@@ -2379,6 +2595,7 @@ initPromo();
 initLaunchpad();
 initOrderBook();
 if (ARENA_ENABLED) initGame(); // off the public surface until deliberately launched (see ARENA_ENABLED)
+if (ADVENTURE_ENABLED) initAdventure(); // and this one loads its five modules only when it runs
 
 server.listen(PORT, HOST, () => {
   console.log(`Verginals web UI  →  http://${HOST}:${PORT}`);

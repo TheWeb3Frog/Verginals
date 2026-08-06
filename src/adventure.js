@@ -33,6 +33,29 @@ const F = require('./fertility');
 // rarity nudge between them is zero and genetics can never buy a coin flip (§4.2).
 const NEUTRAL_RARITY = 100;
 
+// How many carriers we read from the chain at once. Each read is two RPC calls, and verged answers
+// on four threads behind a work queue sixteen deep, so four in flight is eight calls: comfortably
+// inside the queue with room left for the indexer, which is sharing the same node.
+const CARRIER_READ_CONCURRENCY = 4;
+
+/**
+ * Promise.all with a ceiling. Results keep the input order, and one rejection rejects the whole
+ * thing, so it drops into the places Promise.all was without changing how they read.
+ */
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      out[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
 class Adventure {
   /**
    * @param {object}   opts
@@ -103,6 +126,12 @@ class Adventure {
    *
    * Fertility costs one chain read per Alpha, so the list is capped. Someone holding more than the
    * cap has enough breeding stock that the tail is not what is stopping them.
+   *
+   * The reads are throttled, and that matters more than it looks. Verge's RPC server runs four
+   * threads behind a work queue sixteen deep by default. Asking for all of them at once put well
+   * over a hundred calls in flight, the node answered the overflow with "Work queue depth exceeded",
+   * and every Alpha whose read lost that race came back as "Carrier unreadable right now". A player
+   * holding sixty of them saw about half their collection greyed out.
    */
   async alphas(address, opts = {}) {
     const cap = opts.limit || 60;
@@ -111,7 +140,7 @@ class Adventure {
     // a list whose top half is not actually preferable.
     const free = this.stable.freeBreedsLeft(address) > 0;
     const held = (await this.holdingsOf(address)) || [];
-    const rows = await Promise.all(held.slice(0, cap).map(async (h) => {
+    const rows = await mapLimit(held.slice(0, cap), CARRIER_READ_CONCURRENCY, async (h) => {
       const item = this.byNumber.get(h.number);
       if (!item) return null;
       const genome = G.genomeFromItem(item, this.pool);
@@ -135,7 +164,7 @@ class Adventure {
           ? 'Carrier unreadable right now'
           : (!state.fertile && free ? 'Ready to breed, first pairings are free' : F.describe(state)),
       };
-    }));
+    });
     const alphas = rows.filter(Boolean).sort((a, b) => (b.fertile - a.fertile) || (a.readyAt - b.readyAt));
     return {
       alphas,

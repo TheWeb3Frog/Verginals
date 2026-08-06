@@ -1295,12 +1295,21 @@ async function carrierTimeFor(carrierKey) {
   if (!tx || !Number.isFinite(tx.time)) return null;
   // Confirmations come from the live UTXO, not the tx: an output already spent is not breeding
   // stock, and gettxout returning nothing is the cheapest way to know that.
+  //
+  // The retry is for the node being momentarily busy, which is not the same answer as "spent" even
+  // though both used to arrive here as null. A player whose screen said their Alpha was unreadable
+  // because verged was mid-block should not have to reload to find out it was fine.
   let confirmations = 0;
+  let out;
   try {
-    const out = await client.call('gettxout', [txid, Number(voutStr), true]);
-    if (!out) return null; // spent
-    confirmations = Number(out.confirmations) || 0;
-  } catch (_) { return null; }
+    out = await client.call('gettxout', [txid, Number(voutStr), true]);
+  } catch (_) {
+    try {
+      out = await client.call('gettxout', [txid, Number(voutStr), true]);
+    } catch (_) { return null; }
+  }
+  if (!out) return null; // spent
+  confirmations = Number(out.confirmations) || 0;
   return { time: tx.time, confirmations };
 }
 

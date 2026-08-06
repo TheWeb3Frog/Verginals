@@ -165,7 +165,14 @@ export class Adventure {
     // season, and it is the one decision a player must not miss.
     if (s.orbs) tasks.push({ label: 'SPEND THE DNA ORB', detail: `${s.orbs} held`, on: true, go: () => this.orbPanel() });
     tasks.push(
-      { label: 'BREED', detail: s.slots.full ? `Stable full (${s.slots.used}/${s.slots.cap})` : `${s.slots.free} free slots`, on: !s.slots.full, go: () => this.pickParents() },
+      {
+        label: 'BREED',
+        detail: s.slots.full
+          ? `Stable full (${s.slots.used}/${s.slots.cap})`
+          : (s.freeBreedsLeft ? `${s.freeBreedsLeft} instant pairings left` : `${s.slots.free} free slots`),
+        on: !s.slots.full,
+        go: () => this.pickParents(),
+      },
       { label: 'NURSERY', detail: attentions ? `${attentions} attentions left` : 'Nothing to raise today', on: attentions > 0, go: () => this.render() },
       {
         label: 'FIGHT THE BOT',
@@ -194,7 +201,10 @@ export class Adventure {
       `YOUR LINE · ${s.living.length} LIVING · ${s.slots.used}/${s.slots.cap} SLOTS`));
     if (!s.living.length) {
       wrap.append(el('div', `padding:20px;background:${P.panel};color:${P.ash};font:12px/1.6 ui-monospace,monospace`,
-        'Nothing alive yet. Breed two Alphas to start a line. They must have rested two days first.'));
+        s.freeBreedsLeft
+          ? `Nothing alive yet. Breed two Alphas to start a line. Your first ${s.freeBreedsLeft} pairings are `
+            + 'born straight away, with no rest and no gestation.'
+          : 'Nothing alive yet. Breed two Alphas to start a line. They must have rested two days first.'));
       return wrap;
     }
     for (const c of s.living) wrap.append(this.row(c));
@@ -536,7 +546,9 @@ export class Adventure {
       return undefined;
     }
     panel.append(el('div', `margin-top:8px;font:12px/1.6 ui-monospace,monospace;color:${P.moss}`,
-      `Expecting. Born in two days, generation ${r.generation}.`));
+      r.freeBreed
+        ? `Born, generation ${r.generation}.`
+        : `Expecting. Born in two days, generation ${r.generation}.`));
     if (r.mutations && r.mutations.length) {
       for (const m of r.mutations) {
         panel.append(el('div', `font:12px/1.6 ui-monospace,monospace;color:${P.prismB}`,

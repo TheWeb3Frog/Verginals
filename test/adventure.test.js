@@ -111,7 +111,8 @@ const DAD = { carrierKey: KEY_M };
   });
 
   await atest('fertile Alphas sort first, then the ones readiest soonest', async () => {
-    const { a, world } = build();
+    // freeBreeds: 0 puts us past the opening, where the rest is what fertility means (§1.1b).
+    const { a, world } = build({ tuning: { freeBreeds: 0 } });
     world.times[KEY_F] = { time: world.t - 3600, confirmations: 3 };      // ~47h to go
     world.times[KEY_M] = { time: world.t - 40 * 3600, confirmations: 3 }; // ~8h to go
     const r = await a.alphas(ADDR);
@@ -142,7 +143,7 @@ const DAD = { carrierKey: KEY_M };
   });
 
   await atest('a carrier that moved since the last request is resting on this one', async () => {
-    const { a, world } = build();
+    const { a, world } = build({ tuning: { freeBreeds: 0 } });
     assert.strictEqual((await a.preview(ADDR, MUM, DAD)).ok, true);
     world.times[KEY_M] = { time: world.t - 3600, confirmations: 2 }; // it moved
     const pv = await a.preview(ADDR, MUM, DAD);
@@ -177,7 +178,7 @@ const DAD = { carrierKey: KEY_M };
   });
 
   await atest('a resolved pairing yields a descendant with visible traits and a revealed seed', async () => {
-    const { a } = build();
+    const { a } = build({ tuning: { freeBreeds: 0 } });
     let r = null;
     for (let i = 0; i < 20 && !(r && r.conceived); i++) {
       const open = await a.openPairing(ADDR, MUM, DAD);
@@ -190,10 +191,33 @@ const DAD = { carrierKey: KEY_M };
     assert.strictEqual(r.bornAt, T0 + 2 * DAY);
   });
 
+  await atest('the opening pairings are instant, and say so on the breeding stock (§1.1b)', async () => {
+    const { a, world } = build();
+    // Both Alphas moved an hour ago, so under the ordinary rule neither could breed for two days.
+    world.times[KEY_F] = { time: world.t - 3600, confirmations: 2 };
+    world.times[KEY_M] = { time: world.t - 3600, confirmations: 2 };
+
+    const stock = await a.alphas(ADDR);
+    assert.strictEqual(stock.freeBreedsLeft, 3);
+    assert.ok(stock.alphas.every((x) => x.fertile), 'the opening does not gate on rest');
+    assert.match(stock.alphas[0].label, /first pairings are free/);
+
+    const pv = await a.preview(ADDR, MUM, DAD);
+    assert.strictEqual(pv.ok, true);
+    assert.strictEqual(pv.freeBreed, true);
+
+    const open = await a.openPairing(ADDR, MUM, DAD);
+    const r = await a.resolvePairing(ADDR, open.pairingId);
+    assert.strictEqual(r.conceived, true, 'unrelated Alphas roll 1.0, so this always takes');
+    assert.strictEqual(r.bornAt, world.t, 'born on the spot, no gestation');
+    assert.strictEqual(a.roster(ADDR).living[0].born, true);
+    assert.strictEqual((await a.alphas(ADDR)).freeBreedsLeft, 2);
+  });
+
   // --- raising and releasing -------------------------------------------------------------------------
 
   await atest('a descendant is raised, released, and then no longer in the stable', async () => {
-    const { a, world } = build();
+    const { a, world } = build({ tuning: { freeBreeds: 0 } });
     let r = null;
     for (let i = 0; i < 20 && !(r && r.conceived); i++) {
       const open = await a.openPairing(ADDR, MUM, DAD);
@@ -282,7 +306,7 @@ const DAD = { carrierKey: KEY_M };
   });
 
   await atest('a descendant still gestating cannot fight', async () => {
-    const { a } = build();
+    const { a } = build({ tuning: { freeBreeds: 0 } });
     const r = await aDescendant(a);
     assert.match(a.fight(ADDR, r.id, LOADOUT, arena('player').play).error, /not been born/);
   });
@@ -363,7 +387,7 @@ const DAD = { carrierKey: KEY_M };
   });
 
   await atest('a gestating descendant cannot open a duel either', async () => {
-    const { a } = build();
+    const { a } = build({ tuning: { freeBreeds: 0 } });
     const r = await aDescendant(a);
     assert.match(a.openDuel(ADDR, r.id, BOT).error, /not been born/);
   });

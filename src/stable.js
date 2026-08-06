@@ -37,6 +37,20 @@ const F = require('./fertility');
 const L = require('./lifecycle');
 const { serverSeedHash } = require('./game');
 
+// The opening of the game is exempt from both waits. A new player with two Alphas otherwise sits
+// through a two-day carrier rest and then a two-day gestation before they have anything at all to
+// look at, which is four days of nothing before the game starts. The first three pairings therefore
+// skip the rest gate and are born the moment they are conceived.
+//
+// Three rather than one because the first descendant is a single animal in a six-slot stable: it
+// cannot be bred, it has nothing to be compared against, and the genetics only start to read once
+// there is a litter to see variation across.
+//
+// The waiver is spent when a pairing OPENS, not when it takes, so opening several at once cannot
+// multiply it. That charges a player for a pairing that fails its viability roll, which is
+// acceptable here: the first pairings are Alpha with Alpha, and unrelated parents roll 1.0.
+const FREE_BREEDS = 3;
+
 class Stable {
   /**
    * @param {object}   opts
@@ -85,9 +99,19 @@ class Stable {
 
   _player(address) {
     if (!this.state.players[address]) {
-      this.state.players[address] = { creatures: {}, released: [], pending: {} };
+      this.state.players[address] = { creatures: {}, released: [], pending: {}, bred: 0 };
     }
-    return this.state.players[address];
+    const p = this.state.players[address];
+    // A stable.json written before free breeds existed has no counter. Seed it from the roster so
+    // a player who already bred through the old rules does not wake up owed three instant pairings.
+    if (p.bred === undefined) p.bred = Object.keys(p.creatures).length;
+    return p;
+  }
+
+  /** How many of the opening pairings this player has left. Zero once the game is under way. */
+  freeBreedsLeft(address) {
+    const cap = this.tuning.freeBreeds === undefined ? FREE_BREEDS : this.tuning.freeBreeds;
+    return Math.max(0, cap - this._player(address).bred);
   }
 
   /** Living descendants only. Alphas are owned on chain, never stored here. */
@@ -129,6 +153,7 @@ class Stable {
       living,
       released: this._player(address).released.length,
       orbs: this._player(address).orbs || 0,
+      freeBreedsLeft: this.freeBreedsLeft(address),
     };
   }
 
@@ -142,6 +167,7 @@ class Stable {
   preview(address, mother, father) {
     const now = this.now();
     const rel = G.pairingReport(this._pedigree(address), mother.id, father.id);
+    const free = this.freeBreedsLeft(address) > 0;
     const rest = (mother.carrier || father.carrier)
       ? F.canPair(
         { id: mother.id, carrier: mother.carrier || { time: 0, confirmations: 99 } },
@@ -153,7 +179,10 @@ class Stable {
     const slots = L.slots(this._living(address), this.tuning);
 
     const blockers = [];
-    if (!rest.ok) for (const b of rest.blocked) blockers.push({ kind: 'resting', side: b.side, id: b.id, until: b.state.readyAt });
+    // The rest is still computed and still reported, it just does not block during the opening.
+    // The player sees the real state of their carrier rather than a screen that pretends the rule
+    // does not exist and then starts enforcing it without warning on the fourth pairing.
+    if (!rest.ok && !free) for (const b of rest.blocked) blockers.push({ kind: 'resting', side: b.side, id: b.id, until: b.state.readyAt });
     if (slots.full) blockers.push({ kind: 'slots', used: slots.used, cap: slots.cap });
     if (mother.genome.sex !== 'F' || father.genome.sex !== 'M') blockers.push({ kind: 'sex' });
 
@@ -165,6 +194,8 @@ class Stable {
       penaltyPct: rel.penaltyPct,
       coefficient: rel.coefficient,
       slots,
+      freeBreed: free,
+      freeBreedsLeft: this.freeBreedsLeft(address),
       // The one line the confirm button sits under.
       warning: rel.penaltyPct > 0 ? `${rel.relation}. Offspring viability −${rel.penaltyPct}%.` : null,
     };
@@ -182,11 +213,23 @@ class Stable {
 
     const seed = this.serverSeedFn();
     const id = this._id('pair');
-    this._player(address).pending[id] = {
-      id, seed, motherId: mother.id, fatherId: father.id, openedAt: this.now(), viability: pv.viability,
+    const p = this._player(address);
+    // Spent here and carried on the commitment, so a pairing opened during the opening is still
+    // instant when it resolves however long the player leaves it sitting.
+    const freeBreed = pv.freeBreed;
+    if (freeBreed) p.bred += 1;
+    p.pending[id] = {
+      id, seed, motherId: mother.id, fatherId: father.id, openedAt: this.now(), viability: pv.viability, freeBreed,
     };
     this._save();
-    return { ok: true, pairingId: id, serverSeedHash: serverSeedHash(seed), viability: pv.viability };
+    return {
+      ok: true,
+      pairingId: id,
+      serverSeedHash: serverSeedHash(seed),
+      viability: pv.viability,
+      freeBreed,
+      freeBreedsLeft: this.freeBreedsLeft(address),
+    };
   }
 
   /**
@@ -225,14 +268,16 @@ class Stable {
       generation,
       mutations: kid.mutations,
       conceivedAt: now,
-      j: L.newJuvenile(id, now, this.tuning),
+      // Born on the spot during the opening. Everything after birth is untouched: it is still a
+      // juvenile with nothing learned, so the raising is skipped for nobody, only the waiting.
+      j: L.newJuvenile(id, now, pending.freeBreed ? { ...this.tuning, gestationDays: 0 } : this.tuning),
       released: false,
       record: { fights: 0, wins: 0 },
     };
     this._save();
     return {
       ok: true, conceived: true, id, seed: pending.seed, generation,
-      mutations: kid.mutations, bornAt: p.creatures[id].j.bornAt,
+      mutations: kid.mutations, bornAt: p.creatures[id].j.bornAt, freeBreed: !!pending.freeBreed,
     };
   }
 
@@ -393,4 +438,4 @@ class Stable {
   }
 }
 
-module.exports = { Stable };
+module.exports = { Stable, FREE_BREEDS };

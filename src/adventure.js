@@ -64,6 +64,7 @@ class Adventure {
    * @param {Function} opts.ownerOf        async (address, carrierKey) -> {number}|{error}
    * @param {Function} opts.carrierTime    async (carrierKey) -> {time, confirmations}
    * @param {Function} [opts.now]          () => unix seconds
+   * @param {Function} [opts.rarityOf]     (attributes) -> number, for the Genetics ladder
    * @param {object}   [opts.tuning]
    */
   constructor(opts = {}) {
@@ -77,6 +78,9 @@ class Adventure {
     this.ownerOf = opts.ownerOf;
     this.carrierTime = opts.carrierTime;
     this.now = opts.now || (() => Math.floor(Date.now() / 1000));
+    // Injected, so this module never reaches for the collection's scorer and the ladders can be
+    // tested with a one-line stand-in.
+    this.rarityOf = opts.rarityOf || (() => 0);
     this.tuning = opts.tuning || {};
     this.stable = new Stable({
       dataDir: opts.dataDir, pool: this.pool, now: this.now, tuning: this.tuning,
@@ -173,6 +177,36 @@ class Adventure {
       males: alphas.filter((a) => a.sex === 'M').length,
       freeBreedsLeft: this.stable.freeBreedsLeft(address),
     };
+  }
+
+  /**
+   * GET /adventure/lineage. The bloodline as matings, for the pedigree screen.
+   *
+   * `rarityOf` is injected the same way the ladders take it, so this module never imports the
+   * collection's scorer and stays testable without one.
+   */
+  lineage(address, rarityOf) {
+    return this.stable.lineage(address, rarityOf || this.rarityOf);
+  }
+
+  /** GET /adventure/ladders. Combat and Genetics, ranked separately (§2.1). */
+  ladders(address, rarityOf) {
+    const l = this.stable.ladders(address, rarityOf || this.rarityOf || (() => 0));
+    // The ladders carry ids; the screen needs faces. Joined here rather than in the stable, which
+    // has no business knowing what a row looks like.
+    const seen = this.stable.state.players[address] || { creatures: {} };
+    const dress = (rows) => rows.map((r) => {
+      const c = seen.creatures[r.id];
+      if (!c) return r;
+      return {
+        ...r,
+        sex: c.sex,
+        generation: c.generation,
+        released: !!c.released,
+        traits: G.phenotype(c.genome, this.pool, c.id),
+      };
+    });
+    return { combat: dress(l.combat), genetics: dress(l.genetics) };
   }
 
   /** POST /adventure/preview. What the pairing screen shows before the confirm button. */

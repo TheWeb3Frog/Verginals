@@ -191,6 +191,31 @@ const DAD = { carrierKey: KEY_M };
     assert.strictEqual(r.bornAt, T0 + 2 * DAY);
   });
 
+  await atest('the breeding stock never asks the node for more than it can answer at once', async () => {
+    // Regression: alphas() used to fan out over every held Alpha at once. Each one is two RPC
+    // calls, verged runs four threads behind a queue sixteen deep, and the overflow came back as
+    // "Work queue depth exceeded". Every Alpha that lost the race rendered as unreadable, so a
+    // player holding sixty saw about half of them greyed out.
+    const held = Array.from({ length: 40 }, (_, i) => ({ number: AF.number, carrierKey: `k${i}` }));
+    let inFlight = 0;
+    let peak = 0;
+    const { a } = build({
+      holdingsOf: async () => held,
+      carrierTime: async () => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((r) => setTimeout(r, 1));
+        inFlight -= 1;
+        return { time: T0 - 5 * DAY, confirmations: 9 };
+      },
+    });
+
+    const r = await a.alphas(ADDR);
+    assert.strictEqual(r.alphas.length, 40, 'every Alpha is still read, just not all at once');
+    assert.ok(r.alphas.every((x) => x.fertile), 'none of them should come back unreadable');
+    assert.ok(peak <= 4, `read ${peak} carriers at once, the ceiling is 4`);
+  });
+
   await atest('the opening pairings are instant, and say so on the breeding stock (§1.1b)', async () => {
     const { a, world } = build();
     // Both Alphas moved an hour ago, so under the ordinary rule neither could breed for two days.

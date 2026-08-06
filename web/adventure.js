@@ -237,96 +237,98 @@ export class Adventure {
     return b;
   }
 
-  fightPanel(c) {
-    const panel = el('div', `padding:16px;background:${P.panel};border:1px solid ${P.edge};margin-bottom:20px`);
-    panel.append(el('div', `font:11px/1 ui-monospace,monospace;letter-spacing:2px;color:${P.ash};margin-bottom:4px`,
-      'CHOOSE THREE MOVES'));
+  /**
+   * A turn-by-turn bot fight (§4.4). One move at a time, each round resolved and read before the
+   * next is chosen — which is the whole point: this is where you learn a creature you have just
+   * bred, before committing three moves blind in a tournament.
+   *
+   * The bot's whole match was fixed by the committed seed when the duel opened, so it cannot pick
+   * in reaction to you. The hash is shown from the start and the seed at the end, so a player who
+   * cares can check that.
+   */
+  async fightPanel(c) {
+    let duel;
+    try { duel = await api(`/creature/${c.id}/duel`, { method: 'POST' }); }
+    catch (e) { return this.toast(e.message); }
+
+    const panel = this.notice(el('div', `padding:16px;background:${P.panel};border:1px solid ${P.edge};margin-bottom:20px`));
+    panel.append(el('div', `font:11px/1 ui-monospace,monospace;letter-spacing:2px;color:${P.ash}`,
+      `FIGHT · ROUND 1 OF ${duel.rounds}`));
     panel.append(el('div', `font:11px/1.6 ui-monospace,monospace;color:${P.fog};margin-bottom:12px`,
       'Fire burns Earth · Earth buries Water · Water douses Fire'));
+    const log = el('div', 'display:flex;flex-direction:column;gap:4px;margin-bottom:12px');
+    const controls = el('div', 'display:flex;gap:6px;align-items:center;flex-wrap:wrap');
+    panel.append(log, controls);
+    panel.append(el('div', `margin-top:10px;font:9px/1.4 ui-monospace,monospace;color:${P.ash};word-break:break-all`,
+      `committed ${duel.serverSeedHash}`));
 
-    const attacks = [null, null, null];
-    let poisonRound = null;
-    let potionRound = null;
-    const rows = el('div', 'display:flex;flex-direction:column;gap:6px;margin-bottom:12px');
-    const go = el('button', '');
+    const spent = { poison: false, potion: false };
+    let pending = { poison: false, potion: false };
 
-    const paint = () => {
-      for (let i = 0; i < 3; i++) {
-        const row = rows.children[i];
-        for (const btn of row._elements) {
-          const on = attacks[i] === btn._element;
-          btn.style.cssText = btn._base + `;border:1px solid ${on ? P.gold : P.slab};color:${on ? P.gold : P.fog}`;
-        }
-        for (const btn of row._specials) {
-          const on = (btn._kind === 'poison' ? poisonRound : potionRound) === i;
-          btn.style.cssText = btn._base + `;border:1px solid ${on ? P.gold : P.slab};color:${on ? P.gold : P.ash}`;
-        }
-      }
-      const ready = attacks.every(Boolean);
-      go.style.cssText = `padding:10px 14px;font:12px/1 ui-monospace,monospace;letter-spacing:1px;border:none;`
-        + `background:${ready ? P.gold : P.slab};color:${ready ? P.ink : P.ash};cursor:${ready ? 'pointer' : 'default'}`;
-      go.disabled = !ready;
-    };
-
-    for (let i = 0; i < 3; i++) {
-      const row = el('div', 'display:flex;gap:6px;align-items:center');
-      row.append(el('div', `width:56px;font:10px/1 ui-monospace,monospace;color:${P.ash}`, `ROUND ${i + 1}`));
-      row._elements = [];
-      row._specials = [];
-      for (const element of ['fire', 'earth', 'water']) {
-        const btn = el('button', '', element.toUpperCase());
-        btn._element = element;
-        btn._base = `padding:6px 10px;font:10px/1 ui-monospace,monospace;letter-spacing:1px;background:${P.coal};cursor:pointer`;
-        btn.onclick = () => { attacks[i] = element; paint(); };
-        row._elements.push(btn);
-        row.append(btn);
-      }
-      // One poison and one potion per match, each in a single round — the same shape the Arena
-      // validates, so a loadout built here is a loadout the engine already accepts.
-      for (const kind of ['poison', 'potion']) {
-        const btn = el('button', '', kind.toUpperCase());
-        btn._kind = kind;
-        btn._base = `padding:6px 8px;font:9px/1 ui-monospace,monospace;letter-spacing:1px;background:transparent;cursor:pointer`;
-        btn.onclick = () => {
-          if (kind === 'poison') poisonRound = poisonRound === i ? null : i;
-          else potionRound = potionRound === i ? null : i;
-          paint();
-        };
-        row._specials.push(btn);
-        row.append(btn);
-      }
-      rows.append(row);
-    }
-
-    go.textContent = 'FIGHT';
-    go.onclick = async () => {
-      go.disabled = true;
+    const send = async (element) => {
+      controls.textContent = '';
       let r;
       try {
-        r = await api(`/creature/${c.id}/fight`, {
+        r = await api(`/duel/${duel.duelId}/round`, {
           method: 'POST',
-          body: JSON.stringify({ loadout: { attacks, poisonRound, potionRound }, clientSeed: String(Math.random()) }),
+          body: JSON.stringify({ element, poison: pending.poison, potion: pending.potion }),
         });
-      } catch (e) { return this.toast(e.message); }
-      panel.textContent = '';
-      panel.append(el('div', `font:14px/1.6 ui-monospace,monospace;color:${r.won ? P.moss : P.ember}`,
-        r.won ? 'WON' : 'LOST'));
-      for (const round of (r.match && r.match.rounds) || []) {
-        panel.append(el('div', `font:11px/1.6 ui-monospace,monospace;color:${P.fog}`,
-          `round ${round.round} — ${round.winner === 'p1' ? 'you' : 'the bot'} (${round.reason})`));
+      } catch (e) { this.toast(e.message); return draw(); }
+      if (pending.poison) spent.poison = true;
+      if (pending.potion) spent.potion = true;
+      pending = { poison: false, potion: false };
+
+      const w = r.result.winner === 'p1';
+      log.append(el('div', `font:12px/1.6 ui-monospace,monospace;color:${w ? P.moss : P.ember}`,
+        `Round ${r.round} — ${w ? 'you' : 'the bot'} (${r.result.reason})`));
+
+      if (!r.done) {
+        panel.firstChild.textContent = `FIGHT · ROUND ${r.round + 1} OF ${duel.rounds}`;
+        return draw();
       }
-      // Which kind of fight this was, stated rather than inferred from a bar that did not move.
-      panel.append(el('div', `margin-top:8px;font:11px/1.6 ui-monospace,monospace;color:${P.ash}`,
+      panel.firstChild.textContent = r.won ? 'YOU WON' : 'YOU LOST';
+      panel.firstChild.style.color = r.won ? P.moss : P.ember;
+      log.append(el('div', `margin-top:6px;font:11px/1.6 ui-monospace,monospace;color:${P.ash}`,
         r.counted
           ? (r.adult ? 'Counted toward growth — and it is an adult now.' : 'Counted toward growth.')
-          : 'Practice — today\'s three have already counted. Fight as much as you like.'));
+          : "Practice — today's three have already counted. Fight as much as you like."));
+      // Revealed only now, when there is nothing left for it to influence.
+      log.append(el('div', `font:9px/1.4 ui-monospace,monospace;color:${P.ash};word-break:break-all`,
+        `seed ${r.seed}`));
+      const again = el('button', `margin-top:8px;padding:8px 12px;font:10px/1 ui-monospace,monospace;`
+        + `letter-spacing:1px;background:${P.slab};color:${P.gold};border:1px solid ${P.edge};cursor:pointer`,
+        'FIGHT AGAIN');
+      again.onclick = () => this.fightPanel(c);
+      log.append(again);
       await this.refresh();
       return undefined;
     };
 
-    panel.append(rows, go);
-    paint();
-    this.notice(panel);
+    const draw = () => {
+      controls.textContent = '';
+      for (const element of ['fire', 'earth', 'water']) {
+        const b = el('button', `padding:8px 12px;font:11px/1 ui-monospace,monospace;letter-spacing:1px;`
+          + `background:${P.coal};color:${P.fog};border:1px solid ${P.slab};cursor:pointer`, element.toUpperCase());
+        b.onclick = () => send(element);
+        controls.append(b);
+      }
+      // One of each per match. A spent charge is shown spent rather than removed, so the player can
+      // see what they no longer have.
+      for (const kind of ['poison', 'potion']) {
+        const b = el('button', '', kind.toUpperCase());
+        const on = pending[kind];
+        b.style.cssText = `padding:8px 10px;font:9px/1 ui-monospace,monospace;letter-spacing:1px;background:transparent;`
+          + `border:1px solid ${on ? P.gold : P.slab};color:${spent[kind] ? P.slab : (on ? P.gold : P.ash)};`
+          + `cursor:${spent[kind] ? 'default' : 'pointer'}`;
+        b.disabled = spent[kind];
+        b.title = spent[kind] ? `Your ${kind} is spent for this match` : `Add your ${kind} to this round`;
+        b.onclick = () => { pending[kind] = !pending[kind]; draw(); };
+        controls.append(b);
+      }
+    };
+
+    draw();
+    return undefined;
   }
 
   /**

@@ -25,6 +25,7 @@
 
 const { Stable } = require('./stable');
 const { deriveFighter } = require('./game');
+const D = require('./duel');
 const G = require('./genetics');
 const F = require('./fertility');
 
@@ -254,6 +255,47 @@ class Adventure {
     return {
       fighter: { ...base, address, verginal: null, descendant: c.id },
       creature: c,
+    };
+  }
+
+  /**
+   * POST /adventure/creature/:id/duel — open a turn-by-turn bot fight (§4.4).
+   *
+   * The duel is persisted rather than held in memory: a fight is three round trips with a human
+   * thinking in between, and losing one to a restart would be indistinguishable from the game
+   * eating it.
+   */
+  openDuel(address, id, botFighter) {
+    const f = this.fighterFor(address, id);
+    if (f.error) return { error: f.error };
+    const p = this.stable.state.players[address];
+    const d = D.openBotDuel(f.fighter, botFighter, {});
+    const duelId = this.stable._id('duel');
+    p.duels = p.duels || {};
+    p.duels[duelId] = { ...d, creatureId: id };
+    this.stable._save();
+    return { duelId, creature: id, ...D.publicView(d) };
+  }
+
+  /** POST /adventure/duel/:duelId/round — play one round; growth is recorded when the last lands. */
+  playRound(address, duelId, move) {
+    const p = this.stable.state.players[address];
+    const d = p && p.duels && p.duels[duelId];
+    if (!d) return { error: 'unknown duel' };
+    const out = D.playRound(d, move);
+    if (out.error) return out;
+
+    if (!out.done) { this.stable._save(); return out; }
+
+    delete p.duels[duelId];
+    const won = out.match && out.match.winner === address;
+    const growth = this.recordFight(address, d.creatureId, won);
+    return {
+      ...out,
+      won: !!won,
+      counted: !!growth.counted,
+      growth: growth.growth || 0,
+      adult: !!growth.adult,
     };
   }
 

@@ -1402,6 +1402,28 @@ async function handleAdventureAttend(req, res, id) {
   return sendJSON(res, r.error ? 400 : 200, r);
 }
 
+/**
+ * POST /api/adventure/creature/:id/fight: one bot duel with a descendant.
+ *
+ * Bot mode never touches the ladder, which is what lets §5.2 be true — fight thirty times an
+ * evening if you like, only the first three of the day feed growth. The response says which this
+ * one was rather than leaving the player to infer it from a bar that stopped moving.
+ */
+async function handleAdventureFight(req, res, id) {
+  const address = adventurePlayer(req, res);
+  if (!address) return undefined;
+  if (!gameStore) return sendJSON(res, 404, { error: 'the Arena is not enabled on this server' });
+  if (!allowQuote(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
+  let body;
+  try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); } catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+  const clientSeed = typeof body.clientSeed === 'string' ? body.clientSeed.slice(0, 128) : '';
+  const r = adventure.fight(address, id, normalizeLoadout(body.loadout), (fighter, loadout) => {
+    const { botFighter, botLoadout } = makeBot();
+    return gameStore.playBot(fighter, loadout, botFighter, botLoadout, clientSeed);
+  }, clientSeed);
+  return sendJSON(res, r.error ? 400 : 200, r);
+}
+
 /** POST /api/adventure/creature/:id/release: §6, choosing what not to keep. Not a death. */
 function handleAdventureRelease(req, res, id) {
   const address = adventurePlayer(req, res);
@@ -2523,6 +2545,7 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/adventure/pair' && req.method === 'POST') return await handleAdventurePair(req, res);
       if ((m = p.match(/^\/api\/adventure\/pair\/([A-Za-z0-9_]{1,64})\/resolve$/)) && req.method === 'POST') return await handleAdventureResolve(req, res, m[1]);
       if ((m = p.match(/^\/api\/adventure\/creature\/([A-Za-z0-9_]{1,64})\/attend$/)) && req.method === 'POST') return await handleAdventureAttend(req, res, m[1]);
+      if ((m = p.match(/^\/api\/adventure\/creature\/([A-Za-z0-9_]{1,64})\/fight$/)) && req.method === 'POST') return await handleAdventureFight(req, res, m[1]);
       if ((m = p.match(/^\/api\/adventure\/creature\/([A-Za-z0-9_]{1,64})\/release$/)) && req.method === 'POST') return handleAdventureRelease(req, res, m[1]);
     }
     { let m; if ((m = p.match(/^\/api\/game\/duel\/([A-Za-z0-9_]+)$/)) && req.method === 'GET') return await handleGameDuelStatus(res, m[1]); }

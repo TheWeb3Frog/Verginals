@@ -104,6 +104,16 @@ export class Adventure {
   constructor(root) {
     this.root = root;
     this.state = null;
+    // Two containers, and the split matters. `notices` holds whatever the player has just done —
+    // a hatch, a mutation, a fight result — and is NEVER cleared by a re-render. `body` is the
+    // roster and is rebuilt from scratch every time.
+    //
+    // Without this, every action erased its own outcome: breed() appended "MUTATION · Face became
+    // Rainbow" and then called refresh(), which wiped the root a frame later. The rarest event in
+    // the game was invisible.
+    this.notices = el('div');
+    this.body = el('div');
+    root.append(this.notices, this.body);
   }
 
   async refresh() {
@@ -113,8 +123,15 @@ export class Adventure {
 
   render() {
     const s = this.state;
-    this.root.textContent = '';
-    this.root.append(this.clock(s.season), this.today(s), this.line(s));
+    this.body.textContent = '';
+    this.body.append(this.clock(s.season), this.today(s), this.line(s));
+  }
+
+  /** Put a panel where a refresh cannot destroy it. Replaces the previous one. */
+  notice(panel) {
+    this.notices.textContent = '';
+    this.notices.append(panel);
+    return panel;
   }
 
   /**
@@ -137,10 +154,17 @@ export class Adventure {
 
     const juveniles = s.living.filter((c) => c.born && !c.adult);
     const attentions = juveniles.reduce((n, c) => n + c.attentionsLeft, 0);
+    // Anything born can fight, adult or not — bot mode is where you learn a creature (§4.4).
+    const fightable = s.living.filter((c) => c.born);
     const tasks = [
       { label: 'BREED', detail: s.slots.full ? `Stable full — ${s.slots.used}/${s.slots.cap}` : `${s.slots.free} free slots`, on: !s.slots.full, go: () => this.pickParents() },
       { label: 'NURSERY', detail: attentions ? `${attentions} attentions left` : 'Nothing to raise today', on: attentions > 0, go: () => this.render() },
-      { label: 'FIGHT THE BOT', detail: 'Unlimited — three count toward growth', on: true, go: null },
+      {
+        label: 'FIGHT THE BOT',
+        detail: fightable.length ? 'Unlimited — three a day count toward growth' : 'Nothing born yet',
+        on: fightable.length > 0,
+        go: () => this.fightPanel(fightable[0]),
+      },
     ];
     for (const t of tasks) {
       const card = el('div', `display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:6px;`
@@ -186,9 +210,123 @@ export class Adventure {
     }
     card.append(mid);
 
-    if (c.born && !c.adult) card.append(this.attentions(c));
-    else card.append(this.releaseButton(c));
+    const actions = el('div', 'display:flex;flex-direction:column;gap:6px;align-items:flex-end');
+    if (c.born) actions.append(this.fightButton(c));
+    if (c.born && !c.adult) actions.append(this.attentions(c));
+    else if (c.born) actions.append(this.releaseButton(c));
+    card.append(actions);
     return card;
+  }
+
+  /**
+   * Pick three elements and where the poison and the potion go, then fight the bot.
+   *
+   * NOTE — this is not yet §4.4's turn-by-turn bot. game.js resolves all three rounds from one
+   * committed loadout, so a round-at-a-time fight is an engine change rather than a screen. What
+   * this does give is the thing §4.4 is actually for: somewhere to learn a creature you have just
+   * bred, before committing three moves blind in a tournament.
+   */
+  fightButton(c) {
+    const b = el('button', `padding:8px 10px;font:10px/1 ui-monospace,monospace;letter-spacing:1px;`
+      + `background:${P.slab};color:${P.gold};border:1px solid ${P.edge};cursor:pointer`,
+      c.fightsCountedLeft > 0 ? `FIGHT · ${c.fightsCountedLeft} OF 3 COUNT` : 'FIGHT · PRACTICE');
+    b.title = c.fightsCountedLeft > 0
+      ? 'Unlimited fights. Three a day feed growth; the rest are practice.'
+      : 'Today\'s three have counted. Fight as much as you like — this is practice now.';
+    b.onclick = () => this.fightPanel(c);
+    return b;
+  }
+
+  fightPanel(c) {
+    const panel = el('div', `padding:16px;background:${P.panel};border:1px solid ${P.edge};margin-bottom:20px`);
+    panel.append(el('div', `font:11px/1 ui-monospace,monospace;letter-spacing:2px;color:${P.ash};margin-bottom:4px`,
+      'CHOOSE THREE MOVES'));
+    panel.append(el('div', `font:11px/1.6 ui-monospace,monospace;color:${P.fog};margin-bottom:12px`,
+      'Fire burns Earth · Earth buries Water · Water douses Fire'));
+
+    const attacks = [null, null, null];
+    let poisonRound = null;
+    let potionRound = null;
+    const rows = el('div', 'display:flex;flex-direction:column;gap:6px;margin-bottom:12px');
+    const go = el('button', '');
+
+    const paint = () => {
+      for (let i = 0; i < 3; i++) {
+        const row = rows.children[i];
+        for (const btn of row._elements) {
+          const on = attacks[i] === btn._element;
+          btn.style.cssText = btn._base + `;border:1px solid ${on ? P.gold : P.slab};color:${on ? P.gold : P.fog}`;
+        }
+        for (const btn of row._specials) {
+          const on = (btn._kind === 'poison' ? poisonRound : potionRound) === i;
+          btn.style.cssText = btn._base + `;border:1px solid ${on ? P.gold : P.slab};color:${on ? P.gold : P.ash}`;
+        }
+      }
+      const ready = attacks.every(Boolean);
+      go.style.cssText = `padding:10px 14px;font:12px/1 ui-monospace,monospace;letter-spacing:1px;border:none;`
+        + `background:${ready ? P.gold : P.slab};color:${ready ? P.ink : P.ash};cursor:${ready ? 'pointer' : 'default'}`;
+      go.disabled = !ready;
+    };
+
+    for (let i = 0; i < 3; i++) {
+      const row = el('div', 'display:flex;gap:6px;align-items:center');
+      row.append(el('div', `width:56px;font:10px/1 ui-monospace,monospace;color:${P.ash}`, `ROUND ${i + 1}`));
+      row._elements = [];
+      row._specials = [];
+      for (const element of ['fire', 'earth', 'water']) {
+        const btn = el('button', '', element.toUpperCase());
+        btn._element = element;
+        btn._base = `padding:6px 10px;font:10px/1 ui-monospace,monospace;letter-spacing:1px;background:${P.coal};cursor:pointer`;
+        btn.onclick = () => { attacks[i] = element; paint(); };
+        row._elements.push(btn);
+        row.append(btn);
+      }
+      // One poison and one potion per match, each in a single round — the same shape the Arena
+      // validates, so a loadout built here is a loadout the engine already accepts.
+      for (const kind of ['poison', 'potion']) {
+        const btn = el('button', '', kind.toUpperCase());
+        btn._kind = kind;
+        btn._base = `padding:6px 8px;font:9px/1 ui-monospace,monospace;letter-spacing:1px;background:transparent;cursor:pointer`;
+        btn.onclick = () => {
+          if (kind === 'poison') poisonRound = poisonRound === i ? null : i;
+          else potionRound = potionRound === i ? null : i;
+          paint();
+        };
+        row._specials.push(btn);
+        row.append(btn);
+      }
+      rows.append(row);
+    }
+
+    go.textContent = 'FIGHT';
+    go.onclick = async () => {
+      go.disabled = true;
+      let r;
+      try {
+        r = await api(`/creature/${c.id}/fight`, {
+          method: 'POST',
+          body: JSON.stringify({ loadout: { attacks, poisonRound, potionRound }, clientSeed: String(Math.random()) }),
+        });
+      } catch (e) { return this.toast(e.message); }
+      panel.textContent = '';
+      panel.append(el('div', `font:14px/1.6 ui-monospace,monospace;color:${r.won ? P.moss : P.ember}`,
+        r.won ? 'WON' : 'LOST'));
+      for (const round of (r.match && r.match.rounds) || []) {
+        panel.append(el('div', `font:11px/1.6 ui-monospace,monospace;color:${P.fog}`,
+          `round ${round.round} — ${round.winner === 'p1' ? 'you' : 'the bot'} (${round.reason})`));
+      }
+      // Which kind of fight this was, stated rather than inferred from a bar that did not move.
+      panel.append(el('div', `margin-top:8px;font:11px/1.6 ui-monospace,monospace;color:${P.ash}`,
+        r.counted
+          ? (r.adult ? 'Counted toward growth — and it is an adult now.' : 'Counted toward growth.')
+          : 'Practice — today\'s three have already counted. Fight as much as you like.'));
+      await this.refresh();
+      return undefined;
+    };
+
+    panel.append(rows, go);
+    paint();
+    this.notice(panel);
   }
 
   /**
@@ -253,7 +391,7 @@ export class Adventure {
     if (!data.alphas.length) {
       panel.append(el('div', `font:12px/1.6 ui-monospace,monospace;color:${P.fog}`,
         'You hold no Alpha Verginals. Only an Alpha can start a line.'));
-      this.root.prepend(panel);
+      this.notice(panel);
       return undefined;
     }
     if (!data.females || !data.males) {
@@ -315,7 +453,7 @@ export class Adventure {
         'Showing your first 60 Alphas.'));
     }
     paint();
-    this.root.prepend(panel);
+    this.notice(panel);
     return undefined;
   }
 
@@ -351,7 +489,7 @@ export class Adventure {
       panel.append(el('div', `margin-top:8px;font:11px/1.6 ui-monospace,monospace;color:${P.ash}`,
         (pv.blockers || []).map(describeBlocker).join(' · ')));
     }
-    this.root.prepend(panel);
+    this.notice(panel);
     return undefined;
   }
 

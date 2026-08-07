@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Asset page: interface preview</title>
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/verge-runes.css">
+</head>
+<body>
+<main class="vr-wrap wide">
+
+  <nav class="vr-nav">
+    <a href="/verge-runes-test">← Protocol preview</a>
+    <a href="/verge-runes-market">← Market</a>
+  </nav>
+
+  <div id="vr-status" class="vr-status">Checking what the server reports…</div>
+
+  <header id="vr-hero" class="vr-hero"></header>
+
+  <section class="vr-panel">
+    <div class="vr-panel-head">
+      <h2>Price</h2>
+      <div id="vr-ranges" class="vr-seg"></div>
+    </div>
+    <div id="vr-price" class="vr-chart"></div>
+    <div id="vr-vol" class="vr-chart"></div>
+    <p id="vr-price-note" class="vr-nm"></p>
+    <p class="vr-note">
+      <b>No candlesticks, on purpose.</b> A candle needs an open, high, low and close inside every
+      interval. Here there are a handful of atomic swaps a day, so those four numbers would be
+      derived from one or two trades: a shape that says "market" while carrying almost nothing.
+      Price and volume are also two charts rather than one with two y-axes, which is the chart
+      mistake that misleads most reliably.
+    </p>
+  </section>
+
+  <section class="vr-panel">
+    <div class="vr-panel-head">
+      <h2>Order book</h2>
+      <div class="vr-floor">Floor <b id="vr-floor">—</b></div>
+    </div>
+
+    <div id="vr-tabs" class="vr-tabs">
+      <button class="vr-tab on" data-pane="listings">Listings</button>
+      <button class="vr-tab" data-pane="trades">Settled trades</button>
+      <button class="vr-tab" data-pane="holders">Concentration</button>
+    </div>
+
+    <div id="vr-pane-listings">
+      <p class="vr-say">
+        Each card is one carrier, signed and ready. Buying takes it whole: there is no partial fill,
+        because a balance lives on an output and half an output does not exist. To sell part of a
+        holding you split the carrier first, in a separate transaction.
+      </p>
+      <div id="vr-listings" class="vr-listing-grid"></div>
+    </div>
+
+    <div id="vr-pane-trades" hidden>
+      <table class="vr-table">
+        <thead>
+          <tr><th>Amount</th><th class="vr-n">Unit price</th><th class="vr-n">Total (XVG)</th><th class="vr-n">When</th></tr>
+        </thead>
+        <tbody id="vr-trades"></tbody>
+      </table>
+    </div>
+
+    <div id="vr-pane-holders" hidden>
+      <div id="vr-holders" class="vr-meters"></div>
+      <p class="vr-nm">
+        Holders are outputs carrying a balance, not addresses: the protocol never sees an address.
+        One person may hold twenty carriers, so read this as concentration of coins, not of people.
+      </p>
+    </div>
+  </section>
+
+  <section class="vr-sec">
+    <p class="vr-num">SELL</p>
+    <h2>Listing your own</h2>
+    <div id="vr-sell" class="vr-card">
+      <div class="vr-kv"><span>You hold</span><span>1,250.00 GRUMPY on 1 carrier</span></div>
+      <div class="vr-kv"><span>That carrier also holds</span><span>Verginal #118, 0.42 XVG</span></div>
+      <div class="vr-kv"><span>Selling it as one lot</span><span>sells all of the above</span></div>
+      <div class="vr-row" style="margin-top:14px">
+        <button class="vr-btn ghost" disabled>Split into a 500.00 lot first</button>
+        <button class="vr-btn" disabled>List the whole carrier</button>
+        <span class="vr-tag sample">PREVIEW, NOT WIRED</span>
+      </div>
+    </div>
+    <p class="vr-note">
+      <b>The design call:</b> split is the first button, not a link in a help article. The protocol
+      makes whole-carrier selling the default, so the interface has to make the safe path the obvious
+      one rather than punishing people for the shape of the data model.
+    </p>
+  </section>
+
+  <footer class="vr-foot">
+    <p>Unlisted and unannounced. Sample figures throughout.</p>
+  </footer>
+</main>
+<script type="module" src="/verge-runes-token.js"></script>
+</body>
+</html>

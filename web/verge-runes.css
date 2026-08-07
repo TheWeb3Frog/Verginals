@@ -125,3 +125,124 @@
 @media (prefers-reduced-motion: reduce) {
   .vr-step { transition: none; }
 }
+
+/* --- market and token pages ------------------------------------------------------------------- */
+
+.vr-wrap.wide { max-width: 1180px; }
+.vr-head.slim { padding-bottom: 22px; }
+
+.vr-nav { display: flex; gap: 18px; margin-bottom: 22px; font-size: 13px; }
+.vr-nav a { color: var(--accent); text-decoration: none; }
+.vr-nav a:hover { text-decoration: underline; }
+.vr-nav span { color: var(--muted); }
+
+.vr-controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 22px 0 14px; }
+.vr-in.sm { width: auto; min-width: 230px; padding: 9px 12px; font-size: 13px; letter-spacing: 0; }
+
+.vr-seg { display: flex; gap: 4px; border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+.vr-segb {
+  padding: 7px 12px; border: none; border-radius: 7px; cursor: pointer;
+  background: transparent; color: var(--muted);
+  font: 600 12px/1 -apple-system, system-ui, sans-serif;
+}
+.vr-segb.on { background: var(--bg2); color: var(--txt); }
+
+/* --- table ------------------------------------------------------------------------------------ */
+
+.vr-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.vr-table th {
+  padding: 10px 12px; text-align: left; font: 600 11px/1.4 ui-monospace, monospace;
+  letter-spacing: 1px; color: var(--muted); border-bottom: 1px solid var(--line); white-space: nowrap;
+}
+.vr-table td { padding: 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.vr-table tbody tr:hover { background: var(--bg2); }
+.vr-n { text-align: right; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+th.vr-n { text-align: right; }
+.vr-rank { width: 34px; color: var(--muted); font-family: ui-monospace, monospace; }
+.vr-empty { padding: 30px 12px; color: var(--muted); text-align: center; }
+
+.vr-id { display: flex; align-items: center; gap: 11px; }
+.vr-badge {
+  width: 34px; height: 34px; flex: none; border-radius: 9px; display: grid; place-items: center;
+  font: 700 12px/1 ui-monospace, monospace;
+  background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #052436;
+}
+.vr-badge.lg { width: 52px; height: 52px; border-radius: 13px; font-size: 17px; }
+.vr-tk { font-weight: 600; letter-spacing: 0.3px; }
+.vr-nm { font-size: 12px; color: var(--muted); }
+.vr-spark { width: 100px; }
+.vr-spark canvas { display: block; }
+
+/* Up and down never rely on colour: the arrow and the sign say it too. */
+.vr-delta { display: inline-flex; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; }
+.vr-delta.up { color: var(--ok); }
+.vr-delta.down { color: var(--danger); }
+.vr-arrow { font-size: 9px; }
+.vr-delta.big { font-size: 15px; margin-left: 12px; }
+
+.vr-btn.sm { padding: 7px 12px; font-size: 12px; white-space: nowrap; }
+
+/* --- token hero ------------------------------------------------------------------------------- */
+
+.vr-hero { padding: 26px 0 30px; border-bottom: 1px solid var(--line); }
+.vr-hero-top { display: flex; align-items: center; gap: 14px; }
+.vr-hero-name { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 600; letter-spacing: 0.4px; }
+.vr-hero-price { display: flex; align-items: baseline; margin-top: 20px; }
+.vr-hero-num { font: 700 48px/1 ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+.vr-hero-unit { margin-left: 8px; font-size: 15px; color: var(--muted); }
+
+.vr-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-top: 24px; }
+.vr-kpi { padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); }
+.vr-kpi-l { font: 600 10px/1.4 ui-monospace, monospace; letter-spacing: 1px; color: var(--muted); }
+.vr-kpi-v { margin-top: 6px; font: 600 19px/1.2 ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.vr-kpi-s { margin-top: 3px; font-size: 11px; color: var(--muted); }
+
+/* --- panels and charts ------------------------------------------------------------------------ */
+
+.vr-panel { margin-top: 30px; padding: 20px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); }
+.vr-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+.vr-panel-head h2 { margin: 0; font-size: 17px; }
+.vr-floor { font-size: 13px; color: var(--muted); }
+.vr-floor b { margin-left: 6px; color: var(--txt); font-family: ui-monospace, monospace; }
+
+.vr-chart { position: relative; width: 100%; }
+.vr-chart:focus { outline: 1px solid var(--accent2); outline-offset: 2px; }
+
+.vr-cross { position: absolute; width: 1px; background: var(--edge, #3c4d5e); pointer-events: none; }
+.vr-tip {
+  position: absolute; pointer-events: none; padding: 7px 10px; border-radius: 8px;
+  background: var(--bg); border: 1px solid var(--line); min-width: 140px;
+}
+.vr-tip-v { font: 600 14px/1.3 ui-monospace, monospace; color: var(--txt); font-variant-numeric: tabular-nums; }
+.vr-tip-l { font-size: 11px; color: var(--muted); }
+
+.vr-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
+.vr-tab {
+  padding: 10px 14px; border: none; background: transparent; cursor: pointer;
+  color: var(--muted); font: 600 13px/1 -apple-system, system-ui, sans-serif;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.vr-tab.on { color: var(--txt); border-bottom-color: var(--accent); }
+
+/* --- listings --------------------------------------------------------------------------------- */
+
+.vr-listing-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.vr-listing { padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg2); }
+.vr-listing.carries { border-color: #6b5320; }
+.vr-listing-amt { font: 600 18px/1.2 ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.vr-listing-unit { font-size: 12px; color: var(--muted); font-family: ui-monospace, monospace; }
+.vr-listing-total { margin-top: 4px; font-size: 13px; color: var(--muted); font-family: ui-monospace, monospace; }
+.vr-carry { margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: #241d0d; }
+.vr-carry-h { font: 600 10px/1.5 ui-monospace, monospace; letter-spacing: 1px; color: #ffc93c; }
+.vr-carry-i { font-size: 12px; color: var(--txt); font-family: ui-monospace, monospace; }
+.vr-row.foot { margin-top: 12px; justify-content: space-between; }
+
+.vr-meters { display: flex; flex-direction: column; gap: 16px; }
+.vr-meter-l { font-size: 13px; }
+.vr-meter-v { font: 600 13px/1 ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 760px) {
+  .vr-hero-num { font-size: 34px; }
+  .vr-table { font-size: 13px; }
+  .vr-table td, .vr-table th { padding: 9px 8px; }
+}

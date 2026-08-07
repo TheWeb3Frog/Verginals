@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Verge Assets market: interface preview</title>
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/verge-runes.css">
+</head>
+<body>
+<main class="vr-wrap wide">
+
+  <nav class="vr-nav">
+    <a href="/verge-runes-test">← Protocol preview</a>
+    <span>Market</span>
+  </nav>
+
+  <header class="vr-head slim">
+    <p class="vr-kicker">INTERFACE PREVIEW</p>
+    <h1>Assets</h1>
+    <p class="vr-lede">
+      What a market for Verge Assets could look like. The table is the shape traders already know,
+      because nobody should have to learn a new one.
+    </p>
+    <div id="vr-status" class="vr-status">Checking what the server reports…</div>
+  </header>
+
+  <div id="vr-controls" class="vr-controls"></div>
+
+  <div class="vr-scroll">
+    <table class="vr-table">
+      <thead>
+        <tr>
+          <th class="vr-rank">#</th>
+          <th>Asset</th>
+          <th class="vr-n">Price (XVG)</th>
+          <th class="vr-n">24h</th>
+          <th class="vr-n">24h volume</th>
+          <th class="vr-n">Market cap</th>
+          <th class="vr-n">Holders</th>
+          <th class="vr-n">7d</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="vr-rows"></tbody>
+    </table>
+  </div>
+
+  <section class="vr-sec">
+    <p class="vr-num">WHAT IS DIFFERENT HERE</p>
+    <h2>Three things this market cannot copy</h2>
+    <ul class="vr-outs">
+      <li><b>Listings sell a whole carrier, not an amount.</b> A balance lives on an output, so a
+        listing offers that output and everything on it. You cannot buy 137 of a lot of 500. The
+        token page shows the split-then-list flow, and every listing card leads with everything the
+        carrier holds, because selling a token and not noticing the inscription riding along is the
+        expensive mistake.</li>
+      <li><b>The floor is a real floor.</b> It is the cheapest carrier actually listed and signed,
+        not an aggregate of asks that may not be honoured. Every listing here is a partially signed
+        transaction: it either executes atomically or it does not exist.</li>
+      <li><b>Prices come from settled trades only.</b> No mid-price from an order book, because
+        there is no order book: there are signed offers and completed swaps. A market with four
+        trades a day looks like four trades a day.</li>
+    </ul>
+  </section>
+
+  <footer class="vr-foot">
+    <p>Unlisted and unannounced. Sample figures throughout.</p>
+  </footer>
+</main>
+<script type="module" src="/verge-runes-market.js"></script>
+</body>
+</html>

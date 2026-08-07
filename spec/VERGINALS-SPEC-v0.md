@@ -169,6 +169,25 @@ To guarantee identical output across implementations:
    `(number, id, content_type, sha256(body), location)` of all inscriptions up to height `H`,
    for agreed checkpoint heights, so independent indexers can prove they agree.
 
+### 6.1 Checkpoint heights
+
+The agreed heights are **every multiple of 1000**. A checkpoint at `H` is the digest of the state
+**after block `H` has been fully processed**, and it MUST be taken as the scan crosses `H` and
+retained. It cannot be recomputed afterwards: an inscription's location changes every time its coin
+is spent, so by the time an indexer is at the tip the state at `H` no longer exists anywhere.
+
+Two indexers comparing themselves MUST compare at a checkpoint they have both reached, never at
+their own tips. They are almost never at the same tip, and a digest taken at two different heights
+says nothing about whether they agree.
+
+An indexer asked for a checkpoint it has not reached MUST say so distinctly, and MUST NOT answer
+with an empty or placeholder digest. "I am not there yet" and "we disagree" are different answers
+and a caller cannot be left to guess which one it received.
+
+Canonical serialization: the five fields joined by `|`, one inscription per line in ascending
+`number` order, lines joined by `\n`, hashed as UTF-8. A burned inscription's location is the
+literal string `burned`.
+
 ---
 
 ## 7. Ordinal theory (optional, Phase 2)

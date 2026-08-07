@@ -2496,19 +2496,37 @@ async function handleInscriptions(res, owner) {
  * Anyone running their own indexer should compare this at a height they have also reached. A match
  * means their implementation is correct and they never need to call us again, which is the point.
  */
-async function handleIndexDigest(res) {
+async function handleIndexDigest(res, wantHeight) {
   // Deliberately not awaited. A cold start walks ~100k blocks, which is minutes and well past
   // nginx's proxy timeout, so awaiting here answers the first caller after a restart with a 504.
   // A digest is always "as of height H" anyway, so reporting the height we have actually reached
   // is both faster and more honest than blocking to reach the tip.
   syncIndex().catch(() => {});
+  const range = indexer.checkpointRange();
+
+  // With ?height, answer for that checkpoint. This is the form that is actually comparable: two
+  // indexers are never at the same tip, and the digest covers state that keeps moving, so "your
+  // latest against my latest" proves nothing either way.
+  if (wantHeight !== null && wantHeight !== undefined && wantHeight !== '') {
+    const h = Number(wantHeight);
+    if (!Number.isInteger(h) || h <= 0 || h % range.interval !== 0) {
+      return sendJSON(res, 400, { error: `height must be a multiple of ${range.interval}`, checkpoints: range });
+    }
+    const digest = indexer.checkpointAt(h);
+    // 404, never an empty digest: "I have not reached that height" and "we disagree" must not look
+    // the same to whoever is comparing us.
+    if (!digest) return sendJSON(res, 404, { error: 'no checkpoint at that height yet', height: h, checkpoints: range });
+    return sendJSON(res, 200, { height: h, digest, checkpoints: range });
+  }
+
   const tip = await chain.getBlockCount().catch(() => null);
-  sendJSON(res, 200, {
+  return sendJSON(res, 200, {
     height: lastScanned,
     tip,
     synced: tip !== null && tip - lastScanned < 2,
     count: indexer.inscriptions.size,
     digest: indexer.digest(),
+    checkpoints: range,
     algorithm: 'sha256 over "number|id|contentType|bodyHash|location" per inscription, number order, newline joined',
     spec: 'spec/VERGINALS-SPEC-v0.md §6',
   });
@@ -2818,7 +2836,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/inscriptions') return await handleInscriptions(res, url.searchParams.get('owner'));
       if (req.method === 'GET' && p === '/api/index/digest') {
         if (!allowRead(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
-        return await handleIndexDigest(res);
+        return await handleIndexDigest(res, url.searchParams.get('height'));
       }
       if (req.method === 'GET' && p === '/api/index/snapshot') {
         if (!allowRead(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });

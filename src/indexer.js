@@ -35,6 +35,16 @@ function decodeMetadata(buffers) {
   });
 }
 
+// Checkpoint spacing for the reproducibility digest (§6). Two indexers are almost never at the same
+// tip, and the digest covers state that keeps moving (an inscription's location changes every time
+// its coin is spent), so comparing "your latest" against "my latest" proves nothing. Fixed heights
+// give them a common point to compare at whatever their own progress.
+//
+// A digest at height H cannot be recomputed later from the final state, because the state at H is
+// gone once the coins move again. So each one is taken as the scan crosses H and kept. At 30-second
+// blocks that is about three a day, over a set of ~1300 inscriptions: too small to bound.
+const CHECKPOINT_INTERVAL = 1000;
+
 class Indexer {
   constructor() {
     this.nextNumber = 0;
@@ -42,6 +52,8 @@ class Indexer {
     this.inscriptions = new Map();
     // "txid:vout" -> [{ id, offset }]  (offset = unit offset within that output)
     this.locations = new Map();
+    // height -> digest, at multiples of CHECKPOINT_INTERVAL only
+    this.checkpoints = new Map();
   }
 
   /**
@@ -162,6 +174,32 @@ class Indexer {
   /** Process a block: { height, txs: [...] } with txs in block order. */
   processBlock(block) {
     for (const tx of block.txs) this.processTx(tx, block.height);
+    // Taken AFTER the block is fully processed, so a checkpoint at H means "the state once block H
+    // is in". Any implementation that takes it before will disagree at every checkpoint while
+    // agreeing at the tip, which is a confusing way to be wrong, so it is stated here.
+    if (block.height % CHECKPOINT_INTERVAL === 0) {
+      this.checkpoints.set(block.height, this.digest());
+    }
+  }
+
+  /**
+   * The digest at a checkpoint height, or null if that height is not a checkpoint or has not been
+   * reached. Null is the honest answer for both: a caller comparing two indexers must not be able
+   * to mistake "I have not got there" for "we disagree".
+   */
+  checkpointAt(height) {
+    return this.checkpoints.get(Number(height)) || null;
+  }
+
+  /** What a peer needs to pick a height both of them can answer for. */
+  checkpointRange() {
+    const heights = [...this.checkpoints.keys()].sort((a, b) => a - b);
+    return {
+      interval: CHECKPOINT_INTERVAL,
+      first: heights.length ? heights[0] : null,
+      latest: heights.length ? heights[heights.length - 1] : null,
+      count: heights.length,
+    };
   }
 
   /** Inscriptions sorted by number (stable canonical order). */
@@ -178,4 +216,4 @@ class Indexer {
   }
 }
 
-module.exports = { Indexer, decodeMetadata };
+module.exports = { Indexer, decodeMetadata, CHECKPOINT_INTERVAL };

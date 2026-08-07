@@ -1,7 +1,7 @@
 // Indexer core tests: extraction, deterministic numbering, FIFO transfer, burn, digest.
 // Run: node test/indexer.test.js
 const assert = require('assert');
-const { Indexer } = require('../src/indexer');
+const { Indexer, CHECKPOINT_INTERVAL } = require('../src/indexer');
 const { buildInscriptionScript, parentIdToBuffer } = require('../src/envelope');
 const cbor = require('../src/cbor');
 
@@ -197,6 +197,62 @@ test('digest is reproducible across independent runs', () => {
   };
   assert.strictEqual(run(), run());
   assert.match(run(), /^[0-9a-f]{64}$/);
+});
+
+// --- checkpoint digests (§6, "for agreed checkpoint heights") ---------------------------------
+
+test('a checkpoint is taken at every multiple of the interval, and only there', () => {
+  const ix = new Indexer();
+  for (let h = 998; h <= 2001; h++) ix.processBlock({ height: h, txs: [] });
+  assert.ok(ix.checkpointAt(1000), 'height 1000 must be a checkpoint');
+  assert.ok(ix.checkpointAt(2000), 'height 2000 must be a checkpoint');
+  assert.strictEqual(ix.checkpointAt(1500), null, '1500 is not a multiple of the interval');
+  assert.strictEqual(ix.checkpointAt(3000), null, 'not reached, so no checkpoint');
+  assert.deepStrictEqual(ix.checkpointRange(), { interval: CHECKPOINT_INTERVAL, first: 1000, latest: 2000, count: 2 });
+});
+
+test('a checkpoint records the state AFTER its own block, not before', () => {
+  const withReveal = new Indexer();
+  withReveal.processBlock({ height: 1000, txs: [reveal('21'.repeat(32), 'image/png', 'a')] });
+  const empty = new Indexer();
+  empty.processBlock({ height: 1000, txs: [] });
+  assert.notStrictEqual(withReveal.checkpointAt(1000), empty.checkpointAt(1000),
+    'the block\'s own inscriptions must be inside its checkpoint');
+  assert.strictEqual(withReveal.checkpointAt(1000), withReveal.digest());
+});
+
+test('two indexers at different tips still agree at their common checkpoint', () => {
+  // This is the whole reason checkpoints exist: comparing "your latest" with "my latest" proves
+  // nothing, because an inscription's location keeps changing under both of them.
+  const blocks = [
+    { height: 999, txs: [reveal('31'.repeat(32), 'image/png', 'a')] },
+    { height: 1000, txs: [] },
+    { height: 1001, txs: [plain('32'.repeat(32), [{ txid: '31'.repeat(32), vout: 0, value: 98_000, inscriptionScript: null }], [{ value: 96_000 }])] },
+    { height: 2000, txs: [] },
+  ];
+  const ahead = new Indexer();
+  for (const b of blocks) ahead.processBlock(b);
+  const behind = new Indexer();
+  for (const b of blocks.slice(0, 2)) behind.processBlock(b);
+
+  assert.notStrictEqual(ahead.digest(), behind.digest(), 'their tips differ, so their tip digests must');
+  assert.strictEqual(ahead.checkpointAt(1000), behind.checkpointAt(1000),
+    'the same blocks up to 1000 must give the same checkpoint whatever came after');
+  assert.strictEqual(behind.checkpointAt(2000), null, 'the one behind cannot answer for 2000 yet');
+});
+
+test('a checkpoint is not recomputable after the fact, which is why it is stored', () => {
+  // Written down as a test because it is the trap: an implementation that tries to derive an old
+  // checkpoint from its final state will silently disagree with everyone.
+  const ix = new Indexer();
+  ix.processBlock({ height: 1000, txs: [reveal('41'.repeat(32), 'image/png', 'a')] });
+  const atCheckpoint = ix.checkpointAt(1000);
+  ix.processBlock({
+    height: 1001,
+    txs: [plain('42'.repeat(32), [{ txid: '41'.repeat(32), vout: 0, value: 98_000, inscriptionScript: null }], [{ value: 96_000 }])],
+  });
+  assert.notStrictEqual(ix.digest(), atCheckpoint, 'the coin moved, so the state at 1000 is gone');
+  assert.strictEqual(ix.checkpointAt(1000), atCheckpoint, 'but the checkpoint itself is unchanged');
 });
 
 console.log(`\n${passed} tests passed`);

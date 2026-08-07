@@ -2486,6 +2486,61 @@ async function handleInscriptions(res, owner) {
   sendJSON(res, 200, owner ? filterByOwner(payload, owner) : payload);
 }
 
+/**
+ * GET /api/index/digest: the §6 reproducibility digest at our current height.
+ *
+ * The spec asks for this to be published and it never was, which left an independent indexer with
+ * no way to prove it agrees with us short of diffing the whole list. It is one hash over
+ * (number, id, content_type, sha256(body), location) for every inscription, in number order.
+ *
+ * Anyone running their own indexer should compare this at a height they have also reached. A match
+ * means their implementation is correct and they never need to call us again, which is the point.
+ */
+async function handleIndexDigest(res) {
+  // Deliberately not awaited. A cold start walks ~100k blocks, which is minutes and well past
+  // nginx's proxy timeout, so awaiting here answers the first caller after a restart with a 504.
+  // A digest is always "as of height H" anyway, so reporting the height we have actually reached
+  // is both faster and more honest than blocking to reach the tip.
+  syncIndex().catch(() => {});
+  const tip = await chain.getBlockCount().catch(() => null);
+  sendJSON(res, 200, {
+    height: lastScanned,
+    tip,
+    synced: tip !== null && tip - lastScanned < 2,
+    count: indexer.inscriptions.size,
+    digest: indexer.digest(),
+    algorithm: 'sha256 over "number|id|contentType|bodyHash|location" per inscription, number order, newline joined',
+    spec: 'spec/VERGINALS-SPEC-v0.md §6',
+  });
+}
+
+/**
+ * GET /api/index/snapshot: the whole outpoint -> inscription map, about 90 KB.
+ *
+ * Meant to be mirrored rather than polled. A wallet that downloads this asks us nothing about its
+ * own coins, so nothing about which coins a user holds ever leaves their machine. That is the
+ * privacy answer /api/inscriptions/at cannot give: there, the wallet has to tell us its outpoints
+ * to get an answer.
+ */
+async function handleIndexSnapshot(res) {
+  syncIndex().catch(() => {}); // see handleIndexDigest: never block a reader on a cold scan
+  const tip = await chain.getBlockCount().catch(() => null);
+  const at = {};
+  for (const i of indexer.list()) at[i.location] = i.number;
+  const body = {
+    height: lastScanned,
+    tip,
+    synced: tip !== null && tip - lastScanned < 2,
+    count: indexer.inscriptions.size,
+    digest: indexer.digest(),
+    at,
+  };
+  // Weak ETag on the digest and height: a mirror can revalidate in one conditional request.
+  res.setHeader('etag', `W/"${lastScanned}-${body.digest.slice(0, 16)}"`);
+  res.setHeader('cache-control', 'public, max-age=30');
+  sendJSON(res, 200, body);
+}
+
 async function handleContent(res, txid) {
   if (!/^[a-f0-9]{64}$/.test(txid)) {
     writeHead(res, 400, { 'content-type': 'text/plain' });
@@ -2761,6 +2816,14 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p.startsWith('/api/job/')) return await handleJob(res, p.slice('/api/job/'.length));
     if (req.method === 'POST' && p === '/api/assets/balances') return handleAssetBalances(req, res);
     if (req.method === 'GET' && p === '/api/inscriptions') return await handleInscriptions(res, url.searchParams.get('owner'));
+      if (req.method === 'GET' && p === '/api/index/digest') {
+        if (!allowRead(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
+        return await handleIndexDigest(res);
+      }
+      if (req.method === 'GET' && p === '/api/index/snapshot') {
+        if (!allowRead(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
+        return await handleIndexSnapshot(res);
+      }
     if (req.method === 'GET' && p.startsWith('/api/content/')) return await handleContent(res, p.slice('/api/content/'.length));
     if (req.method === 'POST' && p === '/api/inscriptions/at') return await handleInscriptionsAt(req, res);
     if (req.method === 'POST' && p === '/api/wallet/watch') return await handleWalletWatch(req, res);
@@ -2848,4 +2911,10 @@ server.listen(PORT, HOST, () => {
   setInterval(cleanupJobs, 3600 * 1000).unref();
   reapMintReservations();
   setInterval(reapMintReservations, 5 * 60 * 1000).unref();
+  // Keep the index moving on its own. It used to advance only when a request happened to call
+  // syncIndex(), so after a restart /api/info reported a height 100k blocks stale until someone
+  // asked for something that triggered a scan, and whoever asked first paid the whole cold scan.
+  // Restart catch-up now starts immediately rather than waiting for a visitor.
+  syncIndex().catch(() => {});
+  setInterval(() => { syncIndex().catch(() => {}); }, 30 * 1000).unref();
 });

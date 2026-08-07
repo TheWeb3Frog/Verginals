@@ -420,6 +420,17 @@ const VALID_ADDR = /^[a-km-zA-HJ-NP-Z1-9]{25,40}$/; // base58 sanity check; node
 const QUOTE_WINDOW_MS = Number(process.env.VERGINALS_QUOTE_WINDOW_MS || 60_000);
 const QUOTE_MAX = Number(process.env.VERGINALS_QUOTE_MAX || 10);
 const quoteHits = new Map(); // ip -> [timestamps]
+
+// Read-only lookups get their own, much higher ceiling. Ten a minute is right for an endpoint that
+// imports a watch-only address; it is far too low for a wallet, which asks about its coins every
+// time it syncs and can legitimately do that dozens of times a minute. Worse, a shared exit (a Tor
+// node, a corporate NAT, a phone carrier's CGNAT) puts every user behind it in one bucket, so a
+// third-party wallet reads as "the API is blocking us" when it is really "you and a hundred
+// strangers share an address". These endpoints touch no wallet and no RPC: they answer from the
+// in-memory index, so the only thing the limit protects against is bandwidth.
+const READ_WINDOW_MS = Number(process.env.VERGINALS_READ_WINDOW_MS || 60_000);
+const READ_MAX = Number(process.env.VERGINALS_READ_MAX || 240);
+const readHits = new Map(); // ip -> [timestamps]
 // Behind a reverse proxy (nginx/Caddy) the socket peer is always 127.0.0.1, which would collapse
 // every visitor into one rate-limit bucket. Only trust X-Forwarded-For when explicitly told we sit
 // behind a proxy we control (VERGINALS_TRUST_PROXY=1); trusting it otherwise lets any client spoof
@@ -440,6 +451,17 @@ function allowQuote(req) {
   quoteHits.set(ip, hits);
   if (quoteHits.size > 5000) quoteHits.clear(); // crude unbounded-growth guard
   return hits.length <= QUOTE_MAX;
+}
+
+/** The same sliding window as allowQuote, on the read-only ceiling. */
+function allowRead(req) {
+  const ip = clientIp(req);
+  const now = Date.now();
+  const hits = (readHits.get(ip) || []).filter((t) => now - t < READ_WINDOW_MS);
+  hits.push(now);
+  readHits.set(ip, hits);
+  if (readHits.size > 5000) readHits.clear();
+  return hits.length <= READ_MAX;
 }
 
 // Launchpad item uploads get their own, higher limit: a 10k collection arrives as ~200 batch
@@ -2535,7 +2557,13 @@ function inscriptionLocationMap() {
  * only consults the in-memory indexer by outpoint.
  */
 async function handleInscriptionsAt(req, res) {
-  if (!allowQuote(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
+  // Read-only ceiling, not the quote one. This is the light-wallet path: Verge Slim and our own
+  // extension call it on every sync, and at ten a minute a wallet behind a shared address was being
+  // refused for doing exactly what the endpoint exists for.
+  if (!allowRead(req)) {
+    res.setHeader('retry-after', '60');
+    return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
+  }
   const raw = await readBody(req);
   let b;
   try { b = JSON.parse(raw.toString('utf8') || '{}'); } catch { return sendJSON(res, 400, { error: 'invalid JSON' }); }

@@ -53,10 +53,12 @@
     <h2>Three things this market cannot copy</h2>
     <ul class="vr-outs">
       <li><b>Listings sell a whole carrier, not an amount.</b> A balance lives on an output, so a
-        listing offers that output and everything on it. You cannot buy 137 of a lot of 500. The
-        token page shows the split-then-list flow, and every listing card leads with everything the
-        carrier holds, because selling a token and not noticing the inscription riding along is the
-        expensive mistake.</li>
+        listing offers that output and everything on it. That is not a restriction on how much you
+        can buy: pick several carriers and they settle in one transaction, or make an offer for an
+        exact quantity and a seller splits to fill it. What it removes is a theft vector, since a
+        buyer who could redefine the amount could take the whole lot and pay for part of it. Every
+        listing card leads with everything the carrier holds, because selling a token and not
+        noticing the inscription riding along is the expensive mistake.</li>
       <li><b>The floor is a real floor.</b> It is the cheapest carrier actually listed and signed,
         not an aggregate of asks that may not be honoured. Every listing here is a partially signed
         transaction: it either executes atomically or it does not exist.</li>

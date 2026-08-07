@@ -52,11 +52,17 @@
 
     <div id="vr-pane-listings">
       <p class="vr-say">
-        Each card is one carrier, signed and ready. Buying takes it whole: there is no partial fill,
-        because a balance lives on an output and half an output does not exist. To sell part of a
-        holding you split the carrier first, in a separate transaction.
+        Each card is one carrier, signed and ready, and it sells whole: a listing cannot name a
+        partial amount, because the buyer builds the transfer instructions and could simply leave
+        them out and take the lot. Selling the carrier entire removes that rather than patching it.
+      </p>
+      <p class="vr-say">
+        That does not mean buying in fixed lots. <b>Pick several and they settle in one
+        transaction</b>, all or nothing, which is what the maker's signature type is for. For an
+        exact quantity, make an offer instead: see below.
       </p>
       <div id="vr-listings" class="vr-listing-grid"></div>
+      <div id="vr-basket" class="vr-basket" hidden></div>
     </div>
 
     <div id="vr-pane-trades" hidden>
@@ -75,6 +81,22 @@
         One person may hold twenty carriers, so read this as concentration of coins, not of people.
       </p>
     </div>
+  </section>
+
+  <section class="vr-sec">
+    <p class="vr-num">BUY AN EXACT AMOUNT</p>
+    <h2>Make an offer</h2>
+    <p class="vr-say">
+      Want 137 and not 500? Name the amount and the price. A seller fills it by splitting a carrier
+      down to exactly that and signing the whole transaction themselves, so there is nothing left for
+      anyone to rewrite. That is why an offer may name a partial amount when a listing may not: the
+      side that builds the transaction is the side that is exposed, and here it is the seller.
+    </p>
+    <div id="vr-offer" class="vr-card"></div>
+    <p class="vr-note">
+      <b>So there are three ways to buy:</b> take one carrier, sweep several in one transaction, or
+      offer for an exact amount. Only the first is what a Runes marketplace gives you.
+    </p>
   </section>
 
   <section class="vr-sec">

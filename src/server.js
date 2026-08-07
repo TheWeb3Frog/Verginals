@@ -2736,6 +2736,16 @@ const server = http.createServer(async (req, res) => {
       return serveStatic(res, 'index.html');
     }
     if (req.method === 'GET' && (p === '/app.js' || p === '/wallet.js' || p === '/style.css')) return serveStatic(res, p.slice(1));
+    // Unlisted design preview for the asset protocol, which is NOT enabled. Served unconditionally
+    // because it is a static page that spends nothing and calls no wallet: it reads /api/info to
+    // report the server's real state and computes the rest in the browser. The page carries a
+    // noindex, and it says on its face that every figure on it is a worked example.
+    if (req.method === 'GET' && (p === '/verge-runes-test' || p === '/verge-runes-test.html')) {
+      return serveStatic(res, 'verge-runes.html');
+    }
+    if (req.method === 'GET' && (p === '/verge-runes.js' || p === '/verge-runes.css')) {
+      return serveStatic(res, p.slice(1));
+    }
     if (req.method === 'GET' && p === '/vendor/qrcode.js') return serveStatic(res, 'vendor/qrcode.js');
     if (ADVENTURE_ENABLED) {
       // Unlinked on purpose: /adventure-test is handed out by hand while the loop is being tuned,

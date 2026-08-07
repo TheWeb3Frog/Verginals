@@ -169,6 +169,54 @@ function ranges() {
 
 // --- listings ---------------------------------------------------------------------------------
 
+// A basket, because one card is not one purchase.
+//
+// SIGHASH_ANYONECANPAY exists precisely so several makers' signed legs can travel in one
+// transaction: a buyer who wants 1,350 takes a 1,000 lot, a 250 and a 100, atomically. The earlier
+// version of this screen implied a listing was bought alone, which made the whole-carrier rule look
+// far more restrictive than it is.
+const basket = new Set();
+
+function basketBar() {
+  const bar = $('#vr-basket');
+  const picked = [...basket].map((i) => LISTINGS[i]);
+  if (!picked.length) {
+    bar.hidden = true;
+    return;
+  }
+  bar.hidden = false;
+  bar.textContent = '';
+
+  const qty = picked.reduce((n, l) => n + l.amount, 0);
+  const xvg = picked.reduce((n, l) => n + l.xvg, 0);
+  const carries = picked.flatMap((l) => l.extras);
+
+  const left = el('div', 'vr-grow');
+  left.append(el('div', 'vr-basket-q', `${disp(qty)} ${ASSET.ticker}`));
+  left.append(el('div', 'vr-nm',
+    `${picked.length} carrier${picked.length === 1 ? '' : 's'} · ${fmtPrice(xvg / (qty / 10 ** ASSET.divisibility))} average per unit`));
+  bar.append(left);
+
+  if (carries.length) {
+    const w = el('div', 'vr-basket-warn');
+    w.append(el('div', 'vr-carry-h', 'Also included'));
+    for (const x of carries) w.append(el('div', 'vr-carry-i', x));
+    bar.append(w);
+  }
+
+  const right = el('div', 'vr-basket-right');
+  right.append(el('div', 'vr-basket-t', `${fmt(xvg)} XVG`));
+  right.append(el('div', 'vr-nm', 'one transaction, all or nothing'));
+  bar.append(right);
+
+  const b = el('button', 'vr-btn', 'Buy all selected');
+  b.disabled = true;
+  bar.append(b);
+  const clear = el('button', 'vr-btn ghost', 'Clear');
+  clear.onclick = () => { basket.clear(); listings(); };
+  bar.append(clear);
+}
+
 function listings() {
   const host = $('#vr-listings');
   host.textContent = '';
@@ -176,8 +224,13 @@ function listings() {
   const floor = Math.min(...LISTINGS.map(unitPrice));
   $('#vr-floor').textContent = `${fmtPrice(floor)} XVG`;
 
-  for (const l of LISTINGS.slice().sort((a, b) => unitPrice(a) - unitPrice(b))) {
-    const card = el('div', `vr-listing${l.extras.length ? ' carries' : ''}`);
+  const order = LISTINGS.map((l, i) => i).sort((a, b) => unitPrice(LISTINGS[a]) - unitPrice(LISTINGS[b]));
+  for (const i of order) {
+    const l = LISTINGS[i];
+    const card = el('div', `vr-listing${l.extras.length ? ' carries' : ''}${basket.has(i) ? ' picked' : ''}`);
+    card.tabIndex = 0;
+    card.setAttribute('role', 'button');
+    card.setAttribute('aria-pressed', basket.has(i) ? 'true' : 'false');
 
     const head = el('div', 'vr-row');
     head.append(el('div', 'vr-listing-amt', disp(l.amount)));
@@ -197,13 +250,86 @@ function listings() {
     }
 
     const foot = el('div', 'vr-row foot');
-    const b = el('button', 'vr-btn sm', 'Buy carrier');
-    b.disabled = true;
-    foot.append(b);
+    foot.append(el('span', 'vr-pick', basket.has(i) ? 'Selected' : 'Select'));
     foot.append(el('span', 'vr-nm', `listed ${l.age}`));
     card.append(foot);
+
+    const toggle = () => {
+      if (basket.has(i)) basket.delete(i); else basket.add(i);
+      listings();
+    };
+    card.onclick = toggle;
+    card.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } };
     host.append(card);
   }
+  basketBar();
+}
+
+/**
+ * The exact-amount path.
+ *
+ * A listing cannot name a partial amount, because the taker builds the edicts and could simply omit
+ * them and take the lot. An OFFER inverts who builds: the buyer names an amount and a price, and the
+ * seller fills it by splitting their carrier in a transaction they sign in full. Nobody is exposed,
+ * and the buyer gets exactly the quantity they asked for.
+ */
+function offer() {
+  const host = $('#vr-offer');
+  host.textContent = '';
+
+  const floor = Math.min(...LISTINGS.map(unitPrice));
+  const row = el('div', 'vr-grid2');
+
+  const qWrap = el('div', '');
+  qWrap.append(el('label', 'vr-label', `Amount of ${ASSET.ticker} you want`));
+  const q = el('input', 'vr-in');
+  q.value = '137';
+  q.inputMode = 'decimal';
+  qWrap.append(q);
+  row.append(qWrap);
+
+  const pWrap = el('div', '');
+  pWrap.append(el('label', 'vr-label', 'Your price per unit (XVG)'));
+  const pr = el('input', 'vr-in');
+  pr.value = fmtPrice(floor);
+  pr.inputMode = 'decimal';
+  pWrap.append(pr);
+  row.append(pWrap);
+  host.append(row);
+
+  const out = el('div', '');
+  out.style.marginTop = '14px';
+  host.append(out);
+
+  const draw = () => {
+    const amount = Math.max(0, parseFloat(q.value) || 0);
+    const price = Math.max(0, parseFloat(pr.value) || 0);
+    out.textContent = '';
+    const kv = (k, v) => {
+      const r = el('div', 'vr-kv');
+      r.append(el('span', '', k), el('span', '', v));
+      out.append(r);
+    };
+    kv('You would pay', `${fmt(amount * price, 2)} XVG`);
+    kv('Against the floor', price >= floor ? 'at or above it' : `${Math.round((1 - price / floor) * 100)}% below`);
+    kv('Expires', 'in 24 hours, enforced on chain by CLTV');
+    const note = el('p', 'vr-nm');
+    note.style.marginTop = '10px';
+    note.textContent = 'A seller fills this by splitting a carrier down to exactly this amount and '
+      + 'signing that transaction in full. Because the seller builds it, there is nothing for a '
+      + 'counterparty to rewrite, which is why an offer can name a partial amount and a listing cannot.';
+    out.append(note);
+  };
+  q.addEventListener('input', draw);
+  pr.addEventListener('input', draw);
+  draw();
+
+  const act = el('div', 'vr-row');
+  act.style.marginTop = '14px';
+  const b = el('button', 'vr-btn', 'Sign the offer');
+  b.disabled = true;
+  act.append(b, el('span', 'vr-tag sample', 'PREVIEW, NOT WIRED'));
+  host.append(act);
 }
 
 // --- tables ------------------------------------------------------------------------------------
@@ -277,6 +403,7 @@ header();
 ranges();
 charts();
 listings();
+offer();
 trades();
 holders();
 tabs();

@@ -246,3 +246,24 @@ th.vr-n { text-align: right; }
   .vr-table { font-size: 13px; }
   .vr-table td, .vr-table th { padding: 9px 8px; }
 }
+
+/* --- basket ------------------------------------------------------------------------------------ */
+
+.vr-listing { cursor: pointer; transition: border-color .15s, background .15s; }
+.vr-listing:hover { border-color: var(--edge, #3c4d5e); }
+.vr-listing:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+.vr-listing.picked { border-color: var(--accent); background: #12232e; }
+.vr-pick { font: 600 11px/1 ui-monospace, monospace; letter-spacing: 1px; color: var(--muted); }
+.vr-listing.picked .vr-pick { color: var(--accent); }
+
+.vr-basket {
+  position: sticky; bottom: 14px; margin-top: 16px; z-index: 5;
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 14px 16px; border-radius: var(--radius);
+  border: 1px solid var(--accent2); background: var(--bg2);
+  box-shadow: 0 10px 30px #00000066;
+}
+.vr-basket-q { font: 600 17px/1.2 ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.vr-basket-right { text-align: right; }
+.vr-basket-t { font: 600 17px/1.2 ui-monospace, monospace; font-variant-numeric: tabular-nums; color: var(--accent); }
+.vr-basket-warn { padding: 6px 10px; border-radius: 8px; background: #241d0d; }

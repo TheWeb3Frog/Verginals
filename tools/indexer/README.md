@@ -68,23 +68,34 @@ even to its own backend.
 state: `sha256` of `number|id|contentType|bodyHash|location` for every inscription, in number order,
 newline joined. Two indexers at the same height that agree on that hash agree on everything.
 
-Compare yours against the hosted one:
+**Compare at a checkpoint height, never at your tips.** Two instances are almost never at the same
+tip, and the digest covers state that keeps moving: an inscription's location changes every time its
+coin is spent. So "your latest against my latest" tells you nothing either way.
+
+Checkpoints are every 1000 blocks, and each one is the state after that block is processed:
 
 ```bash
-curl -s http://127.0.0.1:3401/digest
-curl -s https://verginals.com/api/index/digest
+curl -s "http://127.0.0.1:3401/digest?height=9387000"
+curl -s "https://verginals.com/api/index/digest?height=9387000"
 ```
 
-Match the `height` fields before comparing the hashes: a digest is always "as of height H".
+Without `?height` you get the digest at whatever tip that instance has reached, which is useful as a
+health check and useless for comparison.
 
-Verified on 2026-08-07 at height 9387325, both reporting 1281 inscriptions:
+`GET /digest` also returns a `checkpoints` block with the interval and the first and latest heights
+it can answer for. Two instances intersect those ranges and compare at the highest common height. An
+instance that has not reached a height answers **404**, never an empty digest, so a caller can tell
+"not there yet" apart from "we disagree".
 
-```
-efd0145b3f3249b98157b2d055219b407f50c89ec34fe21b46585ddc82ff980d
-```
+Once your checkpoints match the hosted one, you have proved your implementation and you can stop
+calling the hosted API entirely. That is the point of this directory.
 
-Once those match, you have proved your implementation is correct and you can stop calling the
-hosted API entirely. That is the point of this directory.
+### For a wallet offering a choice of servers
+
+If you let users pick between instances, have the wallet compare a common checkpoint across two or
+three of them and warn on a mismatch, rather than leaving the user to decide who to believe. They
+have no way to evaluate that; the hash does it for them. It turns the list into a choice about
+latency and uptime instead of a choice about trust.
 
 ## If they do not match
 

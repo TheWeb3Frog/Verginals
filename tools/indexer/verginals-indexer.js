@@ -92,6 +92,10 @@ function save() {
     nextNumber: indexer.nextNumber,
     inscriptions: [...indexer.inscriptions.entries()],
     locations: [...indexer.locations.entries()],
+    // Kept because a checkpoint cannot be recomputed after the fact: the state it covers is gone
+    // once the coins move on. Lose these and the instance can no longer be compared with a peer
+    // until it has crossed a new checkpoint of its own.
+    checkpoints: [...indexer.checkpoints.entries()],
   };
   const tmp = `${CFG.state}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(payload));
@@ -110,6 +114,7 @@ function load() {
   indexer.nextNumber = raw.nextNumber;
   indexer.inscriptions = new Map(raw.inscriptions);
   indexer.locations = new Map(raw.locations);
+  indexer.checkpoints = new Map(raw.checkpoints || []);
   scannedThrough = raw.scannedThrough;
   return true;
 }
@@ -177,13 +182,31 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // The §6 reproducibility digest. Compare it with any other indexer at the same height: equal
-    // hashes mean equal state, and that is the whole proof that you do not need anyone else.
+    // The reproducibility digest. Equal hashes at the same height mean equal state, which is the
+    // whole proof that you do not need anyone else.
+    //
+    // Without ?height, this answers for the tip you personally reached, which is fine for a health
+    // check and useless for comparison: two instances are never at the same tip, and the digest
+    // covers state that keeps moving. Compare at a checkpoint instead.
     if (req.method === 'GET' && p === '/digest') {
+      const want = url.searchParams.get('height');
+      const range = indexer.checkpointRange();
+      if (want !== null) {
+        const h = Number(want);
+        if (!Number.isInteger(h) || h <= 0 || h % range.interval !== 0) {
+          return json(res, 400, { error: `height must be a multiple of ${range.interval}`, checkpoints: range });
+        }
+        const digest = indexer.checkpointAt(h);
+        // 404 rather than an empty digest: "I have not reached that height" and "we disagree" must
+        // never look the same to whoever is comparing us.
+        if (!digest) return json(res, 404, { error: 'no checkpoint at that height yet', height: h, checkpoints: range });
+        return json(res, 200, { height: h, digest, checkpoints: range });
+      }
       return json(res, 200, {
         height: scannedThrough,
         count: indexer.inscriptions.size,
         digest: indexer.digest(),
+        checkpoints: range,
         spec: 'spec/VERGINALS-SPEC-v0.md §6',
       });
     }

@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Verge Assets: interface preview</title>
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/verge-runes.css">
+</head>
+<body>
+<main class="vr-wrap">
+
+  <header class="vr-head">
+    <p class="vr-kicker">INTERFACE PREVIEW</p>
+    <h1>Verge Assets</h1>
+    <p class="vr-lede">
+      Fungible tokens on Verge, from the protocol in <code>spec/ASSETS-SPEC-v0.md</code>. This page is
+      how the interface could work. Every figure on it is a worked example, not live data.
+    </p>
+    <div id="vr-status" class="vr-status">Checking what the server actually reports…</div>
+  </header>
+
+  <!-- 1. The one thing no other chain's token wallet can do. -->
+  <section class="vr-sec">
+    <p class="vr-num">01</p>
+    <h2>Prove your own balance</h2>
+    <p class="vr-say">
+      Every token metaprotocol has the same hole: you ask an indexer what you own and you take its
+      word for it. The spec closes it. Anyone can publish a merkle root over the whole balance set,
+      on chain, and your wallet checks its own balance against that root. It never has to trust the
+      server that answered it.
+    </p>
+    <p class="vr-say">
+      So the balance card carries a state, not just a number. This one is real arithmetic: the
+      hashes below are computed in your browser with WebCrypto, over sample leaves.
+    </p>
+
+    <div id="vr-verify" class="vr-verify"></div>
+
+    <p class="vr-note">
+      <b>The design call:</b> unverified is not an error and must not look like one. It means the
+      wallet has not checked yet, or the root for this height is not published. Only a balance that
+      fails against a published root is red, and that is a serious thing to show, so it says who
+      published the root it disagrees with.
+    </p>
+  </section>
+
+  <!-- 2. Ticker pricing, which is the anti-squatting mechanism made visible. -->
+  <section class="vr-sec">
+    <p class="vr-num">02</p>
+    <h2>Claim a ticker</h2>
+    <p class="vr-say">
+      Runes made names free and bots took every good one, paying miners rather than the ecosystem.
+      Here a ticker has a price, set by length, and the point is not revenue: it is that one good
+      name stays affordable to a real project while fifty of them ruin a squatter.
+    </p>
+    <p class="vr-say">
+      The interface makes that arithmetic impossible to miss, because it is the whole argument. Type
+      a ticker.
+    </p>
+
+    <div id="vr-ticker" class="vr-ticker"></div>
+
+    <p class="vr-note">
+      <b>The design call:</b> the squatter line updates as you type. It is not a warning aimed at
+      you, it is the reason the price exists, and showing it turns a fee into a policy the user can
+      see the sense of.
+    </p>
+  </section>
+
+  <!-- 3. Etching: one form, and the irreversible fields called out. -->
+  <section class="vr-sec">
+    <p class="vr-num">03</p>
+    <h2>Etch an asset</h2>
+    <p class="vr-say">
+      One primitive covers both cases: supply 1 with divisibility 0 is a single item, supply N is a
+      token. So there is one form, and fungibility is a choice inside it rather than two products.
+    </p>
+
+    <div id="vr-etch" class="vr-etch"></div>
+
+    <p class="vr-note">
+      <b>The design call:</b> every field that can never be changed is marked permanent, in the
+      form, before the button. Not in a confirmation dialog people click through. An etching is
+      immutable and a typo in the supply cap is forever.
+    </p>
+  </section>
+
+  <!-- 4. Mint. -->
+  <section class="vr-sec">
+    <p class="vr-num">04</p>
+    <h2>Open mints and allowlists</h2>
+    <p class="vr-say">
+      An etching can carry mint terms and a 32-byte allowlist root. Thirty-two bytes buys a real
+      airdrop or a fair whitelist, which neither BRC-20 nor Runes can express at all.
+    </p>
+
+    <div id="vr-mint" class="vr-mint"></div>
+
+    <p class="vr-note">
+      <b>The design call:</b> the eligibility check runs before the button, not after the
+      transaction. A wallet that lets you broadcast a mint you cannot make is a wallet that charges
+      you a fee to be told no.
+    </p>
+  </section>
+
+  <!-- 5. Holding and sending. -->
+  <section class="vr-sec">
+    <p class="vr-num">05</p>
+    <h2>What holding one looks like</h2>
+    <p class="vr-say">
+      Balances live on outputs, like the coin itself, so an output can carry several assets at once
+      and moving one is moving a UTXO. That is invisible most of the time and it matters in exactly
+      one place: coin control.
+    </p>
+
+    <div id="vr-holdings" class="vr-holdings"></div>
+
+    <p class="vr-note">
+      <b>The design call:</b> a coin carrying an asset is never auto-selected for change. The
+      protocol is already safe by default (an ordinary send moves the whole balance to the recipient
+      rather than destroying it), but "safe" here means your tokens land with whoever you paid. The
+      wallet has to see them to keep them.
+    </p>
+  </section>
+
+  <!-- 6. Trading. -->
+  <section class="vr-sec">
+    <p class="vr-num">06</p>
+    <h2>Selling one</h2>
+    <p class="vr-say">
+      Swaps are in the protocol rather than left to a marketplace: one partially signed transaction,
+      the maker signs their leg, the taker appends theirs, and it either happens atomically or not
+      at all. The same shape covers token for XVG, token for token, and item for token.
+    </p>
+
+    <div id="vr-swap" class="vr-swap"></div>
+
+    <p class="vr-note">
+      <b>The design call:</b> a listing sells a whole carrier, so the card leads with everything
+      that carrier holds. Selling 500 GRUMPY and not noticing the Verginal riding on the same output
+      is the mistake this screen exists to prevent.
+    </p>
+  </section>
+
+  <section class="vr-sec">
+    <p class="vr-num">07</p>
+    <h2>What I deliberately left out</h2>
+    <div id="vr-outs" class="vr-outs"></div>
+  </section>
+
+  <footer class="vr-foot">
+    <p>
+      Unlisted and unannounced. Nothing here can move a coin: the page makes no wallet call and the
+      protocol is switched off on this server. Sample figures throughout.
+    </p>
+  </footer>
+</main>
+<script type="module" src="/verge-runes.js"></script>
+</body>
+</html>

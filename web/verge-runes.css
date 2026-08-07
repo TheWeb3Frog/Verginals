@@ -1,0 +1,127 @@
+/* Verge Assets interface preview. Leans on the site's own tokens in style.css so this reads as part
+   of Verginals rather than as a pitch deck that wandered in. */
+
+.vr-wrap { max-width: 940px; margin: 0 auto; padding: 40px 22px 90px; }
+
+.vr-head { padding-bottom: 34px; border-bottom: 1px solid var(--line); }
+.vr-kicker {
+  margin: 0 0 10px; font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 3px; color: var(--muted);
+}
+.vr-head h1 { margin: 0 0 12px; font-size: 42px; line-height: 1.05; letter-spacing: -0.5px; }
+.vr-lede { margin: 0 0 20px; max-width: 62ch; font-size: 16px; line-height: 1.65; color: var(--muted); }
+.vr-lede code { font-size: 13px; color: var(--txt); }
+
+/* The honest-state banner. Amber, never green: nothing here is live. */
+.vr-status {
+  display: inline-block; padding: 10px 14px; border-radius: var(--radius);
+  border: 1px solid #6b5320; background: #241d0d;
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #ffc93c;
+}
+.vr-status.bad { border-color: #6b2626; background: #241010; color: var(--danger); }
+
+.vr-sec { padding: 44px 0; border-bottom: 1px solid var(--line); }
+.vr-num {
+  margin: 0 0 6px; font: 600 11px/1 ui-monospace, monospace; letter-spacing: 2px; color: var(--accent);
+}
+.vr-sec h2 { margin: 0 0 14px; font-size: 26px; letter-spacing: -0.3px; }
+.vr-say { margin: 0 0 14px; max-width: 66ch; font-size: 15px; line-height: 1.7; color: var(--muted); }
+
+.vr-note {
+  margin: 18px 0 0; padding: 12px 16px; max-width: 70ch;
+  border-left: 3px solid var(--accent); background: var(--bg2);
+  font-size: 13.5px; line-height: 1.65; color: var(--muted);
+}
+.vr-note b { color: var(--txt); }
+
+/* --- cards ------------------------------------------------------------------------------------ */
+
+.vr-card {
+  padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card);
+}
+.vr-card + .vr-card { margin-top: 12px; }
+.vr-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.vr-grow { flex: 1; min-width: 0; }
+
+.vr-tag {
+  display: inline-block; padding: 3px 8px; border-radius: 999px;
+  font: 600 10px/1.5 ui-monospace, monospace; letter-spacing: 1px;
+  border: 1px solid var(--line); color: var(--muted);
+}
+.vr-tag.sample { border-color: #4a3a12; background: #221b0a; color: #d8b04a; }
+.vr-tag.ok { border-color: #1e5e46; background: #0e2a20; color: var(--ok); }
+.vr-tag.warn { border-color: #6b5320; background: #241d0d; color: #ffc93c; }
+.vr-tag.bad { border-color: #6b2626; background: #241010; color: var(--danger); }
+
+.vr-ticker-badge {
+  width: 46px; height: 46px; flex: none; border-radius: 10px; display: grid; place-items: center;
+  font: 700 15px/1 ui-monospace, monospace;
+  background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #052436;
+}
+.vr-name { font-size: 16px; font-weight: 600; }
+.vr-sub { font: 12px/1.5 ui-monospace, monospace; color: var(--muted); }
+.vr-amount { font: 600 20px/1 ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+.vr-bar { height: 6px; border-radius: 3px; background: var(--bg); overflow: hidden; margin-top: 10px; }
+.vr-bar > i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent2), var(--accent)); }
+
+/* --- verification -------------------------------------------------------------------------- */
+
+.vr-steps { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+.vr-step {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px;
+  background: var(--bg2); font: 12px/1.5 ui-monospace, monospace; color: var(--muted);
+  opacity: 0.35; transition: opacity .25s;
+}
+.vr-step.on { opacity: 1; }
+.vr-step b { color: var(--txt); font-weight: 600; }
+.vr-hash { color: var(--accent); word-break: break-all; }
+
+/* --- inputs ---------------------------------------------------------------------------------- */
+
+.vr-in {
+  width: 100%; padding: 12px 14px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--txt);
+  font: 15px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 1px;
+}
+.vr-in:focus { outline: none; border-color: var(--accent2); }
+.vr-label { display: block; margin-bottom: 6px; font-size: 12px; color: var(--muted); }
+
+.vr-btn {
+  padding: 11px 18px; border-radius: 10px; border: none; cursor: pointer;
+  background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #052436;
+  font: 600 13px/1 -apple-system, system-ui, sans-serif;
+}
+.vr-btn.ghost { background: transparent; border: 1px solid var(--line); color: var(--txt); }
+.vr-btn:disabled { opacity: 0.45; cursor: default; }
+
+.vr-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+
+/* Permanent fields are marked in the form, not in a dialog nobody reads. */
+.vr-perm {
+  display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 4px;
+  font: 600 9px/1.6 ui-monospace, monospace; letter-spacing: 1px;
+  background: #2a1f0c; color: #d8b04a;
+}
+
+.vr-kv { display: flex; justify-content: space-between; gap: 16px; padding: 7px 0; font-size: 13.5px; }
+.vr-kv + .vr-kv { border-top: 1px solid var(--line); }
+.vr-kv span:first-child { color: var(--muted); }
+.vr-kv span:last-child { font-family: ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+.vr-outs li { margin-bottom: 12px; font-size: 14.5px; line-height: 1.7; color: var(--muted); max-width: 68ch; }
+.vr-outs b { color: var(--txt); }
+
+.vr-foot { padding-top: 30px; font-size: 12.5px; line-height: 1.7; color: var(--muted); }
+
+/* Wide things scroll inside themselves, the page never does. */
+.vr-scroll { overflow-x: auto; }
+
+@media (max-width: 620px) {
+  .vr-head h1 { font-size: 32px; }
+  .vr-wrap { padding: 28px 16px 70px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vr-step { transition: none; }
+}

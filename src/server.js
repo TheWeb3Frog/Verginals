@@ -2743,7 +2743,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && (p === '/verge-runes-test' || p === '/verge-runes-test.html')) {
       return serveStatic(res, 'verge-runes.html');
     }
-    if (req.method === 'GET' && (p === '/verge-runes.js' || p === '/verge-runes.css')) {
+    if (req.method === 'GET' && p === '/verge-runes-market') return serveStatic(res, 'verge-runes-market.html');
+    if (req.method === 'GET' && p === '/verge-runes-token') return serveStatic(res, 'verge-runes-token.html');
+    if (req.method === 'GET' && /^\/verge-runes(-market|-token|-chart)?\.(js|css)$/.test(p)) {
       return serveStatic(res, p.slice(1));
     }
     if (req.method === 'GET' && p === '/vendor/qrcode.js') return serveStatic(res, 'vendor/qrcode.js');

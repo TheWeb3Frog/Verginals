@@ -278,12 +278,17 @@ That collision is the mechanism, not a limitation of it. If re-spacing produced 
 desirable ticker could be squatted a dozen times over and the length-based price would stop meaning
 anything: a four-letter name would cost 10,000 XVG and its spaced variants nothing.
 
-Valid masks, enforced at indexing time:
+Normalisation, applied at indexing time:
 
-- only positions `0 .. len-2` may be set, so no leading and no trailing separator;
-- no two adjacent bits, so no doubled separator rendering an empty segment;
-- a mask that breaks either rule makes the **etching invalid**, rather than being ignored. An
-  ignored mask would mean two indexers rendering the same asset differently.
+- only positions `0 .. len-2` are meaningful, so there is no leading and no trailing separator;
+- **bits outside that range are ignored, not rejected.** Bitcoin's Runes makes the same call
+  ("trailing spacers are ignored") and it is the right one: both behaviours are deterministic since
+  the rule is written down either way, but rejecting means a wallet that sets one bit too many
+  destroys the etching, and the etcher loses the ticker price over a field that only decides where a
+  bullet is drawn;
+- **adjacent bits are legal and ordinary.** Bit `i` and bit `i+1` put separators in two neighbouring
+  gaps, rendering `A•B•C`. There is no way to place two separators in one gap, so there is nothing
+  to forbid here.
 
 Wallets and explorers SHOULD render the spaced form and MUST match, sort and search on the bare one.
 

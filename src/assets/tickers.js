@@ -95,26 +95,33 @@ const SPACER_CHAR = '\u2022'; // BULLET
  * etching is CBOR inside an inscription, so the field costs a few bytes and nothing had to be
  * sacrificed for it.
  */
-function spacersAreValid(ticker, mask) {
+function normalizeSpacers(ticker, mask) {
   const t = String(ticker || '');
-  if (!Number.isInteger(mask) || mask < 0) return false;
-  if (mask === 0) return true;
-  // A separator sits BETWEEN two characters, so the only legal positions are 0..len-2. This rules
-  // out a leading separator, a trailing one, and anything past the end of the name.
+  if (!Number.isInteger(mask) || mask <= 0) return 0;
+  // A separator sits BETWEEN two characters, so the only meaningful positions are 0..len-2.
+  // Anything past the end is masked off rather than rejected.
+  //
+  // Ignoring beats rejecting here, and Bitcoin's Runes made the same call ("trailing spacers are
+  // ignored"). Both are deterministic, since the rule is written down either way, but rejecting
+  // means a wallet that sets one bit too many destroys an etching, and the etcher loses the ticker
+  // price over a field that only decides where a bullet is drawn.
+  //
+  // Note that ADJACENT bits are legal and ordinary: bit i and bit i+1 put separators in two
+  // neighbouring gaps, which renders A(bullet)B(bullet)C. There is no such thing as two separators
+  // in one gap, so there is nothing to forbid.
   const legal = (1 << Math.max(0, t.length - 1)) - 1;
-  if ((mask & ~legal) !== 0) return false;
-  // No two in a row: a doubled separator renders as an empty segment and reads as a typo.
-  return (mask & (mask >> 1)) === 0;
+  return mask & legal;
 }
 
 /** Render a ticker for display. Never use the result as a key: the bare ticker is the identity. */
 function displayTicker(ticker, mask = 0) {
   const t = String(ticker || '').toUpperCase();
-  if (!mask || !spacersAreValid(t, mask)) return t;
+  const m = normalizeSpacers(t, mask);
+  if (!m) return t;
   let out = '';
   for (let i = 0; i < t.length; i++) {
     out += t[i];
-    if (i < t.length - 1 && (mask >> i) & 1) out += SPACER_CHAR;
+    if (i < t.length - 1 && (m >> i) & 1) out += SPACER_CHAR;
   }
   return out;
 }
@@ -132,5 +139,5 @@ function costOfHoarding(length, count) {
 module.exports = {
   PRICE_XVG, PRICE_LONG_XVG, MAX_TICKER_LENGTH, SPACER_CHAR,
   priceOf, splitOf, isPaid, costOfHoarding,
-  spacersAreValid, displayTicker, bareTicker,
+  normalizeSpacers, displayTicker, bareTicker,
 };

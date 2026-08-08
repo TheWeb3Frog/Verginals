@@ -177,9 +177,15 @@ const SPACER = '\u2022';
  */
 const bareOf = (shown) => shown.split(SPACER).join('');
 
+// The protocol's limit, and it counts CHARACTERS, not what is on screen. A separator is not a
+// character, so the DOM's own maxLength is the wrong tool: it would count the bullets and cut a
+// spaced name short.
+const MAX_TICKER = 26;
+
 /** Clean up as the user types, without ever fighting the cursor more than one character. */
 function normalizeTyped(raw) {
   let out = '';
+  let letters = 0;
   for (const ch of raw.toUpperCase()) {
     const isSep = ch === ' ' || ch === SPACER || ch === '-' || ch === '.';
     if (isSep) {
@@ -188,7 +194,12 @@ function normalizeTyped(raw) {
       if (out.length && !out.endsWith(SPACER)) out += SPACER;
       continue;
     }
-    if (/[A-Z0-9]/.test(ch)) out += ch;
+    if (!/[A-Z0-9]/.test(ch)) continue;
+    // Refuse the 27th character rather than accepting it and complaining afterwards. Separators
+    // stay available at the cap, since they cost nothing and change no length.
+    if (letters >= MAX_TICKER) continue;
+    out += ch;
+    letters += 1;
   }
   return out;
 }
@@ -205,7 +216,7 @@ function tickerSection() {
   input.setAttribute('aria-describedby', 'vr-ticker-hint');
   card.append(label, input);
 
-  const hint = el('div', 'vr-hint', 'Press space for a separator. It is display only and costs nothing.');
+  const hint = el('div', 'vr-hint');
   hint.id = 'vr-ticker-hint';
   card.append(hint);
 
@@ -228,13 +239,20 @@ function tickerSection() {
     }
 
     const bare = bareOf(shown);
+
+    // The counter is always visible rather than appearing on error, so the limit is something the
+    // user can see coming instead of something that stops them mid-word.
+    hint.textContent = '';
+    const count = el('span', `vr-count${bare.length >= MAX_TICKER ? ' full' : ''}`,
+      `${bare.length}/${MAX_TICKER}`);
+    hint.append(count);
+    hint.append(document.createTextNode(bare.length >= MAX_TICKER
+      ? ' characters. That is the limit, though you can still add separators: they are not characters.'
+      : ' characters. Press space for a separator, which is display only and costs nothing.'));
+
     out.textContent = '';
     if (!bare) {
       out.append(el('div', 'vr-sub', 'Type a ticker to see what it costs.'));
-      return;
-    }
-    if (bare.length > 26) {
-      out.append(el('div', 'vr-sub', `${bare.length} characters. The maximum is 26, separators aside.`));
       return;
     }
 

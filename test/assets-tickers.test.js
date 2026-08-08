@@ -4,7 +4,7 @@
 const assert = require('assert');
 const {
   priceOf, splitOf, isPaid, costOfHoarding, PRICE_LONG_XVG,
-  spacersAreValid, displayTicker, bareTicker, SPACER_CHAR,
+  normalizeSpacers, displayTicker, bareTicker, SPACER_CHAR,
 } = require('../src/assets/tickers');
 
 const COIN = 1e6;
@@ -129,22 +129,29 @@ test('a separator buys no namespace, so it costs nothing', () => {
   assert.strictEqual(bareTicker(spaced).length, 6, 'price follows the bare length, not the rendered one');
 });
 
-test('a leading or trailing separator is refused', () => {
-  assert.strictEqual(spacersAreValid('DOG', 1 << 2), false, 'bit 2 of a 3-char name is trailing');
-  assert.strictEqual(spacersAreValid('DOG', 1 << 5), false, 'past the end of the name');
-  assert.strictEqual(spacersAreValid('DOG', 1 << 0), true, 'after the first character is fine');
+test('a bit past the end is ignored, never fatal', () => {
+  // Rejecting would mean a wallet that sets one bit too many destroys the etching, and the etcher
+  // loses the ticker price over where a bullet is drawn. Bitcoin's Runes ignores them too.
+  assert.strictEqual(normalizeSpacers('DOG', 1 << 2), 0, 'bit 2 of a 3-char name is trailing');
+  assert.strictEqual(normalizeSpacers('DOG', 1 << 5), 0, 'past the end of the name');
+  assert.strictEqual(displayTicker('DOG', 1 << 2), 'DOG', 'renders as if the bit were not there');
+  assert.strictEqual(normalizeSpacers('DOG', 1 << 0), 1, 'after the first character is meaningful');
 });
 
-test('two separators in a row are refused', () => {
-  assert.strictEqual(spacersAreValid('DOGGO', 0b11), false);
-  assert.strictEqual(spacersAreValid('DOGGO', 0b101), true);
+test('ADJACENT bits are legal: they render single-letter segments', () => {
+  // Bit i and bit i+1 are separators in two neighbouring gaps, not two separators in one gap. There
+  // is no way to express the latter, so there is nothing to forbid. An earlier version rejected
+  // this and would have refused names like R.S.I.C.
+  assert.strictEqual(displayTicker('ABC', 0b11), 'A\u2022B\u2022C');
+  assert.strictEqual(normalizeSpacers('ABC', 0b11), 0b11);
+  assert.strictEqual(bareTicker(displayTicker('ABC', 0b11)), 'ABC');
 });
 
-test('an invalid mask does not silently render as no mask', () => {
-  // displayTicker falls back to the bare name, and the indexer rejects the etching outright, so
-  // two implementations can never disagree about how one asset is spelled.
-  assert.strictEqual(displayTicker('DOGGO', 0b11), 'DOGGO');
-  assert.strictEqual(spacersAreValid('DOGGO', 0b11), false);
+test('normalising keeps the meaningful bits and drops only the impossible ones', () => {
+  // Two real positions plus one past the end: the real ones survive.
+  const mask = (1 << 0) | (1 << 1) | (1 << 9);
+  assert.strictEqual(normalizeSpacers('ABC', mask), 0b11);
+  assert.strictEqual(displayTicker('ABC', mask), 'A\u2022B\u2022C');
 });
 
 test('no mask means no separator, and the bare name round-trips', () => {

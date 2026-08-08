@@ -167,17 +167,31 @@ function verifySection() {
 // would produce names that look identical to a human and differ to an indexer.
 const SPACER = '\u2022';
 
-/** Where the separators sit, as a set of positions. Display only, never part of the name. */
-let spacers = new Set([2, 4, 6, 9]);
+/**
+ * The field holds the DISPLAY form and you type a space to get a separator.
+ *
+ * The first version of this made you click into the gaps between letters, which nobody would guess
+ * and which is miserable on a phone. Typing is what people do, and a space is what they already
+ * reach for. The identity is derived from what is typed rather than edited separately, so there is
+ * one thing on screen and no way for the two to disagree.
+ */
+const bareOf = (shown) => shown.split(SPACER).join('');
 
-const spacedName = (bare) => {
+/** Clean up as the user types, without ever fighting the cursor more than one character. */
+function normalizeTyped(raw) {
   let out = '';
-  for (let i = 0; i < bare.length; i++) {
-    out += bare[i];
-    if (i < bare.length - 1 && spacers.has(i)) out += SPACER;
+  for (const ch of raw.toUpperCase()) {
+    const isSep = ch === ' ' || ch === SPACER || ch === '-' || ch === '.';
+    if (isSep) {
+      // A separator sits between two characters, so a leading one has nothing to sit after, and two
+      // in the same gap cannot be expressed at all. Both are simply not inserted.
+      if (out.length && !out.endsWith(SPACER)) out += SPACER;
+      continue;
+    }
+    if (/[A-Z0-9]/.test(ch)) out += ch;
   }
   return out;
-};
+}
 
 function tickerSection() {
   const host = $('#vr-ticker');
@@ -185,15 +199,15 @@ function tickerSection() {
   const card = el('div', 'vr-card');
 
   const label = el('label', 'vr-label', 'Ticker (A-Z and 0-9, up to 26, case-folded and permanent)');
-  const input = el('input', 'vr-in');
-  input.value = 'DOGGOTOTHEMOON';
-  input.maxLength = 26;
+  const input = el('input', 'vr-in big');
+  input.value = 'DOG' + SPACER + 'GO' + SPACER + 'TO' + SPACER + 'THE' + SPACER + 'MOON';
   input.setAttribute('aria-label', 'ticker');
+  input.setAttribute('aria-describedby', 'vr-ticker-hint');
   card.append(label, input);
 
-  const spacerBox = el('div', '');
-  spacerBox.style.marginTop = '16px';
-  card.append(spacerBox);
+  const hint = el('div', 'vr-hint', 'Press space for a separator. It is display only and costs nothing.');
+  hint.id = 'vr-ticker-hint';
+  card.append(hint);
 
   const out = el('div', '');
   out.style.marginTop = '16px';
@@ -201,56 +215,49 @@ function tickerSection() {
   host.append(card);
 
   const draw = () => {
-    const raw = input.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (raw !== input.value) input.value = raw;
-    spacerBox.textContent = '';
+    // Keep the caret where the user left it: normalising can only ever remove characters before it,
+    // so counting how many were dropped is enough to put it back.
+    const caret = input.selectionStart;
+    const before = input.value;
+    const shown = normalizeTyped(before);
+    if (shown !== before) {
+      input.value = shown;
+      const dropped = before.length - shown.length;
+      const at = Math.max(0, caret - dropped);
+      input.setSelectionRange(at, at);
+    }
+
+    const bare = bareOf(shown);
     out.textContent = '';
-    if (!raw) {
+    if (!bare) {
       out.append(el('div', 'vr-sub', 'Type a ticker to see what it costs.'));
       return;
     }
-    // Drop any position the name no longer has, so shortening the ticker cannot leave a trailing
-    // separator behind.
-    spacers = new Set([...spacers].filter((i) => i <= raw.length - 2));
-
-    // The spacer editor: one gap between each pair of characters, clickable.
-    spacerBox.append(el('div', 'vr-label', 'Separators (click between two characters)'));
-    const strip = el('div', 'vr-spacer-strip');
-    for (let i = 0; i < raw.length; i++) {
-      strip.append(el('span', 'vr-ch', raw[i]));
-      if (i === raw.length - 1) break;
-      const gap = el('button', `vr-gap${spacers.has(i) ? ' on' : ''}`, spacers.has(i) ? SPACER : '');
-      gap.title = spacers.has(i) ? 'Remove this separator' : 'Add a separator here';
-      gap.setAttribute('aria-label', `separator after character ${i + 1}`);
-      gap.onclick = () => {
-        // No two in a row: a doubled separator renders an empty segment and reads as a typo.
-        if (spacers.has(i)) spacers.delete(i);
-        else if (!spacers.has(i - 1) && !spacers.has(i + 1)) spacers.add(i);
-        draw();
-      };
-      strip.append(gap);
+    if (bare.length > 26) {
+      out.append(el('div', 'vr-sub', `${bare.length} characters. The maximum is 26, separators aside.`));
+      return;
     }
-    spacerBox.append(strip);
 
-    const shown = spacedName(raw);
-    const price = priceOf(raw.length);
+    const price = priceOf(bare.length);
     const kv = (k, v) => {
       const r = el('div', 'vr-kv');
       r.append(el('span', '', k), el('span', '', v));
       out.append(r);
     };
-    kv('Renders as', shown);
-    kv('Its identity', raw);
-    kv('Length that is priced', `${raw.length} characters, the bare name`);
+    // Trailing separators are dropped here for the same reason the protocol ignores them: a
+    // half-typed name should not read as a different name.
+    kv('Renders as', shown.replace(new RegExp(`${SPACER}+$`), ''));
+    kv('Its identity', bare);
+    kv('Length that is priced', `${bare.length} characters, separators not counted`);
     kv('Price', `${fmt(price)} XVG`);
     kv('Fifty of them', `${fmt(price * 50)} XVG`);
 
     const note = el('p', 'vr-sub');
     note.style.marginTop = '10px';
-    if (raw.length <= 4) {
+    if (bare.length <= 4) {
       note.textContent = 'Short and expensive on purpose. One project can afford this; an operator '
         + 'taking every good name of this length cannot.';
-    } else if (raw.length >= 12) {
+    } else if (bare.length >= 12) {
       note.textContent = 'Twelve or more is nearly free, so a descriptive honest name is never '
         + 'priced out. That is the other half of the mechanism.';
     } else {
@@ -260,9 +267,9 @@ function tickerSection() {
 
     const spacerNote = el('p', 'vr-sub');
     spacerNote.style.marginTop = '10px';
-    spacerNote.textContent = 'Separators are display only and cost nothing. ' + shown + ' and ' + raw
-      + ' are the same asset, so nobody can squat a name by re-spacing it, and the length price '
-      + 'keeps meaning what it says. Wallets show the spaced form and search the bare one.';
+    spacerNote.textContent = `A separator is not a character. ${shown} and ${bare} are the same `
+      + 'asset, priced on the same length, so nobody can squat a name by re-spacing it. This is how '
+      + 'Bitcoin Runes does it too: the bullets live in a separate field and never touch the name.';
     out.append(spacerNote);
 
     const split = el('p', 'vr-sub');

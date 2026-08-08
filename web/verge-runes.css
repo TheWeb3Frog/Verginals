@@ -283,3 +283,6 @@ th.vr-n { text-align: right; }
 .vr-gap:hover { border-color: var(--accent2); background: #12232e; }
 .vr-gap.on { border-style: solid; border-color: var(--accent); background: #12232e; }
 .vr-gap:focus-visible { outline: 2px solid var(--accent2); outline-offset: 1px; }
+
+.vr-in.big { font-size: 20px; letter-spacing: 2px; padding: 14px 16px; }
+.vr-hint { margin-top: 8px; font-size: 12px; color: var(--muted); }

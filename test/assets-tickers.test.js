@@ -2,7 +2,10 @@
 // The schedule is permanent once the first asset is etched, so these numbers are a contract.
 // Run: node test/assets-tickers.test.js
 const assert = require('assert');
-const { priceOf, splitOf, isPaid, costOfHoarding, PRICE_LONG_XVG } = require('../src/assets/tickers');
+const {
+  priceOf, splitOf, isPaid, costOfHoarding, PRICE_LONG_XVG,
+  spacersAreValid, displayTicker, bareTicker, SPACER_CHAR,
+} = require('../src/assets/tickers');
 
 const COIN = 1e6;
 let passed = 0;
@@ -100,6 +103,54 @@ test('with no payout addresses configured, nothing can be registered', () => {
 
 test('a long ticker is nearly free, so honest naming is never blocked', () => {
   assert.strictEqual(priceOf('MYHONESTPROJECTNAME') / COIN, 10);
+});
+
+// --- display spacers (§7.1) --------------------------------------------------------------------
+
+test('a mask renders the separators the etching asked for', () => {
+  // DOGGOTOTHEMOON with a separator after characters 2, 4, 6 and 9.
+  const mask = (1 << 2) | (1 << 4) | (1 << 6) | (1 << 9);
+  assert.strictEqual(displayTicker('DOGGOTOTHEMOON', mask), 'DOG\u2022GO\u2022TO\u2022THE\u2022MOON');
+});
+
+test('SPACING IS NOT IDENTITY: a spaced name and its bare name are the same asset', () => {
+  // The whole anti-squatting argument rests on this. If re-spacing made a new name, every good
+  // ticker could be taken a dozen times over and the length price would mean nothing.
+  const a = displayTicker('DOGGOTOTHEMOON', (1 << 2) | (1 << 4));
+  const b = displayTicker('DOGGOTOTHEMOON', (1 << 4) | (1 << 8));
+  assert.notStrictEqual(a, b, 'they render differently');
+  assert.strictEqual(bareTicker(a), bareTicker(b), 'and they are the same asset');
+  assert.strictEqual(bareTicker(a), 'DOGGOTOTHEMOON');
+});
+
+test('a separator buys no namespace, so it costs nothing', () => {
+  const spaced = displayTicker('GRUMPY', (1 << 1) | (1 << 3));
+  assert.strictEqual(priceOf(bareTicker(spaced)), priceOf('GRUMPY'));
+  assert.strictEqual(bareTicker(spaced).length, 6, 'price follows the bare length, not the rendered one');
+});
+
+test('a leading or trailing separator is refused', () => {
+  assert.strictEqual(spacersAreValid('DOG', 1 << 2), false, 'bit 2 of a 3-char name is trailing');
+  assert.strictEqual(spacersAreValid('DOG', 1 << 5), false, 'past the end of the name');
+  assert.strictEqual(spacersAreValid('DOG', 1 << 0), true, 'after the first character is fine');
+});
+
+test('two separators in a row are refused', () => {
+  assert.strictEqual(spacersAreValid('DOGGO', 0b11), false);
+  assert.strictEqual(spacersAreValid('DOGGO', 0b101), true);
+});
+
+test('an invalid mask does not silently render as no mask', () => {
+  // displayTicker falls back to the bare name, and the indexer rejects the etching outright, so
+  // two implementations can never disagree about how one asset is spelled.
+  assert.strictEqual(displayTicker('DOGGO', 0b11), 'DOGGO');
+  assert.strictEqual(spacersAreValid('DOGGO', 0b11), false);
+});
+
+test('no mask means no separator, and the bare name round-trips', () => {
+  assert.strictEqual(displayTicker('WRAITH', 0), 'WRAITH');
+  assert.strictEqual(bareTicker('WRAITH'), 'WRAITH');
+  assert.ok(!displayTicker('WRAITH', 0).includes(SPACER_CHAR));
 });
 
 console.log('\nassets tickers: ' + passed + ' passed');

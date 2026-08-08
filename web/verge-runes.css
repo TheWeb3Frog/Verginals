@@ -267,3 +267,19 @@ th.vr-n { text-align: right; }
 .vr-basket-right { text-align: right; }
 .vr-basket-t { font: 600 17px/1.2 ui-monospace, monospace; font-variant-numeric: tabular-nums; color: var(--accent); }
 .vr-basket-warn { padding: 6px 10px; border-radius: 8px; background: #241d0d; }
+
+/* --- ticker spacers ----------------------------------------------------------------------------- */
+
+.vr-spacer-strip {
+  display: flex; align-items: center; flex-wrap: wrap; margin-top: 8px;
+  padding: 10px 12px; border-radius: 10px; background: var(--bg);
+}
+.vr-ch { font: 600 18px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 1px; }
+.vr-gap {
+  width: 16px; height: 26px; padding: 0; margin: 0 1px; cursor: pointer;
+  border: 1px dashed var(--line); border-radius: 5px; background: transparent;
+  color: var(--accent); font: 16px/1 ui-monospace, monospace;
+}
+.vr-gap:hover { border-color: var(--accent2); background: #12232e; }
+.vr-gap.on { border-style: solid; border-color: var(--accent); background: #12232e; }
+.vr-gap:focus-visible { outline: 2px solid var(--accent2); outline-offset: 1px; }

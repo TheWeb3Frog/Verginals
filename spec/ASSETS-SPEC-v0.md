@@ -85,6 +85,7 @@ supply = N, divisibility = d   -> a fungible token
 | mint terms | `m` | map, optional | see §2.2. Absent means no open mint |
 | allowlist root | `a` | bytes 32, optional | merkle root, see §5 |
 | royalty | `r` | map, optional | `{ b: basis points, x: address }`, see §6 |
+| display spacers | `x` | uint, optional | bitfield, see §7.1. Display only, never part of the identity |
 | metadata ref | `i` | text, optional | inscription id used as logo/metadata |
 | parent | `k` | text, optional | inscription id of the collection this belongs to |
 
@@ -252,6 +253,43 @@ nearly free, so honest naming is never priced out.
 
 There is no unlock calendar, so there is no date to camp on. Allocation is first come, tickers are
 unique, case-folded to uppercase, and permanent.
+
+### 7.1 Display spacers
+
+A ticker is `A-Z0-9`, and that alone makes for flat names. Runes solved this with spacers, and the
+same trick works here for a few bytes.
+
+The etching may carry `x`, a bitfield: **bit `i` set means render a separator after character `i`**.
+The separator is always `U+2022 BULLET`, fixed by the protocol and never chosen by the etcher. Two
+etchers picking different separator characters would produce names that look identical to a human
+and differ to an indexer, which is a homograph attack with extra steps.
+
+```
+ticker  DOGGOTOTHEMOON
+x       bits 2, 4, 6, 9 set
+display DOG•GO•TO•THE•MOON
+```
+
+**Spacers are display only, and never part of the identity.** Uniqueness (§7) and price (§7 schedule)
+are both computed on the bare ticker. `DOGGOTOTHEMOON`, `DOG•GO•TO•THE•MOON` and `DOGGO•TOTHEMOON`
+are **one asset**, and the second and third cannot be etched once the first exists.
+
+That collision is the mechanism, not a limitation of it. If re-spacing produced a new name, every
+desirable ticker could be squatted a dozen times over and the length-based price would stop meaning
+anything: a four-letter name would cost 10,000 XVG and its spaced variants nothing.
+
+Valid masks, enforced at indexing time:
+
+- only positions `0 .. len-2` may be set, so no leading and no trailing separator;
+- no two adjacent bits, so no doubled separator rendering an empty segment;
+- a mask that breaks either rule makes the **etching invalid**, rather than being ignored. An
+  ignored mask would mean two indexers rendering the same asset differently.
+
+Wallets and explorers SHOULD render the spaced form and MUST match, sort and search on the bare one.
+
+This is affordable here in a way it was not on Bitcoin: Runes had to pack spacers into an 80-byte
+budget. The etching is CBOR inside an inscription, so the field costs a few bytes and nothing was
+given up for it.
 
 ### Where the money goes
 

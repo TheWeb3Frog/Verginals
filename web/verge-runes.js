@@ -163,6 +163,22 @@ function verifySection() {
 
 // --- 02 ticker pricing --------------------------------------------------------------------------
 
+// The separator is fixed by the protocol, never chosen: two etchers picking different characters
+// would produce names that look identical to a human and differ to an indexer.
+const SPACER = '\u2022';
+
+/** Where the separators sit, as a set of positions. Display only, never part of the name. */
+let spacers = new Set([2, 4, 6, 9]);
+
+const spacedName = (bare) => {
+  let out = '';
+  for (let i = 0; i < bare.length; i++) {
+    out += bare[i];
+    if (i < bare.length - 1 && spacers.has(i)) out += SPACER;
+  }
+  return out;
+};
+
 function tickerSection() {
   const host = $('#vr-ticker');
   host.textContent = '';
@@ -170,31 +186,62 @@ function tickerSection() {
 
   const label = el('label', 'vr-label', 'Ticker (A-Z and 0-9, up to 26, case-folded and permanent)');
   const input = el('input', 'vr-in');
-  input.value = 'GRUMPY';
+  input.value = 'DOGGOTOTHEMOON';
   input.maxLength = 26;
   input.setAttribute('aria-label', 'ticker');
   card.append(label, input);
 
+  const spacerBox = el('div', '');
+  spacerBox.style.marginTop = '16px';
+  card.append(spacerBox);
+
   const out = el('div', '');
-  out.style.marginTop = '14px';
+  out.style.marginTop = '16px';
   card.append(out);
   host.append(card);
 
   const draw = () => {
     const raw = input.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (raw !== input.value) input.value = raw;
+    spacerBox.textContent = '';
     out.textContent = '';
     if (!raw) {
       out.append(el('div', 'vr-sub', 'Type a ticker to see what it costs.'));
       return;
     }
+    // Drop any position the name no longer has, so shortening the ticker cannot leave a trailing
+    // separator behind.
+    spacers = new Set([...spacers].filter((i) => i <= raw.length - 2));
+
+    // The spacer editor: one gap between each pair of characters, clickable.
+    spacerBox.append(el('div', 'vr-label', 'Separators (click between two characters)'));
+    const strip = el('div', 'vr-spacer-strip');
+    for (let i = 0; i < raw.length; i++) {
+      strip.append(el('span', 'vr-ch', raw[i]));
+      if (i === raw.length - 1) break;
+      const gap = el('button', `vr-gap${spacers.has(i) ? ' on' : ''}`, spacers.has(i) ? SPACER : '');
+      gap.title = spacers.has(i) ? 'Remove this separator' : 'Add a separator here';
+      gap.setAttribute('aria-label', `separator after character ${i + 1}`);
+      gap.onclick = () => {
+        // No two in a row: a doubled separator renders an empty segment and reads as a typo.
+        if (spacers.has(i)) spacers.delete(i);
+        else if (!spacers.has(i - 1) && !spacers.has(i + 1)) spacers.add(i);
+        draw();
+      };
+      strip.append(gap);
+    }
+    spacerBox.append(strip);
+
+    const shown = spacedName(raw);
     const price = priceOf(raw.length);
     const kv = (k, v) => {
       const r = el('div', 'vr-kv');
       r.append(el('span', '', k), el('span', '', v));
       out.append(r);
     };
-    kv('Length', `${raw.length} character${raw.length === 1 ? '' : 's'}`);
+    kv('Renders as', shown);
+    kv('Its identity', raw);
+    kv('Length that is priced', `${raw.length} characters, the bare name`);
     kv('Price', `${fmt(price)} XVG`);
     kv('Fifty of them', `${fmt(price * 50)} XVG`);
 
@@ -210,6 +257,13 @@ function tickerSection() {
       note.textContent = 'The middle of the curve: affordable for one, punishing in bulk.';
     }
     out.append(note);
+
+    const spacerNote = el('p', 'vr-sub');
+    spacerNote.style.marginTop = '10px';
+    spacerNote.textContent = 'Separators are display only and cost nothing. ' + shown + ' and ' + raw
+      + ' are the same asset, so nobody can squat a name by re-spacing it, and the length price '
+      + 'keeps meaning what it says. Wallets show the spaced form and search the bare one.';
+    out.append(spacerNote);
 
     const split = el('p', 'vr-sub');
     split.style.marginTop = '10px';

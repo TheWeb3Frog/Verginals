@@ -72,12 +72,65 @@ function isPaid(tx, ticker, addresses) {
   return { ok: true, owed, paid };
 }
 
+// --- display spacers ---------------------------------------------------------------------------
+
+// The separator a spacer renders as. Fixed, never chosen by the etcher: if two etchers could pick
+// different separators, TICKER with a bullet and TICKER with a middle dot would look like the same
+// name to a human and different names to an indexer, which is a homograph attack with extra steps.
+const SPACER_CHAR = '\u2022'; // BULLET
+
+/**
+ * Spacers are DISPLAY ONLY, and that is the whole design.
+ *
+ * `x` is a bitfield in the etching: bit i set means "render a separator after character i". The
+ * ticker itself stays A-Z0-9, so DOGGOTOTHEMOON, DOG(bullet)GO(bullet)TO(bullet)THE(bullet)MOON and
+ * DOGGO(bullet)TOTHEMOON are one asset, not three.
+ *
+ * That collision is the point rather than a limitation. If spacing made a new name, every desirable
+ * ticker could be squatted a dozen times over by re-spacing it, and the length-based price (§7)
+ * would stop meaning anything. Uniqueness and price are both computed on the bare ticker, so a
+ * separator is free and buys no namespace.
+ *
+ * Cheap here in a way it is not on Bitcoin: Runes had to pack this into an 80-byte budget. The
+ * etching is CBOR inside an inscription, so the field costs a few bytes and nothing had to be
+ * sacrificed for it.
+ */
+function spacersAreValid(ticker, mask) {
+  const t = String(ticker || '');
+  if (!Number.isInteger(mask) || mask < 0) return false;
+  if (mask === 0) return true;
+  // A separator sits BETWEEN two characters, so the only legal positions are 0..len-2. This rules
+  // out a leading separator, a trailing one, and anything past the end of the name.
+  const legal = (1 << Math.max(0, t.length - 1)) - 1;
+  if ((mask & ~legal) !== 0) return false;
+  // No two in a row: a doubled separator renders as an empty segment and reads as a typo.
+  return (mask & (mask >> 1)) === 0;
+}
+
+/** Render a ticker for display. Never use the result as a key: the bare ticker is the identity. */
+function displayTicker(ticker, mask = 0) {
+  const t = String(ticker || '').toUpperCase();
+  if (!mask || !spacersAreValid(t, mask)) return t;
+  let out = '';
+  for (let i = 0; i < t.length; i++) {
+    out += t[i];
+    if (i < t.length - 1 && (mask >> i) & 1) out += SPACER_CHAR;
+  }
+  return out;
+}
+
+/** The identity of a displayed name: strip every separator and fold case. */
+function bareTicker(display) {
+  return String(display || '').split(SPACER_CHAR).join('').toUpperCase();
+}
+
 /** What a squatter would have to spend to take `count` tickers of this length. Used in the docs. */
 function costOfHoarding(length, count) {
   return priceOf('A'.repeat(length)) * count;
 }
 
 module.exports = {
-  PRICE_XVG, PRICE_LONG_XVG, MAX_TICKER_LENGTH,
+  PRICE_XVG, PRICE_LONG_XVG, MAX_TICKER_LENGTH, SPACER_CHAR,
   priceOf, splitOf, isPaid, costOfHoarding,
+  spacersAreValid, displayTicker, bareTicker,
 };

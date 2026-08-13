@@ -57,6 +57,13 @@
       name stays affordable to a real project while fifty of them ruin a squatter.
     </p>
     <p class="vr-say">
+      <b>The price is not spent.</b> It is locked for four years and then it is yours again. Every
+      fee model eventually has to say who receives the money, and every answer creates somebody with
+      a stake in the protocol. This one answers nobody: the coins sit in an output only the etcher
+      can open, and only once the wait is over. Waiting is the cost, so fifty names are still
+      ruinous, and the protocol still has no beneficiary anywhere in it.
+    </p>
+    <p class="vr-say">
       The interface makes that arithmetic impossible to miss, because it is the whole argument. Type
       a ticker.
     </p>
@@ -70,9 +77,9 @@
     <div id="vr-ticker" class="vr-ticker"></div>
 
     <p class="vr-note">
-      <b>The design call:</b> the squatter line updates as you type. It is not a warning aimed at
-      you, it is the reason the price exists, and showing it turns a fee into a policy the user can
-      see the sense of.
+      <b>The design call:</b> the release date is shown as a date, not as a duration. "Locked for
+      1460 days" is a number people skim past; "yours again on 8 August 2030" is a commitment they
+      can picture, and it is the honest way to present a cost that is really a wait.
     </p>
   </section>
 
@@ -102,13 +109,22 @@
       An etching can carry mint terms and a 32-byte allowlist root. Thirty-two bytes buys a real
       airdrop or a fair whitelist, which neither BRC-20 nor Runes can express at all.
     </p>
+    <p class="vr-say">
+      Without one, a mint is a race, and on this chain the fees are too small to slow anybody down.
+      That is said here rather than fixed, because every rule that would fix it rations time or
+      capital and so charges the ordinary minter for a problem they did not cause. The etcher picks:
+      a list, a premine they distribute themselves, or an open race they went into with their eyes
+      open.
+    </p>
 
     <div id="vr-mint" class="vr-mint"></div>
 
     <p class="vr-note">
       <b>The design call:</b> the eligibility check runs before the button, not after the
       transaction. A wallet that lets you broadcast a mint you cannot make is a wallet that charges
-      you a fee to be told no.
+      you a fee to be told no. It cannot always win: the last few mints of a capped supply are a race
+      nobody can call in advance, so the screen has to be honest about that too rather than pretend
+      the check is a guarantee.
     </p>
   </section>
 
@@ -120,6 +136,11 @@
       Balances live on outputs, like the coin itself, so an output can carry several assets at once
       and moving one is moving a UTXO. That is invisible most of the time and it matters in exactly
       one place: coin control.
+    </p>
+    <p class="vr-say">
+      The second card is the one this protocol makes necessary. A locked ticker price is still your
+      money, and a wallet that does not show it has effectively taken it: you paid, the balance
+      dropped, and nothing anywhere says it is coming back.
     </p>
 
     <div id="vr-holdings" class="vr-holdings"></div>

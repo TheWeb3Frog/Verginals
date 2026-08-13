@@ -35,17 +35,15 @@ test('an asset etching is recovered from a real inscription envelope', () => {
   assert.strictEqual(found.divisibility, 2);
 });
 
-test('mint terms, royalty and allowlist survive the round trip through the envelope', () => {
+test('mint terms and allowlist survive the round trip through the envelope', () => {
   const root = Buffer.alloc(32, 0x5a);
   const etch = buildEtch({
     ticker: 'RICH', supply: 100000, premine: 0,
     terms: { amount: 100, cap: 7, openHeight: 10, closeHeight: 20 },
-    royalty: { bps: 250, address: 'DPAYEE' },
     allowlistRoot: root,
   }, { address: 'D1' });
   const found = detectEtching(revealTx(etch.body, etch.contentType));
   assert.deepStrictEqual(found.terms, { amount: 100, cap: 7, openHeight: 10, closeHeight: 20 });
-  assert.deepStrictEqual(found.royalty, { bps: 250, address: 'DPAYEE' });
   assert.ok(Buffer.from(found.allowlistRoot).equals(root));
 });
 

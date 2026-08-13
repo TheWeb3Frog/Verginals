@@ -1,4 +1,4 @@
-// Verge Assets merkle checkpoints (ASSETS-SPEC-v0 §8, vector 9).
+// Verge Assets merkle checkpoints (ASSETS-SPEC-v0 §8, vector 8).
 // Run: node test/assets-checkpoint.test.js
 const assert = require('assert');
 const { AssetState, applyTx, assetRefOf } = require('../src/assets/indexer');
@@ -39,7 +39,7 @@ test('the root is deterministic and independent of insertion order', () => {
   assert.ok(stateRoot(populated()).equals(stateRoot(populated())));
 });
 
-test('vector 9: a wallet can prove its own balance against the published root', () => {
+test('vector 8: a wallet can prove its own balance against the published root', () => {
   const s = populated();
   const root = stateRoot(s);
   for (const e of s.entries()) {
@@ -49,7 +49,7 @@ test('vector 9: a wallet can prove its own balance against the published root', 
   }
 });
 
-test('vector 9b: a tampered amount fails against the same root', () => {
+test('vector 8b: a tampered amount fails against the same root', () => {
   const s = populated();
   const root = stateRoot(s);
   const p = proveBalance(s, 'split:1', REF);

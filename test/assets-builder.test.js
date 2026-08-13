@@ -105,7 +105,6 @@ test('an etch produces the CBOR body the indexer will read back', () => {
   const plan = buildEtch({
     ticker: 'frog', name: 'Frog Token', divisibility: 2, supply: 1000000, premine: 100000,
     terms: { amount: 1000, cap: 500, openHeight: 200, closeHeight: 300 },
-    royalty: { bps: 500, address: 'DCREATOR' },
   }, { address: 'D1' });
 
   assert.strictEqual(plan.ticker, 'FROG'); // upper-cased
@@ -116,7 +115,6 @@ test('an etch produces the CBOR body the indexer will read back', () => {
   assert.strictEqual(body.s, 1000000);
   assert.strictEqual(body.p, 100000);
   assert.deepStrictEqual(body.m, { a: 1000, c: 500, h0: 200, h1: 300 });
-  assert.deepStrictEqual(body.r, { b: 500, x: 'DCREATOR' });
 });
 
 test('etch validation refuses what the indexer would silently drop', () => {
@@ -127,8 +125,6 @@ test('etch validation refuses what the indexer would silently drop', () => {
     [{ divisibility: 9 }, /divisibility/],
     [{ supply: 0 }, /supply/],
     [{ premine: 99999 }, /premine/],
-    [{ royalty: { bps: 20000, address: 'D' } }, /bps/],
-    [{ royalty: { bps: 100 } }, /payout address/],
     [{ allowlistRoot: Buffer.alloc(31) }, /32 bytes/],
     [{ terms: { amount: 0 } }, /amount per mint/],
   ];

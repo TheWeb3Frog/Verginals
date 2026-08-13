@@ -171,19 +171,21 @@ test('both agree that a mint past its cap or window changes nothing', () => {
   assert.strictEqual(indexerImpl.index(txs).assets.get(REF).minted, 2000);
 });
 
-test('both agree on royalty enforcement', () => {
+test('both ignore an undefined etching field, and ignore it the same way', () => {
+  // §6. A field neither implementation knows must not change the state either of them arrives at,
+  // otherwise a future addition would split the index the day someone starts using it.
   const REF = indexerImpl.assetRefOf(100, 1);
   const edicts = codec.encodeEdicts([{ assetRef: REF, amount: 10000, output: 1 }]);
-  const base = { txid: 'e', height: 100, txIndex: 1, inputs: [], outputs: [out()],
-    etching: { ticker: 'ROY', supply: 50000, premine: 50000, royalty: { bps: 500, address: 'DPAYEE' } } };
-  const underpaid = [base, { txid: 'u', height: 101, txIndex: 0, saleValue: 1000000,
-    inputs: [{ txid: 'e', vout: 0 }], outputs: [out(), out(), out(10000, 'DPAYEE'), opret(edicts)] }];
-  const paid = [base, { txid: 'p', height: 101, txIndex: 0, saleValue: 1000000,
-    inputs: [{ txid: 'e', vout: 0 }], outputs: [out(), out(), out(50000, 'DPAYEE'), opret(edicts)] }];
-  assert.ok(agree(underpaid).same);
-  assert.ok(agree(paid).same);
-  // and they disagree with each other, so the rule is actually doing something
-  assert.notStrictEqual(rootOf(indexerImpl.index(underpaid).entries()), rootOf(indexerImpl.index(paid).entries()));
+  const move = { txid: 'm', height: 101, txIndex: 0,
+    inputs: [{ txid: 'e', vout: 0 }], outputs: [out(), out(), opret(edicts)] };
+  const plain = [{ txid: 'e', height: 100, txIndex: 1, inputs: [], outputs: [out()],
+    etching: { ticker: 'PLAIN', supply: 50000, premine: 50000 } }, move];
+  const decorated = [{ txid: 'e', height: 100, txIndex: 1, inputs: [], outputs: [out()],
+    etching: { ticker: 'PLAIN', supply: 50000, premine: 50000, owner: 'DSOMEONE', royalty: { bps: 500 } } }, move];
+  assert.ok(agree(plain).same);
+  assert.ok(agree(decorated).same);
+  // and the extra field changed nothing at all, in either implementation
+  assert.strictEqual(rootOf(indexerImpl.index(plain).entries()), rootOf(indexerImpl.index(decorated).entries()));
 });
 
 test('a deliberately broken implementation is caught (the harness can fail)', () => {

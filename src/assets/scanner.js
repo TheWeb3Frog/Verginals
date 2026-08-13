@@ -75,7 +75,6 @@ function detectEtching(tx) {
     if (!root || root.length !== 32) return null;
     etching.allowlistRoot = root;
   }
-  if (body.r) etching.royalty = { bps: body.r.b, address: body.r.x };
   if (body.i) etching.metadataRef = body.i;
   if (body.k) etching.parent = body.k;
   return etching;

@@ -159,38 +159,16 @@ test('a mint cannot push the asset past its supply cap', () => {
   assert.strictEqual(s.balanceOf('m2:0', REF), 0); // would exceed supply
 });
 
-test('vector 8: a transfer that underpays a declared royalty does not move the asset', () => {
-  const royalty = { bps: 500, address: 'DCREATOR' }; // 5%
-  const s = etched({ royalty });
-  const edicts = codec.encodeEdicts([{ assetRef: REF, amount: 100000, output: 1 }]);
-
-  const underpaid = new AssetState();
-  Object.assign(underpaid, s);
-  applyTx(s, {
-    txid: 'cheap', height: 101, txIndex: 0, saleValue: 1000000,
-    inputs: [{ txid: 'etch', vout: 0 }],
-    outputs: [out(), out(), out(10000, 'DCREATOR'), opret(edicts)], // owes 50000, paid 10000
-  });
-  // the edict is refused, so the balance falls through to the remainder output, still owned by the seller
-  assert.strictEqual(s.balanceOf('cheap:1', REF), 0);
-
-  const s2 = etched({ royalty });
-  applyTx(s2, {
-    txid: 'fair', height: 101, txIndex: 0, saleValue: 1000000,
-    inputs: [{ txid: 'etch', vout: 0 }],
-    outputs: [out(), out(), out(50000, 'DCREATOR'), opret(edicts)],
-  });
-  assert.strictEqual(s2.balanceOf('fair:1', REF), 100000);
-});
-
-test('a plain move with no declared sale is not blocked by a royalty', () => {
-  const s = etched({ royalty: { bps: 500, address: 'DCREATOR' } });
-  applyTx(s, {
-    txid: 'gift', height: 101, txIndex: 0,
-    inputs: [{ txid: 'etch', vout: 0 }],
-    outputs: [out(), out(), opret(codec.encodeEdicts([{ assetRef: REF, amount: 100000, output: 1 }]))],
-  });
-  assert.strictEqual(s.balanceOf('gift:1', REF), 100000);
+// §6: an etch has no owner, so nothing about a registered asset can be revised after the fact. There
+// is no update message to test against, which is the point; what can be tested is that a later
+// etching cannot reach an existing one (above) and that an unrecognised field is ignored rather than
+// taken as an instruction.
+test('a field the protocol does not define is ignored, and the asset registers anyway', () => {
+  const s = etched({ owner: 'DSOMEONE', mutable: true });
+  const asset = s.assets.get(REF);
+  assert.strictEqual(asset.ticker, 'FROG');
+  assert.strictEqual(asset.owner, undefined);
+  assert.strictEqual(asset.mutable, undefined);
 });
 
 test('an allowlisted mint needs a valid proof from a spent input', () => {

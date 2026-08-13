@@ -21,8 +21,18 @@ const fmt = (n) => n.toLocaleString('en-US');
 
 // Named so nobody mistakes them for the live collection. Amounts are atomic units, as in the spec:
 // GRUMPY has divisibility 2, so 125000 atomic units display as 1,250.00.
+// The mint figures are derived, not typed in, because typed-in ones drift: an earlier version had a
+// cap of 21,000 mints beside a premine of 1,000,000, which together exceed the supply, so the mint
+// would in fact have closed early. premine + perMint * mintCap must equal supply, exactly.
 const SAMPLE = {
-  asset: { ticker: 'GRUMPY', name: 'Grumpy Token', divisibility: 2, supply: 2100000000, minted: 1470000000 },
+  asset: {
+    ticker: 'GRUMPY', name: 'Grumpy Token', divisibility: 2,
+    supply: 2100000000,   // 21,000,000.00
+    premine: 100000000,   //  1,000,000.00
+    perMint: 100000,      //      1,000.00
+    mintCap: 20000,       // 1,000,000 + 20,000 x 1,000 = 21,000,000
+    mintsUsed: 14000,
+  },
   balance: 125000,
   outpoint: 'b7d2f4a1c9e83b06f5a2d47c1e9b380a5c6f2d13e847a9b0c1d2e3f4a5b6c7d8:1',
   height: 9388000,
@@ -181,6 +191,11 @@ const bareOf = (shown) => shown.split(SPACER).join('');
 // character, so the DOM's own maxLength is the wrong tool: it would count the bullets and cut a
 // spaced name short.
 const MAX_TICKER = 26;
+const LOCK_DAYS = 1460;
+
+/** The date a price paid today comes back, which is the only form the wait is legible in. */
+const releaseDate = () => new Date(Date.now() + LOCK_DAYS * 86400 * 1000)
+  .toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
 /** Clean up as the user types, without ever fighting the cursor more than one character. */
 function normalizeTyped(raw) {
@@ -267,8 +282,9 @@ function tickerSection() {
     kv('Renders as', shown.replace(new RegExp(`${SPACER}+$`), ''));
     kv('Its identity', bare);
     kv('Length that is priced', `${bare.length} characters, separators not counted`);
-    kv('Price', `${fmt(price)} XVG`);
-    kv('Fifty of them', `${fmt(price * 50)} XVG`);
+    kv('Locked', `${fmt(price)} XVG, for 1460 days`);
+    kv('Yours again on', releaseDate());
+    kv('Fifty of them', `${fmt(price * 50)} XVG locked at once`);
 
     const note = el('p', 'vr-sub');
     note.style.marginTop = '10px';
@@ -290,11 +306,21 @@ function tickerSection() {
       + 'Bitcoin Runes does it too: the bullets live in a separate field and never touch the name.';
     out.append(spacerNote);
 
-    const split = el('p', 'vr-sub');
-    split.style.marginTop = '10px';
-    split.textContent = 'Where this payment goes is fixed in the protocol and immutable once the '
-      + 'first asset is etched. The split is still being agreed, so this preview does not state it.';
-    out.append(split);
+    const lock = el('p', 'vr-sub');
+    lock.style.marginTop = '10px';
+    lock.textContent = 'Nothing is burned and nobody is paid. The price goes into an output only you '
+      + 'can spend, and only once the four years are up. That is what makes fifty registrations '
+      + 'ruinous without putting a single address into the protocol.';
+    out.append(lock);
+
+    const cost = el('p', 'vr-sub');
+    cost.style.marginTop = '10px';
+    cost.textContent = 'Waiting is not free, and that is the point: four years of it costs you '
+      + 'somewhere between a third and two thirds of the amount, depending on what you would '
+      + 'otherwise have done with the coins. Getting them back needs the release tool, because '
+      + 'Verge Core cannot sign the script that holds them. The procedure is inscribed on chain, '
+      + 'beside the asset, so it does not depend on this site still being here in four years.';
+    out.append(cost);
   };
 
   input.addEventListener('input', draw);
@@ -325,7 +351,6 @@ function etchSection() {
   field('Supply cap', '21,000,000.00', true);
   field('Divisibility', '2 decimals', true);
   field('Premine', '1,000,000.00 to you', true);
-  field('Royalty', 'none', true);
   card.append(grid);
 
   const summary = el('div', '');
@@ -336,9 +361,10 @@ function etchSection() {
     summary.append(r);
   };
   kv('This etching is', 'a fungible token (supply above 1)');
-  kv('Ticker price', '2,500 XVG for six characters');
-  kv('Inscription + fees', '~0.6 XVG');
-  kv('Changeable later', 'the name only');
+  kv('Ticker price', '2,500 XVG for six characters, locked not spent');
+  kv('That price returns', releaseDate());
+  kv('Inscription + fees', '~0.6 XVG, these are spent');
+  kv('Changeable later', 'nothing, by anyone, ever');
   card.append(summary);
 
   const foot = el('div', 'vr-row');
@@ -362,18 +388,24 @@ function mintSection() {
   row.append(el('div', 'vr-ticker-badge', 'GRU'));
   const mid = el('div', 'vr-grow');
   mid.append(el('div', 'vr-name', 'Grumpy Token'));
-  mid.append(el('div', 'vr-sub', '1,000.00 per mint · closes at height 9,400,000'));
+  const a = SAMPLE.asset;
+  mid.append(el('div', 'vr-sub',
+    `${display(a.perMint, a.divisibility)} per mint · closes at height 9,400,000`));
   row.append(mid);
   row.append(el('span', 'vr-tag ok', 'ELIGIBLE'));
   open.append(row);
 
-  const pct = Math.round((SAMPLE.asset.minted / SAMPLE.asset.supply) * 100);
+  // The bar tracks the supply that EXISTS, so it counts the premine. The mint counter tracks the
+  // open mint alone. They are different fractions and saying so beats leaving them to be misread.
+  const issued = a.premine + a.perMint * a.mintsUsed;
+  const pct = Math.round((issued / a.supply) * 100);
   const bar = el('div', 'vr-bar');
   const fill = el('i');
   fill.style.width = `${pct}%`;
   bar.append(fill);
   open.append(bar);
-  open.append(el('div', 'vr-sub', `${pct}% minted · ${fmt(14700)} of ${fmt(21000)} mints used`));
+  open.append(el('div', 'vr-sub',
+    `${pct}% of the supply issued, premine included · ${fmt(a.mintsUsed)} of ${fmt(a.mintCap)} mints used`));
 
   const kv = (host2, k, v) => {
     const r = el('div', 'vr-kv');
@@ -441,6 +473,34 @@ function holdingsSection() {
     'Spend this coin for a fee and everything on it goes with it. The protocol will not destroy the '
     + 'balance, it moves it to whoever you paid, which is a different kind of gone.'));
   host.append(card);
+
+  // The ticker price has to appear somewhere the owner will look, or paying it feels like losing it.
+  const locked = el('div', 'vr-card');
+  locked.style.marginTop = '12px';
+  locked.append(el('div', 'vr-sub', 'AND ONE COIN YOU CANNOT TOUCH YET'));
+
+  const lockHead = el('div', 'vr-row');
+  lockHead.style.marginTop = '10px';
+  const lm = el('div', 'vr-grow');
+  lm.append(el('div', 'vr-name', '2,500.00 XVG'));
+  lm.append(el('div', 'vr-sub', 'the ticker price for GRUMPY'));
+  lockHead.append(lm);
+  lockHead.append(el('span', 'vr-tag warn', 'LOCKED'));
+  locked.append(lockHead);
+
+  const lockRows = el('div', '');
+  lockRows.style.marginTop = '12px';
+  for (const [k, v] of [['Unlocks on', releaseDate()], ['Goes to', 'you, and nobody else, ever']]) {
+    const r = el('div', 'vr-kv');
+    r.append(el('span', '', k), el('span', '', v));
+    lockRows.append(r);
+  }
+  locked.append(lockRows);
+  locked.append(el('div', 'vr-sub',
+    'Not a fee and not a burn: it is still your money, it is simply unreachable until the date. '
+    + 'Showing it as a balance with a date is the whole difference between a protocol that charges '
+    + 'you and one that asks you to wait.'));
+  host.append(locked);
 }
 
 // --- 06 swap --------------------------------------------------------------------------------
@@ -505,9 +565,15 @@ function outsSection() {
   item('No indexer picker in the interface.',
     'A dropdown asks the user to decide who to believe, which they cannot evaluate. The wallet '
     + 'compares roots across indexers itself and only speaks up when they disagree.');
-  item('No royalty enforcement claimed as absolute.',
-    'It binds everyone who follows the protocol, and a hostile fork of the indexer can ignore it. '
-    + 'The spec says so plainly and so should any screen that shows a royalty.');
+  item('No payout address, anywhere in the protocol.',
+    'The ticker price is locked and comes back to whoever paid it, so there is no treasury, no split '
+    + 'to negotiate, and no line in the spec that has to name somebody. It also means the etch fee '
+    + 'cannot quietly become a revenue stream later: there is no field it could be paid into.');
+  item('No royalties, and no owner of any kind.',
+    'The indexer could enforce a royalty, which is more than Ethereum manages, and an earlier draft '
+    + 'did. Taking a percentage needs a sale price, and a UTXO chain cannot tell a payment from '
+    + 'change, so the price had to come from outside the chain and two indexers could disagree on it '
+    + 'without either being wrong. Nothing here may rest on a number that is not in a block.');
   host.append(ul);
 }
 

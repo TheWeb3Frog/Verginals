@@ -115,7 +115,7 @@ function buildCheckpoint(height, root, opts = {}) {
  * Etch a new asset. The rich payload rides in an inscription (spec §1), so this returns the CBOR
  * body for the existing inscription pipeline to carry, plus the output that receives the premine.
  *
- * @param {Object} asset { ticker, name, divisibility, supply, premine, terms, allowlistRoot, royalty, parent, metadataRef }
+ * @param {Object} asset { ticker, name, divisibility, supply, premine, terms, allowlistRoot, parent, metadataRef }
  * @param {Object} recipient { address, value } receives the premine
  */
 function buildEtch(asset, recipient, opts = {}) {
@@ -150,12 +150,6 @@ function buildEtch(asset, recipient, opts = {}) {
       throw new Error('allowlistRoot must be 32 bytes');
     }
     body.a = asset.allowlistRoot;
-  }
-  if (asset.royalty) {
-    const bps = Number(asset.royalty.bps || 0);
-    if (!Number.isInteger(bps) || bps < 0 || bps > 10000) throw new Error('royalty bps must be between 0 and 10000');
-    if (!asset.royalty.address) throw new Error('a royalty needs a payout address');
-    body.r = { b: bps, x: asset.royalty.address };
   }
   if (asset.metadataRef) body.i = asset.metadataRef;
   if (asset.parent) body.k = asset.parent;

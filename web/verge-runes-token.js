@@ -32,7 +32,6 @@ const ASSET = {
   vol24: 184000,
   cap: 884100,
   etchedAt: 9312440,
-  royalty: null,
 };
 
 const DAY = 86400;

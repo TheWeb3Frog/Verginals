@@ -19,7 +19,6 @@ Status: draft, not deployed. Companion to `VERGINALS-SPEC-v0.md` (inscriptions),
 | Light client can verify a balance | no | no | **yes, merkle checkpoints** |
 | Native swap | no | no | **yes** |
 | Allowlisted mints | no | no | **yes, merkle root** |
-| Enforceable royalties | no | no | **yes, as a validity rule** |
 
 BRC-20 bolts an account model onto a UTXO chain using text files; it was an experiment that went
 viral, and every operation costs a full inscription. Runes fixed the state model but kept everything
@@ -52,7 +51,7 @@ different carriers.
 
 | Operation | Carrier | Rationale |
 |---|---|---|
-| **Etch** (create) | **inscription** (`VERGINALS-SPEC-v0`) | one-time, rich: name, metadata, supply rules, allowlist root, royalty terms. No 83-byte ceiling. |
+| **Etch** (create) | **inscription** (`VERGINALS-SPEC-v0`) | one-time, rich: name, metadata, supply rules, allowlist root. No 83-byte ceiling. |
 | **Mint**, **Transfer**, **Checkpoint** | **OP_RETURN** | frequent, tiny, one transaction, negligible fee |
 
 Neither Bitcoin protocol does this: BRC-20 pays inscription prices on every transfer, Runes cannot
@@ -84,8 +83,8 @@ supply = N, divisibility = d   -> a fungible token
 | premine | `p` | uint | credited to the etcher's output, may be 0 |
 | mint terms | `m` | map, optional | see §2.2. Absent means no open mint |
 | allowlist root | `a` | bytes 32, optional | merkle root, see §5 |
-| royalty | `r` | map, optional | `{ b: basis points, x: address }`, see §6 |
 | display spacers | `x` | uint, optional | bitfield, see §7.1. Display only, never part of the identity |
+| price lock | `l` | map | `{ t: unix locktime, k: 33-byte pubkey }`, see §7.2 |
 | metadata ref | `i` | text, optional | inscription id used as logo/metadata |
 | parent | `k` | text, optional | inscription id of the collection this belongs to |
 
@@ -198,23 +197,31 @@ can express it.
 
 ---
 
-## 6. Royalties as a validity rule
+## 6. An etch has no owner
 
-If the etching declares `r = { b, x }`, a transfer of that asset is **valid only if** the transaction
-pays at least `b` basis points of the declared sale value to address `x`.
+Once the etching confirms, **no party has any privileged relationship to the asset**. Not the etcher,
+not an indexer operator, not whoever runs a marketplace. This is a promise, so it is stated as a rule
+rather than left to be inferred from the absence of a feature:
 
-This is enforceable in a way it is not on Ethereum or Bitcoin, because in a metaprotocol the indexer
-**defines what a valid transfer is**. A transfer that skips the royalty simply does not move the
-asset: the sender still owns it.
+- **no field may ever change.** There is no update message in §4, and there is no authority that
+  could send one if there were;
+- **the etcher's only privilege is the premine**, and it is taken in the etching transaction itself.
+  Once that transaction confirms they are an ordinary holder;
+- **a mint cannot be paused, closed early, or extended by anyone.** It ends by its own terms and by
+  nothing else: the cap in `m.c`, the close height in `m.h1`, or the supply cap in `s`;
+- **the metadata reference `i` is fixed at etch time.** Runes has no such field at all, so logos and
+  links live in marketplace databases instead. Pinning the reference on chain gives the asset its
+  identity without giving anybody the power to rewrite it later.
 
-Honest limits, stated in the spec rather than in a footnote:
+The point is what a buyer does not have to ask. On a protocol with an owner, holding any asset means
+knowing who holds the keys to it and what they are allowed to do. Here that question has no subject.
 
-- it binds those who follow the protocol, which is everyone who agrees on what the asset is;
-- a hostile fork of the indexer could ignore royalties, producing a competing state, exactly as with
-  any metaprotocol. Social consensus decides which state is real;
-- it applies to protocol-level transfers, not to handing someone a private key.
-
-Royalties are **optional per asset** and immutable once etched.
+This rules out royalties, which an earlier draft of this spec enforced as a validity rule. Enforcement
+did work: the indexer decides what a valid transfer is, so a transfer that skipped the payment simply
+would not move the asset, which is more than Ethereum can do. It came out anyway. A royalty needs a
+sale price, and a UTXO chain cannot tell a payment from change, so the price had to be asserted from
+outside the chain and two indexers could disagree on it without either being wrong. Nothing in this
+protocol may depend on a value that is not in a block.
 
 ---
 
@@ -296,21 +303,102 @@ This is affordable here in a way it was not on Bitcoin: Runes had to pack spacer
 budget. The etching is CBOR inside an inscription, so the field costs a few bytes and nothing was
 given up for it.
 
-### Where the money goes
+### 7.2 The price is locked, not paid
 
-**Half to the project treasury, half to Verge itself.** Nothing is burned.
+**Nothing is burned and nothing is paid to anyone.** The price is sent to an output the etcher can
+spend again, and only again, after `LOCK_SECONDS` have passed.
 
-A protocol that depends on a chain should contribute to it. Verge's development and its public
-infrastructure are what make this protocol possible at all, so a share of every registration goes
-back to them by design rather than by goodwill. It also aligns the incentives: the protocol's success
-and the chain's health become the same thing.
+This is the whole answer to a question every fee model runs into: who receives it. A burn answers
+"nobody" but destroys the money. A payout answers with an address, and an address is a party, which
+is precisely what §6 spent its length removing from this protocol. A lock answers "nobody, for four
+years", which deters mass registration without creating a beneficiary at all.
 
-Both halves must be paid **in the transaction that carries the etching**, each to its exact address.
-Paying only one side does not buy a ticker. Any odd unit from the split goes to Verge, never to the
-project.
+The deterrence is real, not cosmetic. What a lock costs is the present value of what comes back, so
+at the discount rates that actually apply to a coin holder, locking `N` bites between a third and two
+thirds as hard as burning `N`. It also removes the same supply from circulation for the duration,
+which is most of the monetary argument for a burn.
 
-The Verge address is fixed in the protocol and immutable. It **must be an address published by the
-Verge project itself**, and is deliberately left unset here until the Verge maintainers confirm one.
+**The lock output must be an output of the etching transaction itself.** That is not a convention,
+it is what makes recovery possible with no stored state anywhere: an indexer reconstructing history
+from blocks sees the lock in the same transaction as the asset, for free, and a wallet that has lost
+everything but its seed can still find it.
+
+#### The output
+
+A P2SH output whose redeem script is:
+
+```
+<locktime>  OP_CHECKLOCKTIMEVERIFY  OP_DROP  <pubkey>  OP_CHECKSIG
+```
+
+with `<locktime>` in minimal `CScriptNum` encoding and `<pubkey>` the 33-byte compressed key derived
+at `m/44'/77'/0'/2/n`. Branch `2` is reserved for lock keys, so they can never collide with the
+external (`0`) or change (`1`) keys of an ordinary wallet.
+
+**`locktime` is a unix timestamp, never a block height.** Both are available (`nLockTime` below
+500000000 is a height, at or above it is a timestamp) and the choice is not close over this horizon.
+A height lock assumes block spacing will be unchanged four years out: ten percent of drift is five
+months of error. A timestamp lock is judged against the block's median time past (BIP113), which
+trails the wall clock by the median of the last eleven block times, so it over-runs by roughly two
+and a half minutes on a 30-second chain. Two and a half minutes of error on four years is nothing.
+
+`LOCK_SECONDS` is **126,144,000** (1460 days).
+
+#### What the etching publishes
+
+The etching payload carries `l = { t, k }`: the exact `locktime` and the exact 33-byte pubkey. Both
+are already public the moment the lock is spent, so publishing them costs no privacy, and it is what
+turns recovery from a search into a calculation. A tool given the seed derives keys until one matches
+`k`, rebuilds the script from `k` and `t`, and is done. It never has to guess a timestamp, and it
+never needs an address index, which Verge does not have.
+
+#### How the lock is spent, in full
+
+This procedure is written out rather than referenced, because **Verge Core cannot perform it**. Its
+signing routines only solve recognised script templates, and this is not one of them, so
+`signrawtransactionwithkey` refuses with `invalid stack size (possibly missing key)` no matter which
+key it is handed. Recovering these coins always requires software written for the purpose.
+
+1. build a transaction spending the lock output, with `nSequence` **below** `0xffffffff` on that
+   input. At `0xffffffff` the chain ignores `nLockTime` entirely and the lock is never consulted;
+2. set the transaction's own `nLockTime` to at least the script's `locktime`;
+3. compute Verge's legacy sighash over it with `SIGHASH_ALL`, `scriptCode` being the redeem script.
+   Verge's sighash serialisation is Bitcoin's with the 4-byte `nTime` inserted after the version;
+4. `scriptSig` is two pushes: the DER signature with the `SIGHASH_ALL` byte appended, then the redeem
+   script itself.
+
+An implementation of exactly this is `test/e2e/timelock-regtest.js`.
+
+#### This section is inscribed
+
+Everything above is a fact about outputs that already exist, so it can never change, and a document
+that can never change should not depend on a website. **This section is inscribed on chain, and the
+etching's `i` field points at it.** The instructions for unlocking the money live on the same chain
+as the money, which is the only form of durability that does not need somebody to keep paying for it.
+
+The program is a convenience; the procedure is the artifact. Any developer with any secp256k1 library
+can rebuild the tool from the four steps above, which is how a specification outlives its software.
+
+#### Measured, not assumed
+
+Every claim here was run on a Verge Core v26.5.0 chain (`test/e2e/timelock-regtest.js`):
+
+| | |
+|---|---|
+| a P2SH CLTV output relays | yes, standard |
+| spending before the lock | refused, `non-final` (code 64) |
+| spending with `nLockTime` dropped | refused by the script, `non-mandatory-script-verify-flag (Locktime)` |
+| spending after the lock | accepted, coins land at the destination |
+| a 300s lock released after | 377s, the median-time-past lag |
+| Verge Core signing the script | cannot, at all |
+| two OP_RETURN outputs in one tx | accepted, unlike Bitcoin Core's default |
+| mempool floor | 0.1 XVG, well above Bitcoin's |
+
+**One number is still open.** The schedule above was written for a burn, where the price is the cost.
+Under a lock the cost is only the present value of the wait, so the same figures deter between a
+third and two thirds as hard. Either the schedule rises to keep the intended pressure, or the
+pressure was set too high to begin with. It has to be settled before the first asset is etched,
+because the schedule is permanent from that moment.
 
 ---
 
@@ -415,6 +503,17 @@ Stated plainly so nobody builds on a promise the chain cannot keep:
   chunked and expensive, which is why etchings are one-time.
 - **No indexer-free operation.** No metaprotocol has this. §8 makes the indexer *checkable*, which is
   the honest version of the claim.
+- **No fair-launch guarantee on an open mint.** Relay fees are negligible here, so nothing stops one
+  automated participant from taking most of an ungated mint. That is true on every chain; what is
+  different is that Bitcoin's fee market puts a real price on the attempt and Verge deliberately does
+  not. Every rule that would fix it rations either time or capital, and therefore charges the honest
+  minter for a problem they did not cause, so none is imposed. The tools that do work are already
+  here: an allowlist (§5) decides in advance who is invited, and a full premine lets the etcher
+  distribute by hand. An ungated open mint is a race, and the interface says so before the etching is
+  signed rather than after.
+- **No way to tighten issuance rules after the fact.** Adding a restrictive field later would split
+  the index in silence, because an indexer that does not recognise it carries on permitting what the
+  new rule forbids, and neither side can tell. Issuance rules are therefore what they are at v0.
 
 ---
 
@@ -445,5 +544,4 @@ an independent implementation can be checked against them. They are the normativ
 5. Burn when a transaction has no eligible output.
 6. A malformed message leaving balances intact via the default assignment.
 7. A mint refused past its close height, and one refused for exceeding the cap.
-8. A transfer refused for underpaying a declared royalty.
-9. A merkle proof verifying against a checkpoint root, and a tampered proof failing.
+8. A merkle proof verifying against a checkpoint root, and a tampered proof failing.

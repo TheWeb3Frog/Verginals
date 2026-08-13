@@ -82,7 +82,7 @@ function validDefinition(e) {
   if (s < 0 || p < 0 || p > s) return null;
   return {
     ticker, supply: s, premine: p, divisibility: d,
-    terms: e.terms || null, allowlistRoot: e.allowlistRoot || null, royalty: e.royalty || null,
+    terms: e.terms || null, allowlistRoot: e.allowlistRoot || null,
   };
 }
 
@@ -94,23 +94,6 @@ function messageOf(tx) {
     if (m) return m;
   }
   return null;
-}
-
-/** Spec §6. A declared sale must pay every royalty owed, or no edict in it takes effect. */
-function royaltyOk(journal, tx, message, pooled) {
-  const sale = Number(tx.saleValue || 0);
-  if (sale <= 0) return true;
-  return (message.edicts || []).every((e) => {
-    if (!pooled.has(e.assetRef)) return true;
-    const def = journal.definitions.get(e.assetRef);
-    if (!def || !def.royalty) return true;
-    const owed = Math.floor((sale * Number(def.royalty.bps || 0)) / 10000);
-    if (owed <= 0) return true;
-    const paid = (tx.outputs || [])
-      .filter((o) => o.address && o.address === def.royalty.address)
-      .reduce((sum, o) => sum + o.value, 0);
-    return paid >= owed;
-  });
 }
 
 /** Spec §5. */
@@ -130,7 +113,7 @@ function allowlistOk(tx, def) {
 }
 
 /**
- * Apply one transaction to the journal. Mirrors ASSETS-SPEC-v0 §2-§6 step by step, but arrives
+ * Apply one transaction to the journal. Mirrors ASSETS-SPEC-v0 §2-§5 step by step, but arrives
  * there by a different route from indexer.js.
  */
 function apply(journal, tx, opts = {}) {
@@ -186,7 +169,7 @@ function apply(journal, tx, opts = {}) {
   (tx.outputs || []).forEach((o, i) => { if (!o.isOpReturn && o.value >= dust) eligible.push(i); });
 
   // (e) edicts
-  if (message && message.type === 'edicts' && royaltyOk(journal, tx, message, pooled)) {
+  if (message && message.type === 'edicts') {
     for (const e of message.edicts) {
       const have = pooled.get(e.assetRef) || 0;
       if (have <= 0 || !eligible.includes(e.output)) continue;

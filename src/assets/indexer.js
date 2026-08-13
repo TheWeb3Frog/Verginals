@@ -1,5 +1,5 @@
 'use strict';
-// Verge Assets: the state machine (ASSETS-SPEC-v0 §2, §3, §5, §6).
+// Verge Assets: the state machine (ASSETS-SPEC-v0 §2, §3, §5).
 //
 // A pure, deterministic reduction of transactions into asset state. No chain access, no disk, no
 // clock: feed it the same blocks and it produces the same state, byte for byte. That property is
@@ -100,7 +100,7 @@ function applyTx(state, tx, opts = {}) {
   (tx.outputs || []).forEach((o, i) => { if (!o.isOpReturn && o.value >= dust) eligible.push(i); });
 
   // 5) Explicit edicts, in order. An edict naming an impossible output invalidates only itself.
-  if (msg && msg.type === 'edicts' && royaltiesSatisfied(state, tx, msg, pool)) {
+  if (msg && msg.type === 'edicts') {
     for (const e of msg.edicts) {
       const available = pool.get(e.assetRef) || 0;
       if (available <= 0) continue;
@@ -147,7 +147,6 @@ function normaliseEtching(e, ref) {
     ref, ticker, name: e.name || ticker, divisibility, supply, premine,
     terms: e.terms || null,          // { amount, cap, openHeight, closeHeight }
     allowlistRoot: e.allowlistRoot || null,
-    royalty: e.royalty || null,      // { bps, address }
     parent: e.parent || null,
     metadataRef: e.metadataRef || null,
     minted: 0,                       // atomic units issued by open mints
@@ -189,29 +188,6 @@ function allowlistOk(tx, asset, _msg) {
     node = Buffer.compare(node, sib) <= 0 ? sha256(Buffer.concat([node, sib])) : sha256(Buffer.concat([sib, node]));
   }
   return Buffer.isBuffer(asset.allowlistRoot) && node.equals(asset.allowlistRoot);
-}
-
-/**
- * Royalty rule (spec §6): if any asset being moved declares a royalty, the transaction must pay it,
- * or the transfer does not happen at all. The declared sale value travels as tx.saleValue; with no
- * declared sale (a plain wallet-to-wallet move) there is nothing to take a percentage of and the
- * transfer proceeds.
- */
-function royaltiesSatisfied(state, tx, msg, pool) {
-  const sale = Number(tx.saleValue || 0);
-  if (sale <= 0) return true;
-  for (const e of msg.edicts) {
-    if (!pool.has(e.assetRef)) continue;
-    const asset = state.assets.get(e.assetRef);
-    if (!asset || !asset.royalty) continue;
-    const owed = Math.floor((sale * Number(asset.royalty.bps || 0)) / 10000);
-    if (owed <= 0) continue;
-    const paid = (tx.outputs || [])
-      .filter((o) => o.address && o.address === asset.royalty.address)
-      .reduce((s, o) => s + o.value, 0);
-    if (paid < owed) return false;
-  }
-  return true;
 }
 
 /** Replay a list of transactions in order. Deterministic: same input, same state. */

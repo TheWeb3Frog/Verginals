@@ -27,7 +27,7 @@ is plumbing around it.
 
 - every wire message survives a round trip, and hostile input is **ignored rather than fatal**;
 - a wallet that knows nothing about the protocol **cannot destroy a balance** by making a plain send;
-- mint terms, supply caps, allowlists and royalties are enforced exactly as specified;
+- mint terms, supply caps and allowlists are enforced exactly as specified;
 - indexing is **deterministic**, which is the precondition for checkpoints meaning anything;
 - a light client can **verify its own balance** against a published root, and detect a lying indexer.
 

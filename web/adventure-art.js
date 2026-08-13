@@ -12,7 +12,7 @@
 // goes with it.
 
 import {
-  PALETTE, PALETTES, SPRITES, EFFECTS, toCanvas,
+  PALETTE, PALETTES, SPRITES, EFFECTS, toCanvas, TRAIT_LAYERS, LAYER_RECTS, spriteUrl,
 } from './verginals-kit.js';
 
 const P = PALETTE;
@@ -26,6 +26,37 @@ const ANCHOR_Y = { head: 0.14, chest: 0.42, feet: 0.74 };
 // still reads, it just does not move.
 const stillPlease = () => window.matchMedia
   && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/**
+ * Composite a creature from its trait layers.
+ *
+ * Layer order comes from the kit (Body -> Ears -> Collar -> Face -> Rune) and must not be
+ * hand-written by callers: the collar's pendant plate is opaque, and two faces in 44 hang past it.
+ * Get the order wrong and Rainbow renders as a truncated sprite. It lives here rather than in a
+ * screen so the habitat and the roster cannot drift apart on it.
+ *
+ * Every layer is positioned as a percentage of the body box, so the whole creature scales by setting
+ * one width and nothing reflows.
+ */
+export function creatureSprite(traits, px = 128) {
+  const { w, h } = LAYER_RECTS.Body;
+  const box = document.createElement('div');
+  box.style.cssText = `position:relative;width:${px}px;height:${Math.round(px * h / w)}px;`
+    + 'image-rendering:pixelated;flex:none';
+  for (const layer of TRAIT_LAYERS) {
+    const value = traits && traits[layer];
+    if (!value) continue;
+    const rect = LAYER_RECTS[layer] || LAYER_RECTS.Body;
+    const img = document.createElement('img');
+    img.src = spriteUrl(layer, value, '/sprites');
+    img.alt = '';
+    img.style.cssText = 'position:absolute;image-rendering:pixelated;'
+      + `left:${(rect.x / w) * 100}%;top:${(rect.y / h) * 100}%;`
+      + `width:${(rect.w / w) * 100}%;height:${(rect.h / h) * 100}%`;
+    box.append(img);
+  }
+  return box;
+}
 
 /**
  * One sprite, as a canvas. `paletteKey` names an entry in the kit's PALETTES.

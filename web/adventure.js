@@ -19,7 +19,9 @@ import {
 } from './verginals-kit.js';
 import {
   sprite, elementBadge, moveIcon, attentionIcon, egg, playEffect, effectFor, arena, alleleColor,
+  creatureSprite,
 } from './adventure-art.js';
+import { habitat } from './adventure-habitat.js';
 
 const P = PALETTE;
 const LOCI = ['Background', 'Body', 'Collar', 'Face', 'Rune', 'House'];
@@ -132,30 +134,8 @@ function houseElement(c) {
 
 // --- the creature -----------------------------------------------------------------------------
 
-/**
- * Composite a creature from its trait layers.
- *
- * Layer order comes from the kit (Body -> Ears -> Collar -> Face -> Rune) and must not be
- * hand-written here: the collar's pendant plate is opaque, and two faces in 44 hang past it. Get
- * the order wrong and Rainbow renders as a truncated sprite.
- */
-function creature(traits, px = 128) {
-  const { w, h } = LAYER_RECTS.Body;
-  const box = el('div', `position:relative;width:${px}px;height:${Math.round(px * h / w)}px;image-rendering:pixelated;flex:none`);
-  for (const layer of TRAIT_LAYERS) {
-    const value = traits[layer];
-    if (!value) continue;
-    const rect = LAYER_RECTS[layer] || LAYER_RECTS.Body;
-    const img = el('img');
-    img.src = spriteUrl(layer, value, '/sprites');
-    img.alt = '';
-    img.style.cssText = 'position:absolute;image-rendering:pixelated;'
-      + `left:${(rect.x / w) * 100}%;top:${(rect.y / h) * 100}%;`
-      + `width:${(rect.w / w) * 100}%;height:${(rect.h / h) * 100}%`;
-    box.append(img);
-  }
-  return box;
-}
+/** The compositor lives in the art module, so the habitat and this screen cannot drift apart. */
+const creature = (traits, px = 128) => creatureSprite(traits, px);
 
 // --- screens ----------------------------------------------------------------------------------
 
@@ -173,6 +153,21 @@ export class Adventure {
     this.notices = el('div');
     this.body = el('div');
     root.append(this.notices, this.body);
+    // Which creature the player is standing in front of, or null for the roster. The habitat runs an
+    // animation loop, so `hab` is held to be torn down: a re-render that only dropped the element
+    // would leave the loop running against a node nobody can see.
+    this.viewing = null;
+    this.hab = null;
+    this.caption = 0;
+  }
+
+  /** Everything that must stop when the screen it belongs to goes away. */
+  closeHabitat() {
+    if (this.caption) { clearInterval(this.caption); this.caption = 0; }
+    if (this.hab) { this.hab.destroy(); this.hab = null; }
+    // Dropped too, or an act still in flight writes its result into a panel that is no longer on
+    // the page.
+    this.showFacts = null;
   }
 
   async refresh() {
@@ -182,12 +177,24 @@ export class Adventure {
 
   render() {
     const s = this.state;
+    this.closeHabitat();
     this.body.textContent = '';
+    if (this.viewing) {
+      const c = (s.living || []).find((x) => x.id === this.viewing);
+      // A creature can leave the roster between renders, by being released or by the season ending.
+      // Falling back to the roster is the only honest thing to do with a screen about something
+      // that is no longer there.
+      if (c && c.born) { this.body.append(this.habitatScreen(c)); return; }
+      this.viewing = null;
+    }
     this.body.append(this.clock(s.season), this.today(s), this.line(s), this.nav());
   }
 
   /** Put a panel where a refresh cannot destroy it. Replaces the previous one. */
   notice(panel) {
+    // A meeting habitat lives in here, and this container is deliberately never cleared by a
+    // re-render, so its animation loop would outlive the panel it belongs to.
+    if (this.meeting) { this.meeting.destroy(); this.meeting = null; }
     this.notices.textContent = '';
     this.notices.append(panel);
     return panel;
@@ -313,7 +320,14 @@ export class Adventure {
       if (e) nest.append(e);
       card.append(nest);
     } else {
-      card.append(creature(c.traits, 72));
+      // The portrait is the way in. Clicking an animal to go and see it is the gesture this screen
+      // has always implied, and a row of buttons beside it never said.
+      const portrait = el('button', 'background:none;border:0;padding:0;cursor:pointer;line-height:0;flex:none');
+      portrait.title = 'Go and see it';
+      portrait.setAttribute('aria-label', `Visit ${shortId(c.id)}`);
+      portrait.append(creature(c.traits, 72));
+      portrait.onclick = () => { this.viewing = c.id; this.render(); };
+      card.append(portrait);
     }
 
     const mid = el('div', 'flex:1;display:flex;flex-direction:column;gap:8px');
@@ -352,6 +366,104 @@ export class Adventure {
     else if (c.born) actions.append(this.releaseButton(c));
     card.append(actions);
     return card;
+  }
+
+  /**
+   * The creature's own screen.
+   *
+   * Everything here already existed as a rule. §5.1 gives a juvenile three attentions a day across
+   * four kinds, and says attention "makes it grow FASTER and decides WHAT IT BECOMES". On the roster
+   * that was four buttons and a label. Here the four kinds are objects on the floor, the growth is
+   * how big the animal is, and what it became is how it spends its time when nobody is clicking.
+   */
+  habitatScreen(c) {
+    const wrap = el('div');
+
+    const top = el('div', 'display:flex;align-items:center;gap:10px;margin-bottom:14px');
+    const back = el('button', `padding:8px 10px;font:10px/1 ui-monospace,monospace;letter-spacing:1px;`
+      + `background:transparent;color:${P.fog};border:1px solid ${P.slab};cursor:pointer`, 'YOUR LINE');
+    back.onclick = () => { this.viewing = null; this.render(); };
+    top.append(back);
+    const badge = elementBadge(houseElement(c), 2);
+    if (badge) top.append(badge);
+    top.append(el('div', `font:12px/1 ui-monospace,monospace;letter-spacing:2px;color:${P.bone}`,
+      `${c.sex === 'F' ? '♀' : '♂'} ${shortId(c.id)}`));
+    wrap.append(top);
+
+    const counts = (c.temperament && c.temperament.counts) || {};
+    this.hab = habitat({
+      traits: c.traits,
+      element: houseElement(c),
+      growth: c.growth,
+      growthToAdult: c.growthToAdult,
+      attentions: counts,
+      height: 300,
+      onAct: async (kind) => {
+        try {
+          const r = await api(`/creature/${c.id}/attend`, { method: 'POST', body: JSON.stringify({ kind }) });
+          // attend() hands back the growth GAIN, not the total, and no breakdown. The totals come
+          // from re-reading the stable, so the habitat is never shown a number the server did not
+          // just confirm.
+          this.state = await api('/stable');
+          const fresh = (this.state.living || []).find((x) => x.id === c.id);
+          if (fresh && this.showFacts) this.showFacts(fresh);
+          if (r.ok === false) return { ok: false };
+          return {
+            ok: true,
+            growth: fresh ? fresh.growth : undefined,
+            attentions: fresh && fresh.temperament ? fresh.temperament.counts : undefined,
+          };
+        } catch (e) {
+          this.toast(e.message);
+          return { ok: false };
+        }
+      },
+    });
+    wrap.append(this.hab.el);
+
+    // What it is doing, in words, under the scene. It reads as a caption rather than a status,
+    // because nothing here is a warning: there is no neglect in this game and no bar to keep full.
+    const doing = el('div', `margin-top:10px;font:11px/1.6 ui-monospace,monospace;color:${P.ash};min-height:18px`);
+    const SAYS = {
+      idle: 'is looking around', wander: 'is pacing', sniff: 'is nosing at something',
+      nap: 'is dozing', ball: 'is chasing the ball', practise: 'is practising',
+    };
+    const say = () => { doing.textContent = `It ${SAYS[this.hab.behaviour] || 'is settling in'}.`; };
+    say();
+    this.caption = setInterval(say, 700);
+    wrap.append(doing);
+
+    const facts = el('div', `display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin-top:12px;`
+      + `padding:12px;background:${P.panel};border:1px solid ${P.slab}`);
+    facts.append(pips(c, 14));
+    const values = {};
+    const stat = (key, label) => {
+      const b = el('div', 'display:flex;flex-direction:column;gap:3px');
+      b.append(el('div', `font:9px/1 ui-monospace,monospace;letter-spacing:1px;color:${P.ash}`, label));
+      values[key] = el('div', `font:12px/1 ui-monospace,monospace;color:${P.bone}`);
+      b.append(values[key]);
+      facts.append(b);
+    };
+    stat('growth', 'GROWTH');
+    stat('today', 'TODAY');
+    stat('becoming', 'BECOMING');
+    // Rewritten in place rather than by re-rendering: a re-render would tear down the habitat, and
+    // the animal would blink out of existence in the middle of being fed.
+    this.showFacts = (x) => {
+      values.growth.textContent = x.adult ? 'grown' : `${x.growth} of ${x.growthToAdult}`;
+      values.today.textContent = x.adult ? 'nothing left to raise' : `${x.attentionsLeft} of 3 attentions`;
+      values.becoming.textContent = (x.temperament && x.temperament.label) || 'Untouched';
+    };
+    this.showFacts(c);
+    wrap.append(facts);
+
+    wrap.append(el('div', `margin-top:10px;font:11px/1.7 ui-monospace,monospace;color:${P.ash}`,
+      c.adult
+        ? 'Grown. It keeps the temperament you gave it, and the four things on the floor no longer '
+          + 'change anything.'
+        : 'Touch one of the four things on the floor. None of them is better than the others: they '
+          + 'grow it at the same rate and steer it somewhere different.'));
+    return wrap;
   }
 
   /**
@@ -868,7 +980,12 @@ export class Adventure {
 
     go.onclick = () => {
       panel.remove();
-      this.openPairing({ carrierKey: sel.mother.carrierKey }, { carrierKey: sel.father.carrierKey });
+      // The two Alphas travel with the refs. The server's preview does not carry traits, and the
+      // meeting has to draw two animals, so they are handed on from the only screen that has them.
+      this.openPairing(
+        { carrierKey: sel.mother.carrierKey }, { carrierKey: sel.father.carrierKey },
+        { mother: sel.mother, father: sel.father },
+      );
     };
     panel.append(grid, go);
     if (data.truncated) {
@@ -886,7 +1003,7 @@ export class Adventure {
    * The pairing screen. Its whole job is §3.4: put the relation and one percentage in front of the
    * player BEFORE the confirm button, so an abstract coefficient becomes a decision they can weigh.
    */
-  async openPairing(motherRef, fatherRef) {
+  async openPairing(motherRef, fatherRef, parents = null) {
     if (!motherRef || !fatherRef) return this.toast('Pick two parents from your Alphas first.');
     let pv;
     try { pv = await api('/preview', { method: 'POST', body: JSON.stringify({ mother: motherRef, father: fatherRef }) }); }
@@ -906,7 +1023,7 @@ export class Adventure {
     if (pv.ok) {
       const go = el('button', `margin-top:12px;padding:10px 14px;font:12px/1 ui-monospace,monospace;letter-spacing:1px;`
         + `background:${P.gold};color:${P.ink};border:none;cursor:pointer`, 'BREED');
-      go.onclick = () => this.commit(motherRef, fatherRef, panel);
+      go.onclick = () => this.commit(motherRef, fatherRef, panel, parents);
       panel.append(go);
     } else {
       panel.append(el('div', `margin-top:8px;font:11px/1.6 ui-monospace,monospace;color:${P.ash}`,
@@ -921,13 +1038,32 @@ export class Adventure {
    * player who cares can rerun genetics.breed() and confirm the animal they were given is the
    * animal the seed produced.
    */
-  async commit(motherRef, fatherRef, panel) {
+  async commit(motherRef, fatherRef, panel, parents = null) {
     panel.textContent = '';
     let open;
     try { open = await api('/pair', { method: 'POST', body: JSON.stringify({ mother: motherRef, father: fatherRef }) }); }
     catch (e) { return this.toast(e.message); }
     panel.append(el('div', `font:11px/1.6 ui-monospace,monospace;color:${P.ash};word-break:break-all`,
       `committed ${open.serverSeedHash}`));
+
+    // The meeting. It sits between the commit and the reveal on purpose: the seed is already fixed
+    // and published, so nothing that happens on screen can be suspected of deciding the outcome.
+    // It is a ceremony around a decision that has already been made, which is the only honest place
+    // to put one.
+    if (parents && parents.mother && parents.father) {
+      const meet = el('div', 'margin-top:10px');
+      meet.append(el('div', `font:10px/1 ui-monospace,monospace;letter-spacing:2px;color:${P.ash};margin-bottom:6px`,
+        'THEY MEET'));
+      this.meeting = habitat({
+        traits: parents.mother.traits,
+        element: houseElement(parents.mother),
+        growth: 6, growthToAdult: 6, attentions: {}, height: 200, props: false,
+      });
+      meet.append(this.meeting.el);
+      panel.append(meet);
+      try { await this.meeting.visit({ traits: parents.father.traits }); }
+      catch (e) { /* the meeting is decoration: never let it hold up the reveal */ }
+    }
 
     let r;
     try { r = await api(`/pair/${open.pairingId}/resolve`, { method: 'POST' }); }

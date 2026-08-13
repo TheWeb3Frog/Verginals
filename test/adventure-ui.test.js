@@ -61,7 +61,26 @@ const kit = loadModule(kitSrc);
 // bar is the real one from the kit, because the bar is the thing this file is here to check.
 const drawn = [];
 const stubSprite = (name) => { drawn.push(name); const n = document.createElement('canvas'); n.attrs.sprite = name; return n; };
+// The compositor is the exception: it is loaded for real, because the layer-order test below is the
+// whole reason this file exists and a stub would assert nothing. It only needs createElement, a
+// style and append, which this DOM has.
+const artSrc = fs.readFileSync(path.join(__dirname, '..', 'web', 'adventure-art.js'), 'utf8');
+const realArt = loadModule(artSrc, {
+  PALETTE: kit.PALETTE, PALETTES: kit.PALETTES, SPRITES: kit.SPRITES, EFFECTS: kit.EFFECTS,
+  toCanvas: kit.toCanvas, TRAIT_LAYERS: kit.TRAIT_LAYERS, LAYER_RECTS: kit.LAYER_RECTS,
+  spriteUrl: kit.spriteUrl,
+});
+
+// The habitat runs an animation loop against a real compositor and a real ResizeObserver, neither of
+// which belongs in a DOM this small. Its own behaviour is covered in test/habitat.test.js.
+const stubHabitat = () => ({
+  el: document.createElement('div'),
+  act: async () => ({ ok: true }), visit: async () => true, dismiss() {},
+  tick() {}, update() {}, destroy() {}, behaviour: 'idle', position: 0.5,
+});
+
 const art = {
+  creatureSprite: realArt.creatureSprite,
   sprite: (name) => stubSprite(name),
   elementBadge: (e) => stubSprite(`badge:${e}`),
   moveIcon: (e) => stubSprite(`move:${e}`),
@@ -76,7 +95,7 @@ const art = {
 const ui = loadModule(uiSrc, {
   PALETTE: kit.PALETTE, TRAIT_LAYERS: kit.TRAIT_LAYERS, LAYER_RECTS: kit.LAYER_RECTS,
   spriteUrl: kit.spriteUrl, seasonChip: kit.seasonChip, SEASON_DAYS: kit.SEASON_DAYS,
-  pipBar: kit.pipBar, ...art,
+  pipBar: kit.pipBar, ...art, habitat: stubHabitat,
 });
 
 // --- the creature renderer --------------------------------------------------------------------

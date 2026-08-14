@@ -159,6 +159,61 @@ export class Adventure {
     this.viewing = null;
     this.hab = null;
     this.caption = 0;
+    // Alphas are fetched on demand and kept, because every read of one costs a chain call per
+    // carrier and the list does not change within a session.
+    this.alphas = null;
+  }
+
+  /**
+   * One shape for both halves of the game.
+   *
+   * An Alpha and a descendant are different records from different places, and every screen that
+   * wanted to show either ended up branching on that. They differ in exactly three ways worth
+   * carrying: an Alpha is permanent and rests between pairings, a descendant is mortal and grows,
+   * and only a juvenile can be raised.
+   */
+  subjectOf(viewing) {
+    if (!viewing) return null;
+    if (viewing.kind === 'descendant') {
+      const c = (this.state.living || []).find((x) => x.id === viewing.key);
+      if (!c || !c.born) return null;
+      return {
+        kind: 'descendant', ref: { id: c.id }, raw: c,
+        traits: c.traits, sex: c.sex, title: shortId(c.id), element: houseElement(c),
+        growth: c.growth, growthToAdult: c.growthToAdult, adult: !!c.adult,
+        attentions: (c.temperament && c.temperament.counts) || {},
+        canRaise: !c.adult,
+        // A descendant never rests: src/adventure.js says so in as many words.
+        canBreed: !!c.adult, breedNote: c.adult ? 'Grown, and can breed' : 'Too young to breed',
+      };
+    }
+    const a = (this.alphas || []).find((x) => x.carrierKey === viewing.key);
+    if (!a) return null;
+    return {
+      kind: 'alpha', ref: { carrierKey: a.carrierKey }, raw: a,
+      traits: a.traits, sex: a.sex, title: `#${a.number}`, element: houseElement(a),
+      growth: 6, growthToAdult: 6, adult: true, attentions: {},
+      canRaise: false, canBreed: !!a.fertile, breedNote: a.label,
+    };
+  }
+
+  /** Everything that can be a parent right now, on either side of the line. */
+  partners(subject) {
+    const wantSex = subject.sex === 'F' ? 'M' : 'F';
+    const out = [];
+    for (const a of this.alphas || []) {
+      if (a.sex !== wantSex || !a.fertile) continue;
+      if (a.carrierKey === (subject.ref.carrierKey || null)) continue;
+      out.push({ kind: 'alpha', ref: { carrierKey: a.carrierKey }, traits: a.traits,
+        title: `#${a.number}`, note: a.label, sex: a.sex });
+    }
+    for (const c of this.state.living || []) {
+      // Adults only, and the backend agrees: a juvenile has no business breeding.
+      if (!c.born || !c.adult || c.sex !== wantSex || c.id === (subject.ref.id || null)) continue;
+      out.push({ kind: 'descendant', ref: { id: c.id }, traits: c.traits,
+        title: shortId(c.id), note: `generation ${c.generation}`, sex: c.sex });
+    }
+    return out;
   }
 
   /** Everything that must stop when the screen it belongs to goes away. */
@@ -172,6 +227,10 @@ export class Adventure {
 
   async refresh() {
     this.state = await api('/stable');
+    // Both ladders, on every refresh. They are computed in process from creatures already in
+    // memory, with no chain read, so the cost is a rarity score per animal and the standing can be
+    // on the first screen instead of behind a button nobody presses.
+    try { this.boards = await api('/ladders'); } catch (e) { this.boards = null; }
     this.render();
   }
 
@@ -180,14 +239,17 @@ export class Adventure {
     this.closeHabitat();
     this.body.textContent = '';
     if (this.viewing) {
-      const c = (s.living || []).find((x) => x.id === this.viewing);
-      // A creature can leave the roster between renders, by being released or by the season ending.
-      // Falling back to the roster is the only honest thing to do with a screen about something
-      // that is no longer there.
-      if (c && c.born) { this.body.append(this.habitatScreen(c)); return; }
+      // A creature can leave between renders, by being released or by the season ending. Falling
+      // back to the roster is the only honest thing to do with a screen about something that is no
+      // longer there.
+      const subject = this.subjectOf(this.viewing);
+      if (subject) { this.body.append(this.creatureScreen(subject)); return; }
       this.viewing = null;
     }
-    this.body.append(this.clock(s.season), this.today(s), this.line(s), this.nav());
+    this.body.append(this.clock(s.season), this.today(s));
+    const standing = this.standing();
+    if (standing) this.body.append(standing);
+    this.body.append(this.line(s), this.nav());
   }
 
   /** Put a panel where a refresh cannot destroy it. Replaces the previous one. */
@@ -206,11 +268,21 @@ export class Adventure {
    * that means "act". Never animate it; it just fills.
    */
   clock(season) {
-    const bar = el('div', 'display:flex;align-items:center;gap:12px;margin-bottom:24px');
+    const wrap = el('div', 'margin-bottom:24px');
+    const bar = el('div', 'display:flex;align-items:center;gap:12px');
     bar.append(el('div', `font:12px/1 ui-monospace,monospace;letter-spacing:2px;color:${P.fog}`,
       `DAY ${season.day}/${season.days}`));
     bar.append(seasonChip(season.day, season.days));
-    return bar;
+    wrap.append(bar);
+    // A countdown that never says what it is counting is just a number going up. This is the only
+    // place the point of the game is stated, and it says the cost before the prize because the cost
+    // is what makes the prize mean anything.
+    wrap.append(el('div', `margin-top:8px;font:11px/1.7 ui-monospace,monospace;color:${P.ash};max-width:60ch`,
+      `In ${Math.max(0, season.days - season.day)} days every descendant you are raising dies of age, `
+      + 'together. Your Alphas do not. Finish in the top tenth of either ladder and a DNA Orb carries '
+      + 'one bloodline into the next season. That is the whole game: breed something worth keeping '
+      + 'before the month runs out.'));
+    return wrap;
   }
 
   /** Three things to do today, then nothing. A player must be able to clear the day and close it. */
@@ -289,6 +361,56 @@ export class Adventure {
   }
 
   /**
+   * Who is carrying your season, on each of the two ways to win it.
+   *
+   * The race lasts a month and until now it was invisible until the month was over. This puts your
+   * champion on each ladder on the first screen, because knowing which animal is your Combat entry
+   * and which is your Genetics entry is what turns a list of pets into a run.
+   *
+   * What it deliberately does NOT claim is a position among players. stable.ladders() ranks a
+   * player's own creatures against each other and nothing else, and the Orb cut is drawn across
+   * everybody at the end of the month. Showing "1st" here without saying that would read as a prize
+   * already won.
+   */
+  standing() {
+    const b = this.boards;
+    if (!b) return null;
+    const combat = (b.combat || []).find((r) => !r.released);
+    const genetics = (b.genetics || []).find((r) => !r.released);
+    if (!combat && !genetics) return null;
+
+    const box = el('div', `margin-bottom:24px;padding:14px;background:${P.panel};border:1px solid ${P.slab}`);
+    box.append(el('div', `font:10px/1 ui-monospace,monospace;letter-spacing:2px;color:${P.ash};margin-bottom:10px`,
+      'CARRYING YOUR SEASON'));
+
+    const line = (label, r, value) => {
+      const row = el('div', 'display:flex;align-items:center;gap:10px;padding:6px 0');
+      row.append(el('div', `width:72px;font:10px/1 ui-monospace,monospace;letter-spacing:1px;color:${P.ash}`, label));
+      if (!r) {
+        row.append(el('div', `font:11px/1.4 ui-monospace,monospace;color:${P.ash}`, 'nothing yet'));
+        box.append(row);
+        return;
+      }
+      if (r.traits) row.append(creature(r.traits, 32));
+      const name = el('button', 'background:none;border:0;padding:0;flex:1;text-align:left;cursor:pointer;'
+        + `font:11px/1.4 ui-monospace,monospace;color:${P.fog}`);
+      name.textContent = shortId(r.id);
+      name.onclick = () => { this.viewing = { kind: 'descendant', key: r.id }; this.render(); };
+      row.append(name);
+      row.append(el('div', `font:11px/1 ui-monospace,monospace;color:${P.bone}`, value(r)));
+      box.append(row);
+    };
+
+    line('COMBAT', combat, (r) => `${r.wins} won, ${r.fights - r.wins} lost`);
+    line('GENETICS', genetics, (r) => `${Math.round(r.score)} rare`);
+
+    box.append(el('div', `margin-top:8px;font:10px/1.6 ui-monospace,monospace;color:${P.ash}`,
+      'Your own two best, not your place among players: the Orb cut is drawn across everybody when '
+      + 'the month ends.'));
+    return box;
+  }
+
+  /**
    * The two screens that are about the season rather than the day. Below the line, because they
    * are what you read once the day is cleared, not what you came to do.
    */
@@ -300,6 +422,7 @@ export class Adventure {
       b.onclick = go;
       return b;
     };
+    row.append(link('YOUR ALPHAS', () => this.alphasScreen()));
     row.append(link('BLOODLINE', () => this.lineagePanel()));
     row.append(link('LADDERS', () => this.laddersPanel()));
     row.append(link('HALL OF FAME', () => this.hallPanel()));
@@ -326,7 +449,7 @@ export class Adventure {
       portrait.title = 'Go and see it';
       portrait.setAttribute('aria-label', `Visit ${shortId(c.id)}`);
       portrait.append(creature(c.traits, 72));
-      portrait.onclick = () => { this.viewing = c.id; this.render(); };
+      portrait.onclick = () => { this.viewing = { kind: 'descendant', key: c.id }; this.render(); };
       card.append(portrait);
     }
 
@@ -376,28 +499,38 @@ export class Adventure {
    * that was four buttons and a label. Here the four kinds are objects on the floor, the growth is
    * how big the animal is, and what it became is how it spends its time when nobody is clicking.
    */
-  habitatScreen(c) {
+  creatureScreen(s) {
     const wrap = el('div');
+    const c = s.raw;
 
     const top = el('div', 'display:flex;align-items:center;gap:10px;margin-bottom:14px');
     const back = el('button', `padding:8px 10px;font:10px/1 ui-monospace,monospace;letter-spacing:1px;`
-      + `background:transparent;color:${P.fog};border:1px solid ${P.slab};cursor:pointer`, 'YOUR LINE');
-    back.onclick = () => { this.viewing = null; this.render(); };
+      + `background:transparent;color:${P.fog};border:1px solid ${P.slab};cursor:pointer`,
+    s.kind === 'alpha' ? 'YOUR ALPHAS' : 'YOUR LINE');
+    back.onclick = () => {
+      this.viewing = null;
+      if (s.kind === 'alpha') { this.render(); return this.alphasScreen(); }
+      return this.render();
+    };
     top.append(back);
-    const badge = elementBadge(houseElement(c), 2);
+    const badge = elementBadge(s.element, 2);
     if (badge) top.append(badge);
     top.append(el('div', `font:12px/1 ui-monospace,monospace;letter-spacing:2px;color:${P.bone}`,
-      `${c.sex === 'F' ? '♀' : '♂'} ${shortId(c.id)}`));
+      `${s.sex === 'F' ? '\u2640' : '\u2642'} ${s.title}`));
+    top.append(el('div', `font:10px/1 ui-monospace,monospace;letter-spacing:1px;color:${P.ash}`,
+      s.kind === 'alpha' ? 'ALPHA, PERMANENT' : `GENERATION ${c.generation}`));
     wrap.append(top);
 
-    const counts = (c.temperament && c.temperament.counts) || {};
+    // An Alpha has nothing to raise, so its habitat gets a bare floor. Four objects that could only
+    // ever refuse would be furniture pretending to be buttons.
     this.hab = habitat({
-      traits: c.traits,
-      element: houseElement(c),
-      growth: c.growth,
-      growthToAdult: c.growthToAdult,
-      attentions: counts,
+      traits: s.traits,
+      element: s.element,
+      growth: s.growth,
+      growthToAdult: s.growthToAdult,
+      attentions: s.attentions,
       height: 300,
+      props: s.canRaise,
       onAct: async (kind) => {
         try {
           const r = await api(`/creature/${c.id}/attend`, { method: 'POST', body: JSON.stringify({ kind }) });
@@ -435,7 +568,7 @@ export class Adventure {
 
     const facts = el('div', `display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin-top:12px;`
       + `padding:12px;background:${P.panel};border:1px solid ${P.slab}`);
-    facts.append(pips(c, 14));
+    facts.append(pips(s.kind === 'alpha' ? { traits: s.traits, alleles: c.alleles } : c, 14));
     const values = {};
     const stat = (key, label) => {
       const b = el('div', 'display:flex;flex-direction:column;gap:3px');
@@ -444,26 +577,120 @@ export class Adventure {
       b.append(values[key]);
       facts.append(b);
     };
-    stat('growth', 'GROWTH');
-    stat('today', 'TODAY');
-    stat('becoming', 'BECOMING');
-    // Rewritten in place rather than by re-rendering: a re-render would tear down the habitat, and
-    // the animal would blink out of existence in the middle of being fed.
-    this.showFacts = (x) => {
-      values.growth.textContent = x.adult ? 'grown' : `${x.growth} of ${x.growthToAdult}`;
-      values.today.textContent = x.adult ? 'nothing left to raise' : `${x.attentionsLeft} of 3 attentions`;
-      values.becoming.textContent = (x.temperament && x.temperament.label) || 'Untouched';
-    };
-    this.showFacts(c);
+    if (s.kind === 'alpha') {
+      stat('breed', 'BREEDING');
+      values.breed.textContent = s.breedNote || (s.canBreed ? 'ready' : 'resting');
+      stat('line', 'THIS SEASON');
+      const kids = (this.state.living || []).filter((x) => x.mother === s.ref.carrierKey
+        || x.father === s.ref.carrierKey).length;
+      values.line.textContent = kids ? `${kids} alive` : 'nothing yet';
+    } else {
+      stat('growth', 'GROWTH');
+      stat('today', 'TODAY');
+      stat('becoming', 'BECOMING');
+      // Rewritten in place rather than by re-rendering: a re-render would tear down the habitat, and
+      // the animal would blink out of existence in the middle of being fed.
+      this.showFacts = (x) => {
+        values.growth.textContent = x.adult ? 'grown' : `${x.growth} of ${x.growthToAdult}`;
+        values.today.textContent = x.adult ? 'nothing left to raise' : `${x.attentionsLeft} of 3 attentions`;
+        values.becoming.textContent = (x.temperament && x.temperament.label) || 'Untouched';
+      };
+      this.showFacts(c);
+    }
     wrap.append(facts);
 
     wrap.append(el('div', `margin-top:10px;font:11px/1.7 ui-monospace,monospace;color:${P.ash}`,
-      c.adult
-        ? 'Grown. It keeps the temperament you gave it, and the four things on the floor no longer '
-          + 'change anything.'
-        : 'Touch one of the four things on the floor. None of them is better than the others: they '
-          + 'grow it at the same rate and steer it somewhere different.'));
+      s.canRaise
+        ? 'Touch one of the four things on the floor. None of them is better than the others: they '
+          + 'grow it at the same rate and steer it somewhere different.'
+        : s.kind === 'alpha'
+          ? 'An Alpha never grows and never dies. It is breeding stock, and the only part of your '
+            + 'line that survives the end of the season.'
+          : 'Grown. It keeps the temperament you gave it, and it can breed now.'));
+
+    if (s.canBreed) wrap.append(this.partnerPicker(s));
+    else if (s.kind === 'descendant' && !s.adult) {
+      wrap.append(el('div', `margin-top:8px;font:11px/1.7 ui-monospace,monospace;color:${P.ash}`,
+        'Too young to breed. It can once it is grown.'));
+    }
     return wrap;
+  }
+
+  /**
+   * Choosing a partner where the animal is, rather than in a form somewhere else.
+   *
+   * This picks nothing and decides nothing: it hands both refs to openPairing, which is still the
+   * screen that puts the section 3.4 relatedness percentage in front of the player before the
+   * commit button. That order is the reason that screen exists and it does not move.
+   */
+  partnerPicker(s) {
+    const box = el('div', `margin-top:16px;padding:14px;background:${P.panel};border:1px solid ${P.slab}`);
+    box.append(el('div', `font:10px/1 ui-monospace,monospace;letter-spacing:2px;color:${P.ash};margin-bottom:10px`,
+      'FIND A PARTNER'));
+
+    const list = this.partners(s);
+    if (!list.length) {
+      box.append(el('div', `font:11px/1.7 ui-monospace,monospace;color:${P.fog}`,
+        `Nobody available. A pairing needs one female and one male, an Alpha must have rested two `
+        + `days, and a descendant must be grown. You are looking for a `
+        + `${s.sex === 'F' ? 'male' : 'female'}.`));
+      return box;
+    }
+
+    const grid = el('div', 'display:flex;flex-wrap:wrap;gap:8px');
+    for (const p of list) {
+      const card = el('button', 'display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px;'
+        + `width:96px;background:${P.coal};border:1px solid ${P.slab};cursor:pointer`);
+      card.append(creature(p.traits, 64));
+      card.append(el('div', `font:10px/1 ui-monospace,monospace;color:${P.bone}`, p.title));
+      card.append(el('div', `font:9px/1.3 ui-monospace,monospace;color:${P.ash};text-align:center`, p.note));
+      card.onclick = () => {
+        const mother = s.sex === 'F' ? s : p;
+        const father = s.sex === 'F' ? p : s;
+        this.openPairing(mother.ref, father.ref, { mother, father });
+      };
+      grid.append(card);
+    }
+    box.append(grid);
+    box.append(el('div', `margin-top:10px;font:10px/1.6 ui-monospace,monospace;color:${P.ash}`,
+      'Pick one and you will see how closely related they are before anything is committed.'));
+    return box;
+  }
+
+  /** The permanent half of the game, which until now had nowhere to be looked at. */
+  async alphasScreen() {
+    if (!this.alphas) {
+      try { this.alphas = (await api('/alphas')).alphas || []; }
+      catch (e) { return this.toast(e.message); }
+    }
+    const panel = el('div', `padding:16px;background:${P.panel};border:1px solid ${P.edge};margin-bottom:20px`);
+    panel.append(el('div', `font:11px/1 ui-monospace,monospace;letter-spacing:2px;color:${P.ash};margin-bottom:12px`,
+      `YOUR ALPHAS \u00b7 ${this.alphas.length}`));
+    if (!this.alphas.length) {
+      panel.append(el('div', `font:12px/1.6 ui-monospace,monospace;color:${P.fog}`,
+        'You hold no Alpha Verginals. Only an Alpha can start a line.'));
+      this.notice(panel);
+      return undefined;
+    }
+    const grid = el('div', 'display:flex;flex-wrap:wrap;gap:8px');
+    for (const a of this.alphas) {
+      const card = el('button', 'display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px;'
+        + `width:96px;background:${P.coal};border:1px solid ${P.slab};cursor:pointer`);
+      card.append(creature(a.traits, 72));
+      card.append(el('div', `font:10px/1 ui-monospace,monospace;color:${P.bone}`,
+        `${a.sex === 'F' ? '\u2640' : '\u2642'} #${a.number}`));
+      card.append(el('div', `font:9px/1.3 ui-monospace,monospace;color:${a.fertile ? P.moss : P.ash};text-align:center`,
+        a.label));
+      card.onclick = () => {
+        panel.remove();
+        this.viewing = { kind: 'alpha', key: a.carrierKey };
+        this.render();
+      };
+      grid.append(card);
+    }
+    panel.append(grid);
+    this.notice(panel);
+    return undefined;
   }
 
   /**
@@ -795,8 +1022,10 @@ export class Adventure {
     cols.append(board('GENETICS', 'RAREST EXPRESSED', data.genetics, (r) => String(Math.round(r.score || 0))));
     panel.append(cols);
     panel.append(el('div', `margin-top:10px;font:10px/1.6 ui-monospace,monospace;color:${P.ash}`,
-      'The top of either ladder earns a DNA Orb at season end. One per player, however many you top: '
-      + 'the Orb carries one bloodline.'));
+      'These are your own creatures ranked against each other. The DNA Orb goes to the top tenth of '
+      + 'each ladder across every player, drawn when the month ends, so leading here is not the same '
+      + 'as winning one. One Orb per player however many ladders you top, and it carries one '
+      + 'bloodline into the next season.'));
     return undefined;
   }
 

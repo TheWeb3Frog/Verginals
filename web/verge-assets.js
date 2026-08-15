@@ -238,8 +238,13 @@ function nameSection() {
   head(host, 'Price a name', 'PRESS SPACE FOR A SEPARATOR');
 
   const input = el('input', 'va-in');
-  input.value = 'GRUMPY';
   input.maxLength = MAX_TYPED;
+
+  // A separator sits BETWEEN two characters, so a name can never end with one and the box must
+  // never show a name that does. Pressing space at the end therefore arms the next gap instead of
+  // drawing anything, and the separator appears when the character that follows it does.
+  let armed = false;
+  let previous = '';
   input.setAttribute('aria-label', 'Name to price');
   const label = el('label', 'va-label', 'Name');
   label.htmlFor = 'va-name-in';
@@ -260,13 +265,28 @@ function nameSection() {
 
   function draw() {
     // A space becomes a separator, which is how somebody would expect to type one. Everything else
-    // outside A-Z0-9 is dropped, and leading, trailing and doubled separators cannot survive
-    // because they have no gap to sit in.
-    const typed = clampBare(input.value.toUpperCase()
-      .replace(/ /g, SEP)
-      .replace(/[^A-Z0-9•]/g, '')
-      .replace(/•+/g, SEP)
-      .replace(/^•+/, ''), MAX_NAME);
+    // outside A-Z0-9 is dropped, and leading and doubled separators cannot survive because they
+    // have no gap to sit in.
+    // One separator per gap, none at the start, nothing outside A-Z0-9 and the separator itself.
+    const tidy = (s) => s.replace(/•+/g, SEP).replace(/^•+/, '');
+    let raw = tidy(input.value.toUpperCase().replace(/ /g, SEP).replace(/[^A-Z0-9•]/g, ''));
+
+    if (raw.endsWith(SEP)) {
+      armed = true;                       // the gap is asked for, the character to fill it is not
+      raw = raw.replace(/•+$/, '');
+    } else if (armed) {
+      // The character that just arrived is the one the separator was waiting for. Only an append
+      // can be placed with certainty, which is how a name gets typed.
+      if (raw.length > previous.length && raw.startsWith(previous)) {
+        // Tidied again, because what arrived may itself have started with a separator and the
+        // collapse above ran before this insertion existed.
+        raw = tidy(previous + SEP + raw.slice(previous.length));
+      }
+      armed = false;
+    }
+
+    const typed = clampBare(raw, MAX_NAME);
+    previous = typed;
     if (typed !== input.value) {
       const at = input.selectionStart + (typed.length - input.value.length);
       input.value = typed;
@@ -292,7 +312,7 @@ function nameSection() {
 
     // The point of the whole feature: what you typed is not what the coin is.
     if (seps) {
-      kv(out, 'What you would see', typed.replace(/•$/, ''));
+      kv(out, 'What you would see', typed);
       kv(out, 'What the coin actually is', name);
     }
     kv(out, 'Length that is priced', `${n} character${n === 1 ? '' : 's'}`

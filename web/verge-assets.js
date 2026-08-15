@@ -206,6 +206,27 @@ const LOCK_DAYS = 1460;
 const SEP = '•';
 const bare = (s) => s.split(SEP).join('');
 
+const MAX_NAME = 26;
+// The longest a spaced name can be as TEXT: 26 characters with a separator in every one of the 25
+// gaps between them. The box has to allow this much, because its own limit counts bullets and the
+// protocol's does not. Capping the box at 26 silently ate a real letter for every separator typed.
+const MAX_TYPED = MAX_NAME * 2 - 1;
+
+/** Trim a spaced name to `max` REAL characters, leaving the separators between them alone. */
+function clampBare(typed, max) {
+  let seen = 0;
+  let out = '';
+  let cut = false;
+  for (const ch of typed) {
+    if (ch === SEP) { out += ch; continue; }
+    if (seen >= max) { cut = true; break; }
+    seen += 1;
+    out += ch;
+  }
+  // A separator only means anything between two characters, so one left dangling by the trim goes.
+  return cut ? out.replace(/•+$/, '') : out;
+}
+
 function releaseDate() {
   const d = new Date(Date.now() + LOCK_DAYS * 86400000);
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -218,7 +239,7 @@ function nameSection() {
 
   const input = el('input', 'va-in');
   input.value = 'GRUMPY';
-  input.maxLength = 26;
+  input.maxLength = MAX_TYPED;
   input.setAttribute('aria-label', 'Name to price');
   const label = el('label', 'va-label', 'Name');
   label.htmlFor = 'va-name-in';
@@ -241,11 +262,11 @@ function nameSection() {
     // A space becomes a separator, which is how somebody would expect to type one. Everything else
     // outside A-Z0-9 is dropped, and leading, trailing and doubled separators cannot survive
     // because they have no gap to sit in.
-    const typed = input.value.toUpperCase()
+    const typed = clampBare(input.value.toUpperCase()
       .replace(/ /g, SEP)
       .replace(/[^A-Z0-9•]/g, '')
       .replace(/•+/g, SEP)
-      .replace(/^•+/, '');
+      .replace(/^•+/, ''), MAX_NAME);
     if (typed !== input.value) {
       const at = input.selectionStart + (typed.length - input.value.length);
       input.value = typed;
@@ -254,7 +275,8 @@ function nameSection() {
     const name = bare(typed);
     const n = name.length;
     const seps = typed.length - n;
-    hint.textContent = `${n}/26 characters` + (seps ? `, plus ${seps} separator${seps === 1 ? '' : 's'} that cost nothing` : '')
+    hint.textContent = `${n}/${MAX_NAME} characters`
+      + (seps ? `, plus ${seps} separator${seps === 1 ? '' : 's'} that count for nothing` : '')
       + '. Press space for a separator.';
 
     out.textContent = '';

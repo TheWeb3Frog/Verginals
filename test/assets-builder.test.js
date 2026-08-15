@@ -207,6 +207,20 @@ test('separators cost nothing: the price follows the bare length', () => {
   assert.strictEqual(spaced.ticker, bare.ticker);
 });
 
+test('a full length name survives its separators', () => {
+  // the boundary the interface got wrong: 26 real characters plus separators is a legal name, and
+  // counting the separators against the limit silently eats a real letter for each one
+  const B = '\u2022';
+  const typed = 'MY' + B + 'VERY' + B + 'LONG' + B + 'HONEST' + B + 'PROJEC' + B + 'NAME';
+  const p = buildEtch({ ticker: typed, supply: 10, premine: 10 }, { address: 'D1' });
+  assert.strictEqual(p.ticker.length, 26);
+  assert.strictEqual(p.ticker, 'MYVERYLONGHONESTPROJECNAME');
+  assert.strictEqual(p.display, typed);
+  // and the limit is still 26 REAL characters, counted without them
+  assert.throws(() => buildEtch({ ticker: 'A' + B + 'A'.repeat(26), supply: 10, premine: 10 },
+    { address: 'D1' }), /1\.\.26/);
+});
+
 test('a mask can be given directly instead of typing separators', () => {
   const p = buildEtch({ ticker: 'ABC', spacers: 0b11, supply: 10, premine: 10 }, { address: 'D1' });
   assert.strictEqual(p.display, 'A\u2022B\u2022C');

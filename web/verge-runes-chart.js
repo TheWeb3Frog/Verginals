@@ -1,10 +1,10 @@
-// Charts for the asset market preview. Canvas, no libraries: the site's CSP is default-src 'self'
+// Charts for the rune market preview. Canvas, no libraries: the site's CSP is default-src 'self'
 // and a chart is not worth a build step.
 //
 // Two decisions worth stating, because both go against what a token market normally looks like.
 //
 // NO CANDLESTICKS. An OHLC candle needs an open, a high, a low and a close inside every interval.
-// Trades here are individual atomic swaps, and on a young asset there are a handful a day. Deriving
+// Trades here are individual atomic swaps, and on a young rune there are a handful a day. Deriving
 // four numbers from two trades draws a shape that says "market" while carrying almost no
 // information. A line through the actual trades, with the trades marked, shows thin volume as thin
 // instead of dressing it up.

@@ -1,4 +1,4 @@
-// Verge Assets interface preview.
+// Verge Runes interface preview.
 //
 // A separate module because the site serves every HTML response with default-src 'self', which
 // refuses inline scripts. Nothing here talks to a wallet or signs anything: it reads /api/info to
@@ -25,7 +25,7 @@ const fmt = (n) => n.toLocaleString('en-US');
 // cap of 21,000 mints beside a premine of 1,000,000, which together exceed the supply, so the mint
 // would in fact have closed early. premine + perMint * mintCap must equal supply, exactly.
 const SAMPLE = {
-  asset: {
+  rune: {
     ticker: 'GRUMPY', name: 'Grumpy Token', divisibility: 2,
     supply: 2100000000,   // 21,000,000.00
     premine: 100000000,   //  1,000,000.00
@@ -61,12 +61,12 @@ async function realStatus() {
     return;
   }
   // Said plainly. A preview that lets someone believe the protocol is live is worse than no preview.
-  if (info.assets) {
+  if (info.runes) {
     node.className = 'vr-status bad';
-    node.textContent = 'This server reports assets ENABLED, which it should not be yet. Tell someone.';
+    node.textContent = 'This server reports runes ENABLED, which it should not be yet. Tell someone.';
     return;
   }
-  node.textContent = 'Live server state: assets are switched off. Nothing on this page is real data, '
+  node.textContent = 'Live server state: runes are switched off. Nothing on this page is real data, '
     + `and nothing here can spend a coin. Chain tip ${fmt(info.tip)}.`;
 }
 
@@ -90,15 +90,15 @@ function verifySection() {
 
   const card = el('div', 'vr-card');
   const row = el('div', 'vr-row');
-  row.append(el('div', 'vr-ticker-badge', SAMPLE.asset.ticker.slice(0, 3)));
+  row.append(el('div', 'vr-ticker-badge', SAMPLE.rune.ticker.slice(0, 3)));
 
   const mid = el('div', 'vr-grow');
-  mid.append(el('div', 'vr-name', SAMPLE.asset.name));
-  mid.append(el('div', 'vr-sub', `${SAMPLE.asset.ticker} · on one output`));
+  mid.append(el('div', 'vr-name', SAMPLE.rune.name));
+  mid.append(el('div', 'vr-sub', `${SAMPLE.rune.ticker} · on one output`));
   row.append(mid);
 
   const right = el('div', '');
-  right.append(el('div', 'vr-amount', display(SAMPLE.balance, SAMPLE.asset.divisibility)));
+  right.append(el('div', 'vr-amount', display(SAMPLE.balance, SAMPLE.rune.divisibility)));
   const state = el('span', 'vr-tag', 'UNVERIFIED');
   right.append(state);
   row.append(right);
@@ -131,9 +131,9 @@ function verifySection() {
     state.className = 'vr-tag';
     state.textContent = 'CHECKING';
 
-    // leaf = SHA256(outpoint || assetRef || amount), per §8.1.
+    // leaf = SHA256(outpoint || runeRef || amount), per §8.1.
     const amount = tamper ? SAMPLE.balance + 100 : SAMPLE.balance;
-    const leaf = await sha256(bytesOf(`${SAMPLE.outpoint}|${SAMPLE.asset.ticker}|${amount}`));
+    const leaf = await sha256(bytesOf(`${SAMPLE.outpoint}|${SAMPLE.rune.ticker}|${amount}`));
     line('leaf', hex(leaf).slice(0, 32) + '…');
 
     // Three sibling hashes: a real proof, just a small tree.
@@ -147,7 +147,7 @@ function verifySection() {
     }
 
     // The published root is the one the honest leaf produces, so tampering with the amount misses.
-    const honestLeaf = await sha256(bytesOf(`${SAMPLE.outpoint}|${SAMPLE.asset.ticker}|${SAMPLE.balance}`));
+    const honestLeaf = await sha256(bytesOf(`${SAMPLE.outpoint}|${SAMPLE.rune.ticker}|${SAMPLE.balance}`));
     let expect = honestLeaf;
     for (const s of siblings) expect = await sha256(cat(expect, await sha256(bytesOf(s))));
 
@@ -303,7 +303,7 @@ function tickerSection() {
     const spacerNote = el('p', 'vr-sub');
     spacerNote.style.marginTop = '10px';
     spacerNote.textContent = `A separator is not a character. ${shown} and ${bare} are the same `
-      + 'asset, priced on the same length, so nobody can squat a name by re-spacing it. This is how '
+      + 'rune, priced on the same length, so nobody can squat a name by re-spacing it. This is how '
       + 'Bitcoin Runes does it too: the bullets live in a separate field and never touch the name.';
     out.append(spacerNote);
 
@@ -320,7 +320,7 @@ function tickerSection() {
       + 'somewhere between a third and two thirds of the amount, depending on what you would '
       + 'otherwise have done with the coins. Getting them back needs the release tool, because '
       + 'Verge Core cannot sign the script that holds them. The procedure is inscribed on chain, '
-      + 'beside the asset, so it does not depend on this site still being here in four years.';
+      + 'beside the rune, so it does not depend on this site still being here in four years.';
     out.append(cost);
   };
 
@@ -369,8 +369,8 @@ function etchSection() {
   kv('That price returns', releaseDate());
   // Spelled out as "all N mints" rather than "the whole supply": a million of this supply is
   // premined, so the two figures differ and a reader who noticed would think one of them was wrong.
-  kv(`Taking all ${fmt(SAMPLE.asset.mintCap)} mints would cost`,
-    fmt(SAMPLE.asset.mintCap * SAMPLE.asset.mintPrice) + ' XVG in fees');
+  kv(`Taking all ${fmt(SAMPLE.rune.mintCap)} mints would cost`,
+    fmt(SAMPLE.rune.mintCap * SAMPLE.rune.mintPrice) + ' XVG in fees');
   kv('Inscription + fees', '~0.6 XVG, these are spent');
   kv('Changeable later', 'nothing, by anyone, ever');
   card.append(summary);
@@ -396,7 +396,7 @@ function mintSection() {
   row.append(el('div', 'vr-ticker-badge', 'GRU'));
   const mid = el('div', 'vr-grow');
   mid.append(el('div', 'vr-name', 'Grumpy Token'));
-  const a = SAMPLE.asset;
+  const a = SAMPLE.rune;
   mid.append(el('div', 'vr-sub',
     `${display(a.perMint, a.divisibility)} per mint · ${a.mintPrice} XVG each · closes at height 9,400,000`));
   row.append(mid);
@@ -569,8 +569,8 @@ function outsSection() {
     'None of it can be honest on day one, and a token page that opens with a fake-looking chart '
     + 'teaches people to read the whole screen as marketing.');
   item('No portfolio total in XVG or dollars.',
-    'Adding up assets with no liquidity produces a number that is wrong in a way that feels precise. '
-    + 'Balances are shown per asset until there is a real market to price them against.');
+    'Adding up runes with no liquidity produces a number that is wrong in a way that feels precise. '
+    + 'Balances are shown per rune until there is a real market to price them against.');
   item('No one-click "create token" wizard.',
     'An etching is permanent. The form shows every irreversible field before the button rather than '
     + 'hiding them behind a friendly flow.');

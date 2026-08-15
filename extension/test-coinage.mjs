@@ -142,7 +142,7 @@ console.log('coin-age selection (spec §2.1)\n');
   const AGE = NOW - 12 * DAY;
   const w = new Wallet({ electrum: stubElectrum({ [TXID]: AGE }) });
   await w.create('test passphrase for coin age');
-  w.getUtxos = async () => [{ txid: TXID, vout: 0, value: 50_000_000, inscription: null, assets: {} }];
+  w.getUtxos = async () => [{ txid: TXID, vout: 0, value: 50_000_000, inscription: null, runes: {} }];
 
   const built = await w.send({ toAddress: 'DU8rvf7eHDwyvshWGJMqBduPRs1X6K652M', amount: 1_000_000, broadcast: false });
   const b = [...built.hex.slice(8, 16).matchAll(/../g)].map((m) => parseInt(m[0], 16));

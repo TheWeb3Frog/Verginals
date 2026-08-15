@@ -121,8 +121,8 @@ function buildPlan({ body, contentType, networkName = 'testnet', amount, wif, fi
  *   parent = { txid, vout, value, wif, address }
  *
  * `pay` (optional) adds one P2PKH input of the caller's, and spends it into `pay.outputs`, with
- * anything left over returned to `pay.change`. An asset etching needs this: the ticker price has to
- * be locked in the SAME transaction as the etching (ASSETS-SPEC-v0 §7.2), and it is far more than a
+ * anything left over returned to `pay.change`. A rune etching needs this: the ticker price has to
+ * be locked in the SAME transaction as the etching (RUNES-SPEC-v0 §7.2), and it is far more than a
  * commit ever carries, so it cannot come out of the inscription's own funding. Inert when absent, so
  * an ordinary inscription reveal is byte for byte what it always was.
  *   pay = { txid, vout, value, wif, change, outputs: [{ address, value }] }

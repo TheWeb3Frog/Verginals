@@ -1,4 +1,4 @@
-// Etch an asset, pay for it into a time-locked output, and prove the payment cannot move until the
+// Etch a rune, pay for it into a time-locked output, and prove the payment cannot move until the
 // lock expires. Run on an isolated regtest chain: the public Verge testnet has no reliable block
 // production, and a lock test is meaningless without blocks.
 //
@@ -21,8 +21,8 @@ const bitcoin = require(path.join(ROOT, 'node_modules/bitcoinjs-lib'));
 const ecc = require(path.join(ROOT, 'node_modules/tiny-secp256k1'));
 const { rpc } = require('./rpc.js');
 const { buildPlan, revealFromPlan, pickNetwork } = require(path.join(ROOT, 'src/cli'));
-const { buildEtch, DUST_UNITS } = require(path.join(ROOT, 'src/assets/builder'));
-const { detectEtching } = require(path.join(ROOT, 'src/assets/scanner'));
+const { buildEtch, DUST_UNITS } = require(path.join(ROOT, 'src/runes/builder'));
+const { detectEtching } = require(path.join(ROOT, 'src/runes/scanner'));
 const { pushData } = require(path.join(ROOT, 'src/envelope'));
 const { serializeTx, legacySighash, SIGHASH_ALL } = require(path.join(ROOT, 'src/vergetx'));
 
@@ -126,7 +126,7 @@ async function medianTimePast() {
   const holder = await rpc('getnewaddress');
   const sweepTo = await rpc('getnewaddress');
 
-  // ---- 1. Etch the asset for real -------------------------------------------------------------
+  // ---- 1. Etch the rune for real -------------------------------------------------------------
   console.log('1. Etching');
   const etch = buildEtch({
     ticker: 'LOCKED', name: 'Locked Payment Trial', divisibility: 2,
@@ -161,7 +161,7 @@ async function medianTimePast() {
 
   const revealTx = await rpc('getrawtransaction', [etchTxid, true]);
   const found = detectEtching(revealTx);
-  check('the scanner finds the asset on chain unaided', !!found && found.ticker === 'LOCKED',
+  check('the scanner finds the rune on chain unaided', !!found && found.ticker === 'LOCKED',
     found ? found.ticker + ', supply ' + found.supply : 'not found');
 
   // ---- 2. Pay the ticker price into two locked outputs ----------------------------------------

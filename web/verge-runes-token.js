@@ -1,4 +1,4 @@
-// One asset's page: price, the listings, who holds it, what has traded.
+// One rune's page: price, the listings, who holds it, what has traded.
 //
 // The differences from a Runes marketplace are all downstream of one protocol fact: a balance lives
 // on an output, so a listing sells a whole carrier and not an amount. That turns the order book
@@ -18,7 +18,7 @@ const fmt = (n, d = 0) => n.toLocaleString('en-US', { minimumFractionDigits: d, 
 
 const TICKER = (new URLSearchParams(location.search).get('t') || 'GRUMPY').toUpperCase();
 
-// --- sample asset ---------------------------------------------------------------------------
+// --- sample rune ---------------------------------------------------------------------------
 
 const ASSET = {
   ticker: TICKER,
@@ -387,9 +387,9 @@ async function status() {
   const node = $('#vr-status');
   try {
     const info = await (await fetch('/api/info')).json();
-    if (info.assets) {
+    if (info.runes) {
       node.className = 'vr-status bad';
-      node.textContent = 'This server reports assets ENABLED, which it should not be. Tell someone.';
+      node.textContent = 'This server reports runes ENABLED, which it should not be. Tell someone.';
       return;
     }
   } catch (_) { /* still true */ }

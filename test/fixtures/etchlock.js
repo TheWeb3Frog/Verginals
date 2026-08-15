@@ -4,7 +4,7 @@
 // ticker stays free. That is the point of the rule, and it means every test that etches has to pay,
 // so the arithmetic lives here once instead of in five files.
 
-const tickers = require('../../src/assets/tickers');
+const tickers = require('../../src/runes/tickers');
 
 // Any well-formed compressed key. The protocol only ever hashes it, and never decompresses the
 // point: a key that is not on the curve means the etcher can never reopen their own money, which is

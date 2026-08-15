@@ -92,11 +92,11 @@ const ARENA_ENABLED = process.env.VERGINALS_ARENA_ENABLED === '1';
 // Arena's own requires are unconditional up there, which is exactly why a VPS missing one of them
 // crash-loops on MODULE_NOT_FOUND with the feature switched off. Set VERGINALS_ADVENTURE_ENABLED=1.
 const ADVENTURE_ENABLED = ARENA_ENABLED && process.env.VERGINALS_ADVENTURE_ENABLED === '1';
-// Fungible assets (ASSETS-SPEC-v0) are built and tested but not launched: no /api/assets/* route
+// Fungible runes (RUNES-SPEC-v0) are built and tested but not launched: no /api/runes/* route
 // exists yet. This flag is what /api/info reports, and it must stay false until an indexer is
-// actually serving proofs: a wallet told "assets are live" by a server that cannot prove balances
+// actually serving proofs: a wallet told "runes are live" by a server that cannot prove balances
 // will refuse to spend anything at all.
-const ASSETS_ENABLED = process.env.VERGINALS_ASSETS_ENABLED === '1';
+const RUNES_ENABLED = process.env.VERGINALS_RUNES_ENABLED === '1';
 const MAX_BODY = 8 * 1024 * 1024; // 8 MB JSON cap
 
 const toXVG = (units) => units / COIN;
@@ -361,11 +361,11 @@ async function handleInfo(res) {
   sendJSON(res, 200, {
     network: NETWORK, tip, indexFrom: INDEX_FROM, indexedThrough: lastScanned, arena: ARENA_ENABLED,
     adventure: ADVENTURE_ENABLED && !!adventure,
-    // Whether this server indexes fungible assets (ASSETS-SPEC-v0). The wallet needs this, and the
-    // reason is not cosmetic: it treats a coin whose asset status it cannot determine as untouchable,
-    // which is right once assets exist and catastrophic before they do. With no indexer there is
+    // Whether this server indexes fungible runes (RUNES-SPEC-v0). The wallet needs this, and the
+    // reason is not cosmetic: it treats a coin whose rune status it cannot determine as untouchable,
+    // which is right once runes exist and catastrophic before they do. With no indexer there is
     // nothing to carry, so saying so plainly is what lets a wallet spend its own coins.
-    assets: ASSETS_ENABLED,
+    runes: RUNES_ENABLED,
     // Marketplace fee the seller's wallet must bake into a listing (basis points + destination).
     marketFeeBps: MARKET_FEE_BPS,
     marketFeeAddress: MARKET_FEE_BPS > 0 ? MARKET_FEE_ADDRESS : null,
@@ -1559,7 +1559,7 @@ async function handleAdventureTournamentJoin(req, res, id) {
 }
 
 /**
- * POST /api/assets/balances: the fungible assets a set of outpoints carries (ASSETS-SPEC-v0 §8).
+ * POST /api/runes/balances: the fungible runes a set of outpoints carries (RUNES-SPEC-v0 §8).
  *
  * This route existing at all is the point. Every extension wallet asks it before spending, and
  * treats no answer as "I cannot tell", which it then treats as "do not touch". With the route
@@ -1571,15 +1571,15 @@ async function handleAdventureTournamentJoin(req, res, id) {
  * root and discards what does not check out, so serving an empty answer THEN would be a lie a
  * wallet cannot catch, and would let someone burn a token by spending its carrier as change.
  */
-function handleAssetBalances(req, res) {
-  if (ASSETS_ENABLED) {
+function handleRuneBalances(req, res) {
+  if (RUNES_ENABLED) {
     // Deliberately not a lie-by-default: when the flag is on, an indexer must be wired in here.
-    return sendJSON(res, 503, { error: 'the asset indexer is not available on this server' });
+    return sendJSON(res, 503, { error: 'the rune indexer is not available on this server' });
   }
-  const { AssetState } = require('./assets/indexer');
-  const { stateRoot } = require('./assets/checkpoint');
+  const { RuneState } = require('./runes/indexer');
+  const { stateRoot } = require('./runes/checkpoint');
   return sendJSON(res, 200, {
-    root: Array.from(stateRoot(new AssetState())),
+    root: Array.from(stateRoot(new RuneState())),
     entries: [],
     launched: false,
   });
@@ -2736,19 +2736,21 @@ const server = http.createServer(async (req, res) => {
       return serveStatic(res, 'index.html');
     }
     if (req.method === 'GET' && (p === '/app.js' || p === '/wallet.js' || p === '/style.css')) return serveStatic(res, p.slice(1));
-    // Unlisted design preview for the asset protocol, which is NOT enabled. Served unconditionally
+    // Unlisted design preview for the rune protocol, which is NOT enabled. Served unconditionally
     // because it is a static page that spends nothing and calls no wallet: it reads /api/info to
     // report the server's real state and computes the rest in the browser. The page carries a
     // noindex, and it says on its face that every figure on it is a worked example.
     if (req.method === 'GET' && (p === '/verge-runes-test' || p === '/verge-runes-test.html')) {
       return serveStatic(res, 'verge-runes.html');
     }
-    // The public Verge Assets page. Unlinked from the nav on purpose while the protocol is off, and
+    // The public Verge Runes page. Unlinked from the nav on purpose while the protocol is off, and
     // it carries a noindex: the URL is handed out by hand. Static, spends nothing, calls no wallet.
-    if (req.method === 'GET' && (p === '/assets' || p === '/verge-assets')) {
-      return serveStatic(res, 'verge-assets.html');
+    // /assets stays as an alias: the page was handed out under that name before it was renamed, and
+    // a link somebody already has should not turn into a 404 over a rename.
+    if (req.method === 'GET' && (p === '/runes' || p === '/verge-runes' || p === '/assets')) {
+      return serveStatic(res, 'runes.html');
     }
-    if (req.method === 'GET' && /^\/verge-assets\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
+    if (req.method === 'GET' && /^\/runes\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
     if (req.method === 'GET' && p === '/verge-runes-market') return serveStatic(res, 'verge-runes-market.html');
     if (req.method === 'GET' && p === '/verge-runes-token') return serveStatic(res, 'verge-runes-token.html');
     if (req.method === 'GET' && /^\/verge-runes(-market|-token|-chart)?\.(js|css)$/.test(p)) {
@@ -2853,7 +2855,7 @@ const server = http.createServer(async (req, res) => {
       if ((m = p.match(/^\/api\/market\/accept\/([0-9a-fA-F]{64}:\d+)\/([a-km-zA-HJ-NP-Z1-9]{25,40})$/)) && req.method === 'GET') return await handleMarketAcceptData(res, m[1], m[2]);
     }
     if (req.method === 'GET' && p.startsWith('/api/job/')) return await handleJob(res, p.slice('/api/job/'.length));
-    if (req.method === 'POST' && p === '/api/assets/balances') return handleAssetBalances(req, res);
+    if (req.method === 'POST' && p === '/api/runes/balances') return handleRuneBalances(req, res);
     if (req.method === 'GET' && p === '/api/inscriptions') return await handleInscriptions(res, url.searchParams.get('owner'));
       if (req.method === 'GET' && p === '/api/index/digest') {
         if (!allowRead(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });

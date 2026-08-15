@@ -1,4 +1,4 @@
-// The asset market list. Sample data throughout: there is no market yet, and the page says so.
+// The rune market list. Sample data throughout: there is no market yet, and the page says so.
 //
 // The shape follows what people already know from Runes marketplaces, because a trader should not
 // have to learn a new table. What is different is forced by the protocol rather than by taste, and
@@ -124,7 +124,7 @@ function controls() {
 
   const search = el('input', 'vr-in sm');
   search.placeholder = 'Search ticker or name';
-  search.setAttribute('aria-label', 'Search assets');
+  search.setAttribute('aria-label', 'Search runes');
   search.addEventListener('input', () => { query = search.value.toUpperCase().trim(); rows(); });
   bar.append(search);
 
@@ -149,14 +149,14 @@ async function status() {
   const node = $('#vr-status');
   try {
     const info = await (await fetch('/api/info')).json();
-    if (info.assets) {
+    if (info.runes) {
       node.className = 'vr-status bad';
-      node.textContent = 'This server reports assets ENABLED, which it should not be. Tell someone.';
+      node.textContent = 'This server reports runes ENABLED, which it should not be. Tell someone.';
       return;
     }
   } catch (_) { /* the sentence below is true either way */ }
-  node.textContent = 'Every figure on this page is invented. The asset protocol is switched off on '
-    + 'this server, no asset has ever been etched, and nothing here can spend a coin.';
+  node.textContent = 'Every figure on this page is invented. The rune protocol is switched off on '
+    + 'this server, no rune has ever been etched, and nothing here can spend a coin.';
 }
 
 status();

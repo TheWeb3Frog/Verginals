@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Verge Assets: interface preview</title>
+<title>Verge Runes: interface preview</title>
 <link rel="icon" href="/favicon.svg">
 <link rel="stylesheet" href="/style.css">
 <link rel="stylesheet" href="/verge-runes.css">
@@ -14,9 +14,9 @@
 
   <header class="vr-head">
     <p class="vr-kicker">INTERFACE PREVIEW</p>
-    <h1>Verge Assets</h1>
+    <h1>Verge Runes</h1>
     <p class="vr-lede">
-      Fungible tokens on Verge, from the protocol in <code>spec/ASSETS-SPEC-v0.md</code>. This page is
+      Fungible tokens on Verge, from the protocol in <code>spec/RUNES-SPEC-v0.md</code>. This page is
       how the interface could work. Every figure on it is a worked example, not live data.
     </p>
     <div id="vr-status" class="vr-status">Checking what the server actually reports…</div>
@@ -70,7 +70,7 @@
     <p class="vr-say">
       A name can carry separators, as on Runes. <b>Press space and you get one.</b> They are display
       only and cost nothing: <code>DOG&#8226;GO&#8226;TO&#8226;THE&#8226;MOON</code> and
-      <code>DOGGOTOTHEMOON</code> are the same asset, priced on the same 14 characters, so a good
+      <code>DOGGOTOTHEMOON</code> are the same rune, priced on the same 14 characters, so a good
       ticker cannot be squatted a dozen times over by re-spacing it.
     </p>
 
@@ -86,7 +86,7 @@
   <!-- 3. Etching: one form, and the irreversible fields called out. -->
   <section class="vr-sec">
     <p class="vr-num">03</p>
-    <h2>Etch an asset</h2>
+    <h2>Etch a rune</h2>
     <p class="vr-say">
       One primitive covers both cases: supply 1 with divisibility 0 is a single item, supply N is a
       token. So there is one form, and fungibility is a choice inside it rather than two products.
@@ -120,7 +120,7 @@
       The protocol refuses to pick that number itself. Any constant it chose would be fixed in XVG
       and permanent from the first etching, while the thing it means is a value in dollars: 20 XVG is
       a few cents today, and a hundredfold move would price minting out of reach for reasons that
-      have nothing to do with the asset. An etcher choosing on the day prices it at what XVG is worth
+      have nothing to do with the rune. An etcher choosing on the day prices it at what XVG is worth
       on the day, and the interface suggests a figure so nobody has to guess.
     </p>
     <p class="vr-say">
@@ -147,7 +147,7 @@
     <p class="vr-num">05</p>
     <h2>What holding one looks like</h2>
     <p class="vr-say">
-      Balances live on outputs, like the coin itself, so an output can carry several assets at once
+      Balances live on outputs, like the coin itself, so an output can carry several runes at once
       and moving one is moving a UTXO. That is invisible most of the time and it matters in exactly
       one place: coin control.
     </p>
@@ -160,7 +160,7 @@
     <div id="vr-holdings" class="vr-holdings"></div>
 
     <p class="vr-note">
-      <b>The design call:</b> a coin carrying an asset is never auto-selected for change. The
+      <b>The design call:</b> a coin carrying a rune is never auto-selected for change. The
       protocol is already safe by default (an ordinary send moves the whole balance to the recipient
       rather than destroying it), but "safe" here means your tokens land with whoever you paid. The
       wallet has to see them to keep them.

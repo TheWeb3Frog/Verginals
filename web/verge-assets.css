@@ -69,6 +69,13 @@
 .va-say { margin: 0 0 16px; max-width: 68ch; font-size: 15.5px; line-height: 1.75; color: var(--muted); }
 .va-say b { color: var(--txt); font-weight: 600; }
 .va-say:last-child { margin-bottom: 0; }
+/* A name in running text. Slightly tighter than the body so a fourteen-character ticker with four
+   bullets in it does not force a line break of its own. */
+.va-say code {
+  font: 13.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--txt); background: var(--bg2);
+  padding: 2px 5px; border-radius: 5px; white-space: nowrap;
+}
 
 /* --- the instruments --------------------------------------------------------------------------- */
 

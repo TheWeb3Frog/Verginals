@@ -238,6 +238,28 @@ test('an etching that never locked the price does not take the ticker', () => {
   assert.strictEqual(s.tickers.get('FROG'), assetRefOf(101, 1));
 });
 
+// §7.1: a separator is display only, so it buys no namespace. This is the property that keeps the
+// price schedule meaningful, and it belongs here rather than in a rendering test.
+test('re-spacing a name does not buy a second one', () => {
+  const s = new AssetState();
+  applyTx(s, etchTx('a', 100, 1, { ticker: 'DOGGOTOTHEMOON', spacers: 0b1010100, supply: 1000, premine: 1000 }));
+  assert.strictEqual(s.tickers.get('DOGGOTOTHEMOON'), assetRefOf(100, 1));
+
+  // the same letters spaced differently, then not spaced at all
+  applyTx(s, etchTx('b', 101, 1, { ticker: 'DOGGOTOTHEMOON', spacers: 0b110, supply: 1000, premine: 1000 }));
+  applyTx(s, etchTx('c', 102, 1, { ticker: 'DOGGOTOTHEMOON', supply: 1000, premine: 1000 }));
+  assert.strictEqual(s.assets.size, 1, 'a separator bought a second asset');
+  assert.strictEqual(s.tickers.size, 1);
+  assert.strictEqual(s.tickers.get('DOGGOTOTHEMOON'), assetRefOf(100, 1), 'the first etcher lost the name');
+});
+
+test('the mask is normalised at indexing time, so every indexer draws the same name', () => {
+  const s = new AssetState();
+  // bits past the end of a 3-character name have no gap to sit in
+  applyTx(s, etchTx('x', 100, 1, { ticker: 'ABC', spacers: 0b11111111, supply: 10, premine: 10 }));
+  assert.strictEqual(s.assets.get(assetRefOf(100, 1)).spacers, 0b11);
+});
+
 // §6: an etch has no owner, so nothing about a registered asset can be revised after the fact. There
 // is no update message to test against, which is the point; what can be tested is that a later
 // etching cannot reach an existing one (above) and that an unrecognised field is ignored rather than

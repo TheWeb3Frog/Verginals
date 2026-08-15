@@ -200,6 +200,12 @@ const PRICE = { 1: 100000, 2: 50000, 3: 25000, 4: 10000, 5: 5000, 6: 2500, 7: 10
 const priceOf = (len) => (len >= 12 ? 10 : PRICE[len] || 0);
 const LOCK_DAYS = 1460;
 
+// The separator, fixed by the protocol and never chosen by the etcher. Two people picking different
+// separator characters would produce names that look identical to a reader and differ to an indexer,
+// which is a homograph attack with extra steps.
+const SEP = '•';
+const bare = (s) => s.split(SEP).join('');
+
 function releaseDate() {
   const d = new Date(Date.now() + LOCK_DAYS * 86400000);
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -208,7 +214,7 @@ function releaseDate() {
 function nameSection() {
   const host = $('#va-ticker');
   host.textContent = '';
-  head(host, 'Price a name', 'A-Z AND 0-9, UP TO 26 CHARACTERS');
+  head(host, 'Price a name', 'PRESS SPACE FOR A SEPARATOR');
 
   const input = el('input', 'va-in');
   input.value = 'GRUMPY';
@@ -232,19 +238,29 @@ function nameSection() {
   host.append(out);
 
   function draw() {
-    const raw = input.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (raw !== input.value) {
-      const at = input.selectionStart;
-      input.value = raw;
-      input.setSelectionRange(at, at);
+    // A space becomes a separator, which is how somebody would expect to type one. Everything else
+    // outside A-Z0-9 is dropped, and leading, trailing and doubled separators cannot survive
+    // because they have no gap to sit in.
+    const typed = input.value.toUpperCase()
+      .replace(/ /g, SEP)
+      .replace(/[^A-Z0-9•]/g, '')
+      .replace(/•+/g, SEP)
+      .replace(/^•+/, '');
+    if (typed !== input.value) {
+      const at = input.selectionStart + (typed.length - input.value.length);
+      input.value = typed;
+      input.setSelectionRange(Math.max(0, at), Math.max(0, at));
     }
-    const n = raw.length;
-    hint.textContent = `${n}/26 characters, folded to uppercase and permanent once taken`;
+    const name = bare(typed);
+    const n = name.length;
+    const seps = typed.length - n;
+    hint.textContent = `${n}/26 characters` + (seps ? `, plus ${seps} separator${seps === 1 ? '' : 's'} that cost nothing` : '')
+      + '. Press space for a separator.';
 
     out.textContent = '';
     if (n === 0) {
       bigNum.textContent = '';
-      bigWhy.textContent = 'Type a name to price it.';
+      bigWhy.textContent = 'Type a name to price it. Press space to put a separator in it.';
       return;
     }
     const one = priceOf(n);
@@ -252,10 +268,19 @@ function nameSection() {
     bigWhy.textContent = `locked for ${fmt(LOCK_DAYS)} days, then yours again on ${releaseDate()}. `
       + 'Not burned, not paid to anyone.';
 
-    kv(out, 'Length that is priced', `${n} character${n === 1 ? '' : 's'}`);
+    // The point of the whole feature: what you typed is not what the coin is.
+    if (seps) {
+      kv(out, 'What you would see', typed.replace(/•$/, ''));
+      kv(out, 'What the coin actually is', name);
+    }
+    kv(out, 'Length that is priced', `${n} character${n === 1 ? '' : 's'}`
+      + (seps ? ', separators not counted' : ''));
     kv(out, 'One name', fmt(one) + ' XVG locked');
     kv(out, 'Fifty of them, for a squatter', fmt(one * 50) + ' XVG locked at once');
     kv(out, 'Cost if you never come back for it', '0 XVG, the money is yours');
+    if (seps) {
+      kv(out, 'Re-spacing it', 'buys nothing, it is the same coin', 'quiet');
+    }
     if (n >= 12) {
       kv(out, 'Why this one is cheap', 'twelve characters or more is nominal, so an honest '
         + 'descriptive name is never priced out', 'quiet');
@@ -263,6 +288,7 @@ function nameSection() {
   }
 
   input.addEventListener('input', draw);
+  input.value = 'DOG' + SEP + 'GO' + SEP + 'TO' + SEP + 'THE' + SEP + 'MOON';
   draw();
 }
 

@@ -184,6 +184,53 @@ test('a mint price rides in the terms and is charged as a fee, not an output', (
   assert.ok(paid < 20 * 1e6, 'the price leaked into an output');
 });
 
+// §7.1: separators are display only. These are end to end through the builder, because the
+// helpers in tickers.js were correct for months while nothing called them.
+
+test('a name typed with separators etches as the bare name plus a mask', () => {
+  const B = '\u2022';
+  const p = buildEtch({ ticker: 'DOG' + B + 'GO' + B + 'TO' + B + 'THE' + B + 'MOON', supply: 1000, premine: 1000 },
+    { address: 'D1' });
+  assert.strictEqual(p.ticker, 'DOGGOTOTHEMOON');            // the identity is bare
+  assert.strictEqual(p.display, 'DOG' + B + 'GO' + B + 'TO' + B + 'THE' + B + 'MOON');
+  assert.strictEqual(cbor.decode(p.body).t, 'DOGGOTOTHEMOON');
+  assert.strictEqual(cbor.decode(p.body).x, p.spacers);
+  assert.ok(p.spacers > 0, 'the mask never reached the etching');
+});
+
+test('separators cost nothing: the price follows the bare length', () => {
+  const B = '\u2022';
+  const spaced = buildEtch({ ticker: 'GR' + B + 'UM' + B + 'PY', supply: 1000, premine: 1000 }, { address: 'D1' });
+  const bare = buildEtch({ ticker: 'GRUMPY', supply: 1000, premine: 1000 }, { address: 'D1' });
+  assert.strictEqual(spaced.price, bare.price);
+  assert.strictEqual(spaced.price, priceOf('GRUMPY'));
+  assert.strictEqual(spaced.ticker, bare.ticker);
+});
+
+test('a mask can be given directly instead of typing separators', () => {
+  const p = buildEtch({ ticker: 'ABC', spacers: 0b11, supply: 10, premine: 10 }, { address: 'D1' });
+  assert.strictEqual(p.display, 'A\u2022B\u2022C');
+  assert.strictEqual(cbor.decode(p.body).x, 0b11);
+});
+
+test('a name with no separators carries no mask at all', () => {
+  const p = buildEtch({ ticker: 'PLAIN', supply: 10, premine: 10 }, { address: 'D1' });
+  assert.strictEqual(p.spacers, 0);
+  assert.strictEqual(cbor.decode(p.body).x, undefined, 'an empty field is still bytes on chain');
+});
+
+test('separators that cannot be rendered are dropped, never fatal', () => {
+  const B = '\u2022';
+  // leading, trailing and doubled: an etching is paid for and permanent, so none of these may
+  // destroy it over where a bullet goes
+  for (const typed of [B + 'ABC', 'ABC' + B, 'A' + B + B + 'BC', B + B + 'A' + B + B + 'BC' + B]) {
+    const p = buildEtch({ ticker: typed, supply: 10, premine: 10 }, { address: 'D1' });
+    assert.strictEqual(p.ticker, 'ABC', JSON.stringify(typed));
+    assert.strictEqual(p.display, typed.replace(new RegExp(B + '+', 'g'), B).replace(new RegExp('^' + B + '|' + B + '$', 'g'), ''),
+      JSON.stringify(typed));
+  }
+});
+
 test('a mint price above what a node will relay is refused at etch time', () => {
   // measured on regtest: Verge Core refuses any ABSOLUTE fee over 50 XVG, so a higher price would
   // etch an asset nobody could mint with an ordinary wallet, permanently

@@ -139,8 +139,16 @@ function buildCheckpoint(height, root, opts = {}) {
  */
 function buildEtch(asset, recipient, opts = {}) {
   const dust = opts.dustUnits != null ? opts.dustUnits : DUST_UNITS;
-  const ticker = String(asset.ticker || '').toUpperCase();
+
+  // Separators are display only (spec §7.1). The name may arrive either already spaced, the way
+  // somebody typed it into a box, or bare with an explicit mask; either way the IDENTITY and the
+  // PRICE are the bare name, so both are computed from it and the mask rides along as `x`.
+  const typed = String(asset.ticker || '');
+  const ticker = tickers.bareTicker(typed);
   if (!/^[A-Z0-9]{1,26}$/.test(ticker)) throw new Error('ticker must be 1..26 characters of A-Z0-9');
+  const spacers = tickers.normalizeSpacers(ticker, asset.spacers != null
+    ? Number(asset.spacers)
+    : tickers.spacersFromDisplay(typed));
   const divisibility = Number(asset.divisibility || 0);
   if (!Number.isInteger(divisibility) || divisibility < 0 || divisibility > 6) {
     throw new Error('divisibility must be an integer between 0 and 6 (COIN is 1e6)');
@@ -156,6 +164,7 @@ function buildEtch(asset, recipient, opts = {}) {
 
   // Short CBOR keys, exactly as the spec tabulates them, so the payload stays small.
   const body = { t: ticker, n: asset.name || ticker, d: divisibility, s: supply, p: premine };
+  if (spacers) body.x = spacers;   // omitted entirely when there is nothing to render
   if (asset.terms) {
     const m = { a: Number(asset.terms.amount || 0) };
     if (asset.terms.cap != null) m.c = Number(asset.terms.cap);
@@ -217,7 +226,9 @@ function buildEtch(asset, recipient, opts = {}) {
     body: cbor.encode(body),
     outputs,
     premineOutput: 0,
-    ticker,
+    ticker,                                            // the identity, always bare
+    display: tickers.displayTicker(ticker, spacers),   // what a wallet should show
+    spacers,
     price,
     lockScriptPubKey: lockScript,
   };

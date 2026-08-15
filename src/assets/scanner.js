@@ -75,6 +75,12 @@ function detectEtching(tx) {
       etching.terms.price = price;
     }
   }
+  // Display separators (§7.1). Never part of the identity, so an unreadable mask is dropped rather
+  // than made fatal: it decides where a bullet is drawn and nothing else.
+  if (body.x != null) {
+    const mask = Number(body.x);
+    if (Number.isInteger(mask) && mask > 0) etching.spacers = mask;
+  }
   if (body.l != null) {
     // The price lock (spec §7.2). Kept raw here; tickers.isLocked decides whether it pays.
     const key = toBuffer(body.l.k);

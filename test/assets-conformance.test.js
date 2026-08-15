@@ -72,6 +72,9 @@ function randomHistory(seed, length = 40) {
       const supply = 1000 + Math.floor(rnd() * 100000);
       const premine = Math.floor(rnd() * supply);
       const etching = { ticker, name: ticker, divisibility: Math.floor(rnd() * 7), supply, premine };
+      // Separators are display only, so both implementations must carry them without either one
+      // letting them touch the identity or the balances.
+      if (rnd() < 0.4) etching.spacers = Math.floor(rnd() * 256);
       if (rnd() < 0.5 && premine < supply) {
         etching.terms = { amount: Math.max(1, Math.floor((supply - premine) / 10)) };
         if (rnd() < 0.5) etching.terms.cap = 1 + Math.floor(rnd() * 4);

@@ -217,6 +217,32 @@ function bareTicker(display) {
   return String(display || '').split(SPACER_CHAR).join('').toUpperCase();
 }
 
+/**
+ * The inverse of displayTicker: read a bitfield back out of a name somebody typed with separators
+ * in it. This is what lets an interface take `DOG(bullet)GO(bullet)TO(bullet)THE(bullet)MOON` from a
+ * text box and hand the etching a bare name plus a mask, without the person ever meeting the word
+ * "bitfield".
+ *
+ * Leading separators, trailing ones and runs of several in a row are dropped rather than rejected,
+ * for the reason §7.1 gives: a name is paid for and permanent, and no arrangement of bullets should
+ * be able to destroy one.
+ */
+function spacersFromDisplay(display) {
+  const s = String(display || '').toUpperCase();
+  let mask = 0;
+  let seen = 0;                       // characters of the bare name so far
+  for (const ch of s) {
+    if (ch === SPACER_CHAR) {
+      // A separator sits between two characters, so one before any character, or a second in the
+      // same gap, has nowhere to go.
+      if (seen > 0) mask |= 1 << (seen - 1);
+      continue;
+    }
+    seen += 1;
+  }
+  return normalizeSpacers('A'.repeat(seen), mask);
+}
+
 /** What a squatter would have to spend to take `count` tickers of this length. Used in the docs. */
 function costOfHoarding(length, count) {
   return priceOf('A'.repeat(length)) * count;
@@ -228,5 +254,5 @@ module.exports = {
   ABSURD_FEE_UNITS, MAX_MINT_PRICE,
   priceOf, costOfHoarding,
   encodeScriptNum, lockRedeemScript, p2shScriptPubKey, lockScriptFor, isLocked,
-  normalizeSpacers, displayTicker, bareTicker,
+  normalizeSpacers, displayTicker, bareTicker, spacersFromDisplay,
 };

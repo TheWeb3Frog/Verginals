@@ -80,8 +80,12 @@ function validDefinition(e) {
   if (![d, s, p].every(Number.isInteger)) return null;
   if (d < 0 || d > 6) return null;
   if (s < 0 || p < 0 || p > s) return null;
+  // §7.1, re-derived: bits are only meaningful in the gaps between characters, and anything past
+  // the end is masked off rather than rejected.
+  const raw = Number(e.spacers) || 0;
+  const spacers = raw > 0 ? raw & ((1 << Math.max(0, ticker.length - 1)) - 1) : 0;
   return {
-    ticker, supply: s, premine: p, divisibility: d,
+    ticker, supply: s, premine: p, divisibility: d, spacers,
     terms: e.terms || null, allowlistRoot: e.allowlistRoot || null,
   };
 }

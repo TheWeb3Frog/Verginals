@@ -136,6 +136,25 @@ test('an unreadable mint price makes the whole etching unreadable', () => {
   assert.strictEqual(detectEtching(revealTx(body, ETCH_CONTENT_TYPE)), null);
 });
 
+test('a name etched with separators comes back off the chain with them', () => {
+  const B = '\u2022';
+  const etch = buildEtch({ ticker: 'DOG' + B + 'GO' + B + 'TO' + B + 'THE' + B + 'MOON',
+    supply: 1000, premine: 1000 }, { address: 'D1' });
+  const found = detectEtching(revealTx(etch.body, etch.contentType));
+  assert.strictEqual(found.ticker, 'DOGGOTOTHEMOON');
+  assert.strictEqual(found.spacers, etch.spacers);
+});
+
+test('an unreadable separator mask is dropped rather than made fatal', () => {
+  // it decides where a bullet is drawn, so it must never cost somebody the name they paid for
+  const cbor = require('../src/cbor');
+  const body = cbor.encode({ t: 'BADMASK', n: 'x', d: 0, s: 10, p: 10, x: 'lots' });
+  const found = detectEtching(revealTx(body, ETCH_CONTENT_TYPE));
+  assert.ok(found, 'the whole etching was thrown away over a display field');
+  assert.strictEqual(found.ticker, 'BADMASK');
+  assert.strictEqual(found.spacers, undefined);
+});
+
 test('the fee is what the inputs held minus what the outputs hold', async () => {
   const chain = {
     getRawTransaction: async (txid) => ({ vout: [{ value: 100 }, { value: 50 }] }),

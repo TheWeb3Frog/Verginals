@@ -151,6 +151,9 @@ function normaliseEtching(e, ref) {
   if (!Number.isInteger(premine) || premine < 0 || premine > supply) return null;
   return {
     ref, ticker, name: e.name || ticker, divisibility, supply, premine,
+    // Normalised at indexing time, so every indexer renders the same name from the same etching
+    // and a mask with bits past the end of the ticker is ignored rather than fatal (§7.1).
+    spacers: tickers.normalizeSpacers(ticker, Number(e.spacers) || 0),
     terms: e.terms || null,          // { amount, cap, openHeight, closeHeight, price }
     allowlistRoot: e.allowlistRoot || null,
     parent: e.parent || null,

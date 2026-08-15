@@ -2743,6 +2743,12 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && (p === '/verge-runes-test' || p === '/verge-runes-test.html')) {
       return serveStatic(res, 'verge-runes.html');
     }
+    // The public Verge Assets page. Unlinked from the nav on purpose while the protocol is off, and
+    // it carries a noindex: the URL is handed out by hand. Static, spends nothing, calls no wallet.
+    if (req.method === 'GET' && (p === '/assets' || p === '/verge-assets')) {
+      return serveStatic(res, 'verge-assets.html');
+    }
+    if (req.method === 'GET' && /^\/verge-assets\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
     if (req.method === 'GET' && p === '/verge-runes-market') return serveStatic(res, 'verge-runes-market.html');
     if (req.method === 'GET' && p === '/verge-runes-token') return serveStatic(res, 'verge-runes-token.html');
     if (req.method === 'GET' && /^\/verge-runes(-market|-token|-chart)?\.(js|css)$/.test(p)) {

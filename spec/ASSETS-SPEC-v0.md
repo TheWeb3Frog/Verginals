@@ -416,9 +416,11 @@ not justify the ceremony.
 of the block receives it, exactly as with any other fee. There is still no beneficiary written into
 the protocol, and the money now pays for the chain's own security rather than sitting still.
 
-Relay fees alone cannot do this job. At 0.2 XVG/kB, taking a 21,000,000 supply issued 1,000 at a
-time costs about 2,100 XVG in total, which is not a deterrent, it is a rounding error. A declared
-price of 20 XVG per mint puts the same supply at 420,000 XVG.
+Relay fees alone cannot do this job. Two limits apply to a mint and the larger one binds: the relay
+rate of 0.2 XVG/kB, which asks about 0.05 XVG of a 250-byte mint, and the absolute mempool floor of
+0.1 XVG, which is therefore what actually gets paid. Taking a 21,000,000 supply issued 1,000 at a
+time costs about **2,100 XVG** in total, which is not a deterrent, it is a rounding error. A declared
+price of 20 XVG per mint puts the same supply at **420,000 XVG**.
 
 #### The etcher sets it, not the protocol
 
@@ -489,12 +491,24 @@ BRC-20 offer no answer at all.
 Any party may compute, at a given height, a merkle tree over the entire balance set:
 
 ```
-leaf   = SHA256( outpoint(36B) || assetRef || amount )
+leaf   = SHA256( utf8( "<outpoint>|<assetRef>|<amount>" ) )
+         outpoint is "<txid hex>:<vout>", assetRef and amount in decimal
 leaves sorted by (outpoint, assetRef)
-root   = merkle root, SHA256 pairs, last node duplicated on odd levels
+pair   = SHA256( a || b ) with a and b ordered by byte comparison, smaller first
+root   = fold pairs upward; an ODD node is carried up unchanged, never duplicated
+empty  = 32 zero bytes, a valid commitment to "nothing exists yet"
 ```
 
 and publish `{ height, root }` in a checkpoint message (§4.3).
+
+Two details here are load-bearing and easy to get wrong in a second implementation:
+
+**A lone node at the end of a level is carried up as it is.** Duplicating it, which is what Bitcoin's
+own transaction tree does, lets one proof authenticate two different trees (the CVE-2012-2459 shape).
+Carrying it up costs nothing and closes that off.
+
+**The pair order comes from comparing the two hashes, not from left and right.** That is what lets a
+proof be a bare list of sibling hashes with no direction flags in it.
 
 ### 8.2 What this buys
 

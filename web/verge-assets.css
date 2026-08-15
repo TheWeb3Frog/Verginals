@@ -1,0 +1,218 @@
+/* Verge Assets. Built on the site's own tokens in style.css, so this reads as part of Verginals and
+   not as a pitch deck that wandered in.
+
+   Two departures from the interface preview it replaces:
+
+   The sections are not numbered. Numbering says "these are steps, in order", and these are
+   independent properties of the protocol: you can read the mint price section without having read
+   the names one. An eyebrow that names the subject carries more than a counter does.
+
+   Every figure is monospace and tabular. This page is mostly an argument about amounts, and amounts
+   that do not line up column to column are amounts a reader has to re-check. */
+
+.va-wrap { max-width: 1000px; margin: 0 auto; padding: 0 24px 40px; }
+
+/* --- chrome ------------------------------------------------------------------------------------ */
+
+.va-top {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 16px 24px; border-bottom: 1px solid var(--line);
+}
+.va-brand { display: flex; align-items: center; gap: 13px; text-decoration: none; color: inherit; }
+.va-brand .logo { width: 40px; height: 40px; font-size: 23px; }
+.va-brand span span { display: block; }
+.va-brand b { display: block; font-size: 17px; letter-spacing: .3px; }
+.va-brand i { display: block; font-style: normal; font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+
+/* Amber, never green. Nothing here is live, and a green light would say otherwise. */
+.va-top-right {
+  padding: 7px 12px; border-radius: 999px; flex: none;
+  border: 1px solid #6b5320; background: #241d0d;
+  font: 11.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: #ffc93c;
+}
+.va-top-right.bad { border-color: #6b2626; background: #241010; color: var(--danger); }
+
+/* --- hero -------------------------------------------------------------------------------------- */
+
+.va-hero { padding: 74px 0 60px; }
+.va-eyebrow {
+  margin: 0 0 18px; font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 4px; color: var(--accent);
+}
+.va-hero h1 {
+  margin: 0 0 22px; font-size: 54px; line-height: 1.06; letter-spacing: -1.2px;
+  text-wrap: balance; font-weight: 700;
+}
+.va-lede { margin: 0; max-width: 60ch; font-size: 17px; line-height: 1.68; color: var(--muted); }
+
+.va-hero-facts {
+  margin-top: 44px; display: grid; gap: 1px; background: var(--line);
+  border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
+  grid-template-columns: repeat(3, 1fr);
+}
+.va-hero-facts > div { background: var(--bg); padding: 20px 22px; }
+.va-hero-facts b {
+  display: block; font: 700 30px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums; color: var(--accent); letter-spacing: -1px;
+}
+.va-hero-facts span { display: block; margin-top: 9px; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
+
+/* --- sections ---------------------------------------------------------------------------------- */
+
+.va-sec { padding: 56px 0; border-top: 1px solid var(--line); }
+.va-sec-last { padding-bottom: 20px; }
+.va-kicker {
+  margin: 0 0 10px; font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 2.5px; color: var(--muted);
+}
+.va-sec h2 { margin: 0 0 20px; font-size: 31px; line-height: 1.2; letter-spacing: -0.6px; text-wrap: balance; }
+.va-say { margin: 0 0 16px; max-width: 68ch; font-size: 15.5px; line-height: 1.75; color: var(--muted); }
+.va-say b { color: var(--txt); font-weight: 600; }
+.va-say:last-child { margin-bottom: 0; }
+
+/* --- the instruments --------------------------------------------------------------------------- */
+
+.va-demo {
+  margin: 28px 0; padding: 22px; border: 1px solid var(--line);
+  border-radius: var(--radius); background: var(--card);
+}
+.va-demo-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 14px;
+  margin-bottom: 16px; flex-wrap: wrap;
+}
+.va-demo-head h3 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.1px; }
+.va-demo-head p {
+  margin: 0; font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted); letter-spacing: .3px;
+}
+
+.va-label { display: block; margin-bottom: 7px; font-size: 12.5px; color: var(--muted); }
+.va-in {
+  width: 100%; padding: 12px 14px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--txt);
+  font: 600 17px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums; letter-spacing: .5px;
+}
+.va-in:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+.va-fields { display: grid; gap: 14px; grid-template-columns: repeat(3, 1fr); }
+
+.va-hint { margin: 9px 0 0; font: 11.5px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
+
+/* Readouts. A row of label and figure, the figure right-aligned so a column of them can be read
+   down rather than across. */
+.va-kv { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; padding: 9px 0; }
+.va-kv + .va-kv { border-top: 1px solid var(--line); }
+.va-kv > span:first-child { font-size: 13.5px; color: var(--muted); }
+.va-kv > span:last-child {
+  font: 13.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums; text-align: right;
+}
+.va-kv.lead > span:last-child { font-size: 17px; font-weight: 700; color: var(--accent); }
+.va-kv.quiet > span:last-child { color: var(--muted); }
+.va-readout { margin-top: 18px; }
+
+/* The one number a section is really about. Used once per instrument, never twice. */
+.va-headline {
+  margin-top: 18px; padding: 16px 18px; border-radius: 10px;
+  border: 1px solid #1c4b63; background: #0d2432;
+}
+.va-headline b {
+  display: block; font: 700 27px/1.1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums; color: var(--accent); letter-spacing: -0.5px;
+}
+.va-headline span { display: block; margin-top: 7px; font-size: 13px; line-height: 1.55; color: var(--muted); }
+
+.va-btn {
+  padding: 10px 16px; border-radius: 9px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--bg2); color: var(--txt);
+  font: 600 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.va-btn:hover { border-color: var(--accent2); color: var(--accent); }
+.va-btn.on { border-color: var(--accent2); background: #0d2432; color: var(--accent); }
+.va-btns { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 16px; }
+
+/* Proof steps, the merkle path walked one hash at a time. */
+.va-steps { margin-top: 16px; display: flex; flex-direction: column; gap: 5px; }
+.va-step {
+  display: flex; gap: 12px; align-items: baseline; padding: 8px 12px; border-radius: 8px;
+  background: var(--bg); font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.va-step i { font-style: normal; color: var(--muted); flex: none; letter-spacing: 1px; }
+.va-step b { font-weight: 400; word-break: break-all; }
+.va-step.match b { color: var(--ok); }
+.va-step.fail b { color: var(--danger); }
+
+.va-verdict {
+  margin-top: 16px; padding: 13px 16px; border-radius: 10px; border: 1px solid var(--line);
+  font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--bg);
+}
+.va-verdict.ok { border-color: #1e5e46; background: #0e2a20; color: var(--ok); }
+.va-verdict.bad { border-color: #6b2626; background: #241010; color: var(--danger); }
+
+/* --- feature cards ----------------------------------------------------------------------------- */
+
+.va-cards { display: grid; gap: 14px; grid-template-columns: repeat(3, 1fr); }
+.va-card {
+  padding: 20px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card);
+}
+.va-card h3 { margin: 0 0 10px; font-size: 15.5px; font-weight: 600; }
+.va-card p { margin: 0; font-size: 13.5px; line-height: 1.68; color: var(--muted); }
+.va-card p + p { margin-top: 10px; }
+.va-card code {
+  font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent);
+}
+
+/* --- limits ------------------------------------------------------------------------------------ */
+
+.va-limits { display: flex; flex-direction: column; gap: 12px; }
+.va-limit {
+  padding: 16px 18px; border-left: 3px solid #6b5320; border-radius: 0 10px 10px 0;
+  background: var(--bg2);
+}
+.va-limit b { display: block; margin-bottom: 7px; font-size: 14.5px; }
+.va-limit p { margin: 0; font-size: 13.5px; line-height: 1.7; color: var(--muted); max-width: 74ch; }
+
+/* --- status ------------------------------------------------------------------------------------ */
+
+.va-status { display: flex; flex-direction: column; gap: 1px; background: var(--line);
+  border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.va-row { display: flex; align-items: center; gap: 16px; padding: 14px 18px; background: var(--bg); }
+.va-row-mark {
+  flex: none; width: 21px; height: 21px; border-radius: 50%; display: grid; place-items: center;
+  font: 700 11px/1 ui-monospace, monospace;
+}
+.va-row-mark.done { background: #0e2a20; color: var(--ok); border: 1px solid #1e5e46; }
+.va-row-mark.todo { background: #241d0d; color: #ffc93c; border: 1px solid #6b5320; }
+.va-row-text { flex: 1; min-width: 0; }
+.va-row-text b { display: block; font-size: 14px; font-weight: 600; }
+.va-row-text span { display: block; margin-top: 3px; font-size: 12.5px; line-height: 1.55; color: var(--muted); }
+
+/* --- footer ------------------------------------------------------------------------------------ */
+
+.va-foot { border-top: 1px solid var(--line); padding: 30px 24px 46px; }
+.va-foot p {
+  margin: 0 auto 10px; max-width: 1000px; font-size: 12.5px; line-height: 1.65; color: var(--muted);
+}
+
+/* --- narrow ------------------------------------------------------------------------------------ */
+
+@media (max-width: 820px) {
+  .va-cards { grid-template-columns: 1fr; }
+  .va-hero-facts { grid-template-columns: 1fr; }
+  .va-fields { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .va-wrap { padding: 0 18px 30px; }
+  .va-hero { padding: 48px 0 40px; }
+  /* The hero break is composed for a wide line. On a narrow one it just makes the rag worse, so
+     the text is left to wrap on its own. */
+  .va-hero h1 br { display: none; }
+  .va-hero h1 { font-size: 36px; letter-spacing: -0.8px; }
+  .va-lede { font-size: 15.5px; }
+  .va-sec { padding: 42px 0; }
+  .va-sec h2 { font-size: 24px; }
+  .va-brand i { display: none; }
+  .va-top { padding: 14px 18px; }
+  .va-kv { flex-direction: column; align-items: flex-start; gap: 3px; }
+  .va-kv > span:last-child { text-align: left; }
+}

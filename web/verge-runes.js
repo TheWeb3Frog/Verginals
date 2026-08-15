@@ -352,7 +352,9 @@ function etchSection() {
   field('Supply cap', '21,000,000.00', true);
   field('Divisibility', '2 decimals', true);
   field('Premine', '1,000,000.00 to you', true);
-  field('Price per mint', '20 XVG (suggested)', true);
+  // "Network fee", not "price": it names where the money goes. Nothing reaches this protocol or
+  // anyone running it, and a label that says "price" invites the reader to ask who is collecting.
+  field('Network fee per mint', '20 XVG (suggested)', true);
   card.append(grid);
 
   const summary = el('div', '');
@@ -365,7 +367,10 @@ function etchSection() {
   kv('This etching is', 'a fungible token (supply above 1)');
   kv('Ticker price', '2,500 XVG for six characters, locked not spent');
   kv('That price returns', releaseDate());
-  kv('Taking the whole mint would cost', fmt(SAMPLE.asset.mintCap * SAMPLE.asset.mintPrice) + ' XVG in fees');
+  // Spelled out as "all N mints" rather than "the whole supply": a million of this supply is
+  // premined, so the two figures differ and a reader who noticed would think one of them was wrong.
+  kv(`Taking all ${fmt(SAMPLE.asset.mintCap)} mints would cost`,
+    fmt(SAMPLE.asset.mintCap * SAMPLE.asset.mintPrice) + ' XVG in fees');
   kv('Inscription + fees', '~0.6 XVG, these are spent');
   kv('Changeable later', 'nothing, by anyone, ever');
   card.append(summary);

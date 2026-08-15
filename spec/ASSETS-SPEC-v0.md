@@ -99,9 +99,15 @@ supply = N, divisibility = d   -> a fungible token
 | cap | `c` | uint, optional | maximum number of mints |
 | open height | `h0` | uint, optional | first block height that may mint |
 | close height | `h1` | uint, optional | last block height that may mint |
+| mint price | `f` | uint, optional | atomic units each mint must pay **as transaction fee**, see §7.3 |
 
 An open mint is closed once any of: `c` mints happened, height > `h1`, or `premine + minted` would
 exceed `s`.
+
+A mint that does not pay `f` credits nothing. The fee is `sum(inputs) − sum(outputs)`, so an indexer
+must be able to value every input of a mint transaction; **an indexer that cannot resolve the fee
+must refuse the mint**, never assume it was paid, or two indexers reading the same chain would
+disagree according to how their node happens to be configured.
 
 ---
 
@@ -400,6 +406,77 @@ third and two thirds as hard. Either the schedule rises to keep the intended pre
 pressure was set too high to begin with. It has to be settled before the first asset is etched,
 because the schedule is permanent from that moment.
 
+### 7.3 The mint price, and why the protocol refuses to pick it
+
+A ticker is paid for once. A mint happens thousands of times, so the lock is the wrong instrument
+for it: every mint would create an output an ordinary wallet cannot reopen, for an amount that does
+not justify the ceremony.
+
+**A mint pays its price as a transaction fee.** Nothing is locked, nothing is burned, and the miner
+of the block receives it, exactly as with any other fee. There is still no beneficiary written into
+the protocol, and the money now pays for the chain's own security rather than sitting still.
+
+Relay fees alone cannot do this job. At 0.2 XVG/kB, taking a 21,000,000 supply issued 1,000 at a
+time costs about 2,100 XVG in total, which is not a deterrent, it is a rounding error. A declared
+price of 20 XVG per mint puts the same supply at 420,000 XVG.
+
+#### The etcher sets it, not the protocol
+
+**`f` is chosen by whoever etches the asset, and applies only to that asset.** This is the one place
+where declining to make a decision is the decision.
+
+A protocol-wide constant would be fixed in XVG and permanent from the first etching, while the thing
+it is trying to express is a value in dollars. 20 XVG is a few cents today. If XVG appreciates by two
+orders of magnitude, that same constant prices minting out of reach, for reasons that have nothing to
+do with the asset it is guarding. There is no oracle available that does not introduce a party to
+trust, and §6 exists to keep parties out of this protocol, so there is no honest way to keep a single
+number current.
+
+An etcher choosing at etch time prices their mint at the value XVG has that day. A coin etched two
+years from now carries a judgement made two years from now, without anything being governed, revised
+or agreed by anybody. The incentive also lands where the information is: set it too low and one
+participant takes the whole mint, too high and nobody mints, and the etcher is the party that cares
+about both.
+
+An interface SHOULD offer a suggested figure computed from the price of XVG at etch time, and show
+what taking the entire supply would cost at that figure. Most etchers will take the suggestion, which
+gets the intended outcome without the protocol having to defend a constant it cannot keep honest.
+
+#### The ceiling, which is measured and not negotiable
+
+Verge Core refuses to broadcast any transaction whose **absolute** fee exceeds **50 XVG**
+(`absurdly-high-fee`). It is a flat amount rather than a rate, so a larger transaction buys no
+headroom. `sendrawtransaction` accepts `allowhighfees=true` to get past it, and peers relaying the
+transaction never apply the check at all, so this is node policy and not consensus. But a price above
+it cannot be paid by an ordinary wallet, which is the only thing that matters in practice.
+
+A builder MUST therefore refuse a mint price above **49 XVG**, leaving room for the relay fee that
+stacks on top of the price. Refusing at etch time is the whole point: the etching is permanent, and
+the mistake would otherwise surface only when the first person tried to mint.
+
+#### What a miner can do about it
+
+A miner can mint for free, by including their own mint in their own block and recovering the fee in
+the coinbase. This is stated rather than fixed. The alternative is a burn, which cannot be recovered
+by anyone, and which throws away the reason to prefer fees in the first place; and the attack is
+bounded, since it takes sustained hashrate and one transaction per mint rather than a single cheap
+sweep.
+
+#### Measured, not assumed
+
+Everything above was run on a Verge Core v26.5.0 chain (`test/e2e/assets-price-regtest.js`):
+
+| | |
+|---|---|
+| a mint paying 20 XVG (81 XVG/kB, 400x the relay minimum) | standard, relays, no override needed |
+| a fee of exactly 50 XVG | accepted |
+| a fee of 50.000001 XVG | refused, `absurdly-high-fee` |
+| the same, with `allowhighfees` | accepted |
+| the coinbase of the block carrying the mints | subsidy + every fee in the block, to the unit |
+| `getblock` verbosity 3 (inline prevouts) | not implemented, so a fee costs one lookup per input |
+| a `fee` field on a block transaction | absent |
+| a mint paying the price to an address instead of the miner | credits nothing |
+
 ---
 
 ## 8. Verifiable light clients (the part nothing else has)
@@ -503,14 +580,14 @@ Stated plainly so nobody builds on a promise the chain cannot keep:
   chunked and expensive, which is why etchings are one-time.
 - **No indexer-free operation.** No metaprotocol has this. §8 makes the indexer *checkable*, which is
   the honest version of the claim.
-- **No fair-launch guarantee on an open mint.** Relay fees are negligible here, so nothing stops one
-  automated participant from taking most of an ungated mint. That is true on every chain; what is
-  different is that Bitcoin's fee market puts a real price on the attempt and Verge deliberately does
-  not. Every rule that would fix it rations either time or capital, and therefore charges the honest
-  minter for a problem they did not cause, so none is imposed. The tools that do work are already
-  here: an allowlist (§5) decides in advance who is invited, and a full premine lets the etcher
-  distribute by hand. An ungated open mint is a race, and the interface says so before the etching is
-  signed rather than after.
+- **No fair-launch guarantee on an open mint.** The mint price (§7.3) makes taking a whole supply
+  expensive rather than free, which is the difference between 2,100 XVG and 420,000 XVG on a
+  21,000,000 supply, but it does not decide who gets there first. It rations capital, not time, so a
+  well funded participant can still take most of an ungated mint. No further rule is imposed, because
+  every one that would settle the race rations time instead and charges the honest minter for a
+  problem they did not cause. The tools that do decide are already here: an allowlist (§5) says in
+  advance who is invited, and a full premine lets the etcher distribute by hand. An ungated open mint
+  is a race, and the interface says so before the etching is signed rather than after.
 - **No way to tighten issuance rules after the fact.** Adding a restrictive field later would split
   the index in silence, because an indexer that does not recognise it carries on permitting what the
   new rule forbids, and neither side can tell. Issuance rules are therefore what they are at v0.
@@ -529,6 +606,11 @@ Stated plainly so nobody builds on a promise the chain cannot keep:
 | Max ticker length | 26 |
 | Dust minimum on an asset output | 0.1 XVG |
 | Checkpoint leaf hash | SHA256 |
+| Ticker price lock | 126,144,000 seconds (1460 days) |
+| Lock derivation branch | `m/44'/77'/0'/2/n` |
+| Lock grace, signing to confirmation | 86,400 seconds |
+| Node fee ceiling (`absurdly-high-fee`) | 50 XVG, absolute |
+| Maximum mint price a builder may etch | 49 XVG |
 
 ---
 

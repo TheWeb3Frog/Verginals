@@ -110,11 +110,24 @@
       airdrop or a fair whitelist, which neither BRC-20 nor Runes can express at all.
     </p>
     <p class="vr-say">
-      Without one, a mint is a race, and on this chain the fees are too small to slow anybody down.
-      That is said here rather than fixed, because every rule that would fix it rations time or
-      capital and so charges the ordinary minter for a problem they did not cause. The etcher picks:
-      a list, a premine they distribute themselves, or an open race they went into with their eyes
-      open.
+      <b>Each mint has a price, and the etcher sets it.</b> It is paid as an ordinary transaction
+      fee, so the miner of the block receives it and the protocol still names no beneficiary
+      anywhere. Relay fees alone could not do this job: at 0.2 XVG/kB, taking a 21,000,000 supply
+      costs about 2,100 XVG, which is a rounding error. At 20 XVG a mint, the same supply costs
+      420,000 XVG.
+    </p>
+    <p class="vr-say">
+      The protocol refuses to pick that number itself. Any constant it chose would be fixed in XVG
+      and permanent from the first etching, while the thing it means is a value in dollars: 20 XVG is
+      a few cents today, and a hundredfold move would price minting out of reach for reasons that
+      have nothing to do with the asset. An etcher choosing on the day prices it at what XVG is worth
+      on the day, and the interface suggests a figure so nobody has to guess.
+    </p>
+    <p class="vr-say">
+      This rations capital, not time, so it does not settle who gets there first. That is said here
+      rather than fixed, because every rule that would settle a race rations time and so charges the
+      ordinary minter for a problem they did not cause. The etcher picks: a list, a premine they
+      distribute themselves, or an open race they went into with their eyes open.
     </p>
 
     <div id="vr-mint" class="vr-mint"></div>
@@ -124,7 +137,8 @@
       transaction. A wallet that lets you broadcast a mint you cannot make is a wallet that charges
       you a fee to be told no. It cannot always win: the last few mints of a capped supply are a race
       nobody can call in advance, so the screen has to be honest about that too rather than pretend
-      the check is a guarantee.
+      the check is a guarantee. The price is on the button for the same reason. A fee is money that
+      leaves and never comes back, so it belongs in the label, not in a confirmation dialog.
     </p>
   </section>
 

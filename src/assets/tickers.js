@@ -12,12 +12,14 @@
 // real project. At the schedule below, a four-letter ticker costs one project 10,000 XVG, and costs a
 // squatter wanting fifty of them half a million.
 //
-// The fee is split 50/50 between the project treasury and Verge itself. A protocol that depends on a
-// chain should contribute to it: Verge's development and public infrastructure are what make this
-// possible at all, so a share goes back by design rather than by goodwill, which also makes the
-// protocol's success and the chain's health the same thing.
+// Nothing is burned and nothing is paid to anyone (§7.2). The price goes into an output the etcher
+// alone can reopen, four years later. Every other fee model eventually has to name a recipient, and
+// a recipient is a party with a stake in the protocol, which is exactly what §6 spent its length
+// removing. A lock answers "nobody, for four years", so the deterrent survives without creating one.
 
+const crypto = require('crypto');
 const { COIN } = require('../networks');
+const { pushData } = require('../envelope');
 
 /**
  * Price by ticker length, in whole XVG. An explicit table rather than a formula: a lookup cannot be
@@ -38,38 +40,122 @@ function priceOf(ticker) {
   return Math.round(xvg * COIN);
 }
 
-/** The two halves owed. Any rounding remainder goes to Verge, never to the project. */
-function splitOf(ticker) {
-  const total = priceOf(ticker);
-  const project = Math.floor(total / 2);
-  return { total, project, verge: total - project };
+// --- what a mint may be charged (spec §2.2) -----------------------------------------------------
+
+// Measured on Verge Core v26.5.0, not inferred: sendrawtransaction refuses any transaction whose
+// ABSOLUTE fee exceeds 50 XVG with "absurdly-high-fee", and the limit is a flat amount rather than a
+// rate, so no amount of extra transaction size buys headroom. Passing allowhighfees=true gets past
+// it, and peers relaying the transaction never apply the check at all, so a higher price is possible
+// with software written for it. It is not possible with an ordinary wallet, which is what matters.
+const ABSURD_FEE_UNITS = 50 * COIN;
+
+// So a mint price has to leave room for the relay fee stacked on top of it, because the node judges
+// the total. A mint is around 250 bytes and relay is 0.2 XVG/kB, so the headroom below is more than
+// an order of magnitude more than it needs, and an etcher gains nothing by going closer to the wall.
+const MAX_MINT_PRICE = 49 * COIN;
+
+// --- the lock (spec §7.2) ------------------------------------------------------------------------
+
+/** 1460 days. The whole deterrent is capital multiplied by time, so this number is the deterrent. */
+const LOCK_SECONDS = 126144000;
+
+// An etcher signs their transaction before the chain confirms it, and the lock is measured from the
+// block that carries it, so a lock computed at signing time is always a little short by the time it
+// lands. A day of slack covers any plausible delay between the two, and shaving one day off 1460 is
+// worth nothing to an attacker, so there is no reason to make this tight.
+const LOCK_GRACE_SECONDS = 86400;
+
+// nLockTime below this is a block HEIGHT, at or above it is a unix TIMESTAMP. The protocol accepts
+// only the timestamp form: a height lock assumes four years of unchanged block spacing, and ten
+// percent of drift there is five months of error.
+const LOCKTIME_THRESHOLD = 500000000;
+
+const hash160 = (b) => crypto.createHash('ripemd160').update(crypto.createHash('sha256').update(b).digest()).digest();
+
+/** Minimal CScriptNum, the encoding OP_CHECKLOCKTIMEVERIFY expects its argument in. */
+function encodeScriptNum(n) {
+  if (n === 0) return Buffer.alloc(0);
+  const bytes = [];
+  let abs = Math.abs(n);
+  while (abs > 0) { bytes.push(abs & 0xff); abs = Math.floor(abs / 256); }
+  if (bytes[bytes.length - 1] & 0x80) bytes.push(n < 0 ? 0x80 : 0x00);
+  else if (n < 0) bytes[bytes.length - 1] |= 0x80;
+  return Buffer.from(bytes);
+}
+
+/** `<locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP <pubkey> OP_CHECKSIG` */
+function lockRedeemScript(locktime, pubkey) {
+  const key = Buffer.isBuffer(pubkey) ? pubkey : Buffer.from(String(pubkey), 'hex');
+  if (key.length !== 33 || (key[0] !== 2 && key[0] !== 3)) {
+    throw new Error('the lock key must be a 33-byte compressed pubkey');
+  }
+  if (!Number.isInteger(locktime) || locktime < LOCKTIME_THRESHOLD) {
+    throw new Error('locktime must be a unix timestamp, never a block height');
+  }
+  return Buffer.concat([
+    pushData(encodeScriptNum(locktime)),
+    Buffer.from([0xb1, 0x75]),   // OP_CHECKLOCKTIMEVERIFY, OP_DROP
+    pushData(key),
+    Buffer.from([0xac]),         // OP_CHECKSIG
+  ]);
+}
+
+/** `OP_HASH160 <20-byte hash> OP_EQUAL`, the output the redeem script is paid into. */
+function p2shScriptPubKey(redeem) {
+  return Buffer.concat([Buffer.from([0xa9, 0x14]), hash160(redeem), Buffer.from([0x87])]);
+}
+
+/**
+ * Rebuild the scriptPubKey an etching's `l = { t, k }` commits to. Returns null when the field is
+ * not a usable lock, and callers must treat null as "this etching is not paid for".
+ */
+function lockScriptFor(lock) {
+  if (!lock) return null;
+  const t = Number(lock.t);
+  const k = Buffer.isBuffer(lock.k) ? lock.k
+    : (typeof lock.k === 'string' ? Buffer.from(lock.k, 'hex') : null);
+  if (!k) return null;
+  try {
+    const redeem = lockRedeemScript(t, k);
+    return { redeem, scriptPubKey: p2shScriptPubKey(redeem), locktime: t, pubkey: k };
+  } catch { return null; }
 }
 
 /**
  * Is an etching paid for?
  *
- * Both halves must be paid in the same transaction that carries the etching, each to its exact
- * address. Underpaying either side makes the etching invalid, so a ticker cannot be taken by paying
- * only the project or only Verge.
+ * The whole check is local to the one transaction, and that is deliberate: an indexer rebuilding
+ * history from blocks decides this with nothing but the block in front of it, and a wallet that has
+ * lost everything but its seed can still find the money later. There is no address to configure, no
+ * payout to route, and nothing to keep in sync.
  *
- * @param {Object} tx        the indexer-shaped transaction (outputs carry { address, value })
+ * @param {Object} tx     indexer-shaped transaction; needs `outputs` and the block `time`
  * @param {string} ticker
- * @param {Object} addresses { project, verge }
- * @returns {{ ok, owed, paid, reason? }}
+ * @param {Object} lock   the etching's `l` field, { t, k }
+ * @returns {{ ok, owed, locked, reason? }}
  */
-function isPaid(tx, ticker, addresses) {
-  const owed = splitOf(ticker);
-  if (!addresses || !addresses.project || !addresses.verge) {
-    return { ok: false, owed, paid: null, reason: 'payout addresses are not configured' };
+function isLocked(tx, ticker, lock) {
+  const owed = priceOf(ticker);
+  const script = lockScriptFor(lock);
+  if (!script) return { ok: false, owed, locked: 0, reason: 'no readable price lock in the etching' };
+
+  // The lock has to actually last. Without this an etcher could name a timestamp already past and
+  // reopen the money in the next block, which is a ticker for the price of a transaction fee.
+  const time = Number(tx.time || 0);
+  if (!time) return { ok: false, owed, locked: 0, reason: 'no block time to measure the lock against' };
+  if (script.locktime < time + LOCK_SECONDS - LOCK_GRACE_SECONDS) {
+    return { ok: false, owed, locked: 0, reason: 'the lock is shorter than the protocol requires' };
   }
-  const sumTo = (addr) => (tx.outputs || [])
-    .filter((o) => o.address && o.address === addr)
+
+  // Several outputs to the same script are summed. They pay into one address either way, so there is
+  // nothing to gain by splitting and no reason to refuse it.
+  const locked = (tx.outputs || [])
+    .filter((o) => o.scriptPubKey && Buffer.isBuffer(o.scriptPubKey)
+      && o.scriptPubKey.equals(script.scriptPubKey))
     .reduce((s, o) => s + o.value, 0);
 
-  const paid = { project: sumTo(addresses.project), verge: sumTo(addresses.verge) };
-  if (paid.project < owed.project) return { ok: false, owed, paid, reason: 'project share underpaid' };
-  if (paid.verge < owed.verge) return { ok: false, owed, paid, reason: 'verge share underpaid' };
-  return { ok: true, owed, paid };
+  if (locked < owed) return { ok: false, owed, locked, reason: 'the ticker price is not locked in this transaction' };
+  return { ok: true, owed, locked };
 }
 
 // --- display spacers ---------------------------------------------------------------------------
@@ -138,6 +224,9 @@ function costOfHoarding(length, count) {
 
 module.exports = {
   PRICE_XVG, PRICE_LONG_XVG, MAX_TICKER_LENGTH, SPACER_CHAR,
-  priceOf, splitOf, isPaid, costOfHoarding,
+  LOCK_SECONDS, LOCK_GRACE_SECONDS, LOCKTIME_THRESHOLD,
+  ABSURD_FEE_UNITS, MAX_MINT_PRICE,
+  priceOf, costOfHoarding,
+  encodeScriptNum, lockRedeemScript, p2shScriptPubKey, lockScriptFor, isLocked,
   normalizeSpacers, displayTicker, bareTicker,
 };

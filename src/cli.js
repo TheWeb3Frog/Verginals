@@ -119,9 +119,16 @@ function buildPlan({ body, contentType, networkName = 'testnet', amount, wif, fi
  * parent value passes straight through; parent.value MUST exceed `fee` so the parent lands in
  * output 1 (not swept to the child at offset 0). Does not broadcast.
  *   parent = { txid, vout, value, wif, address }
+ *
+ * `pay` (optional) adds one P2PKH input of the caller's, and spends it into `pay.outputs`, with
+ * anything left over returned to `pay.change`. An asset etching needs this: the ticker price has to
+ * be locked in the SAME transaction as the etching (ASSETS-SPEC-v0 §7.2), and it is far more than a
+ * commit ever carries, so it cannot come out of the inscription's own funding. Inert when absent, so
+ * an ordinary inscription reveal is byte for byte what it always was.
+ *   pay = { txid, vout, value, wif, change, outputs: [{ address, value }] }
  * @returns {{hex, txid, tx, outputValue, parentOut}}
  */
-function revealFromPlan({ plan, utxos, to, fee, values, parent }) {
+function revealFromPlan({ plan, utxos, to, fee, values, parent, pay }) {
   const { network } = pickNetwork(plan.network);
   const signer = ECPair.fromWIF(plan.wif, network);
   if (utxos.length !== plan.inputs.length) {
@@ -150,6 +157,20 @@ function revealFromPlan({ plan, utxos, to, fee, values, parent }) {
     const parentSigner = ECPair.fromWIF(parent.wif, network);
     inputs.push({ txid: parent.txid, vout: parent.vout, value: parent.value, p2pkh: true, signer: parentSigner });
     outputs.push({ address: parent.address, value: parent.value }); // carry the parent forward unchanged
+  }
+  if (pay) {
+    const spend = (pay.outputs || []).reduce((s, o) => s + o.value, 0);
+    const change = pay.value - spend;
+    if (change < 0) {
+      throw new Error(`pay input ${pay.value} cannot cover ${spend} of extra outputs`);
+    }
+    inputs.push({
+      txid: pay.txid, vout: pay.vout, value: pay.value, p2pkh: true,
+      signer: ECPair.fromWIF(pay.wif, network),
+    });
+    for (const o of pay.outputs || []) outputs.push({ address: o.address, value: o.value });
+    // Change last, so the carrier stays at index 0 and the lock keeps a fixed place behind it.
+    if (change > 0) outputs.push({ address: pay.change, value: change });
   }
   const { hex, txid, tx } = buildReveal({ network, inputs, outputs, signer });
   const parentOut = parent ? { txid, vout: 1, value: parent.value } : null;

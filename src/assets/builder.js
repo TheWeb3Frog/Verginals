@@ -17,6 +17,7 @@
 
 const cbor = require('../cbor');
 const codec = require('./codec');
+const tickers = require('./tickers');
 
 const DUST_UNITS = 100000; // 0.1 XVG, matching pricing.js
 
@@ -75,9 +76,14 @@ function buildTransfer(recipients, opts = {}) {
 /**
  * Mint from an open mint.
  *
+ * The mint price is a TRANSACTION FEE, not an output (spec §2.2). So there is nothing to add to the
+ * plan for it: the caller must fund the transaction so that inputs minus outputs reaches
+ * `mintPrice`, and the miner of the block receives it. That is reported back rather than assumed,
+ * because a wallet that funds this the ordinary way pays the relay minimum and the mint is ignored.
+ *
  * @param {number} assetRef
  * @param {Object} recipient { address, value }
- * @param {Object} [opts] { proofIndex, changeAddress, changeValue, dustUnits }
+ * @param {Object} [opts] { mintPrice, proofIndex, changeAddress, changeValue, dustUnits }
  */
 function buildMint(assetRef, recipient, opts = {}) {
   const dust = opts.dustUnits != null ? opts.dustUnits : DUST_UNITS;
@@ -93,9 +99,12 @@ function buildMint(assetRef, recipient, opts = {}) {
   }
   assertDust(outputs, dust);
 
+  const mintPrice = Number(opts.mintPrice || 0);
+  if (!Number.isInteger(mintPrice) || mintPrice < 0) throw new Error('mintPrice must be a whole number of atomic units');
+
   const opReturn = codec.encodeMint(assetRef, opts.proofIndex != null ? opts.proofIndex : null);
   outputs.push({ value: 0, isOpReturn: true, data: opReturn });
-  return { outputs, opReturn, remainderOutput: 0 };
+  return { outputs, opReturn, remainderOutput: 0, mintPrice, feeIsThePrice: true };
 }
 
 /**
@@ -115,7 +124,17 @@ function buildCheckpoint(height, root, opts = {}) {
  * Etch a new asset. The rich payload rides in an inscription (spec §1), so this returns the CBOR
  * body for the existing inscription pipeline to carry, plus the output that receives the premine.
  *
- * @param {Object} asset { ticker, name, divisibility, supply, premine, terms, allowlistRoot, parent, metadataRef }
+ * Two things here are not metadata and will invalidate the etching if they are wrong:
+ *
+ *   `lock`  the ticker price, sent to a P2SH CLTV output of THIS transaction (spec §7.2). Not
+ *           optional: an etching with no valid lock is ignored by the indexer and the ticker stays
+ *           free. It is an output of the etching itself so that recovery needs no stored state.
+ *
+ *   `terms.price`  what each mint must pay in transaction fee. Permanent from this moment, which is
+ *           why the protocol does not pick it: a constant fixed in XVG is a moving number in
+ *           dollars, and the etcher is the one who knows what their own mint is worth today.
+ *
+ * @param {Object} asset { ticker, name, divisibility, supply, premine, terms, lock, allowlistRoot, parent, metadataRef }
  * @param {Object} recipient { address, value } receives the premine
  */
 function buildEtch(asset, recipient, opts = {}) {
@@ -142,6 +161,18 @@ function buildEtch(asset, recipient, opts = {}) {
     if (asset.terms.cap != null) m.c = Number(asset.terms.cap);
     if (asset.terms.openHeight != null) m.h0 = Number(asset.terms.openHeight);
     if (asset.terms.closeHeight != null) m.h1 = Number(asset.terms.closeHeight);
+    if (asset.terms.price != null) {
+      const price = Number(asset.terms.price);
+      if (!Number.isInteger(price) || price < 0) throw new Error('the mint price must be a whole number of atomic units');
+      // Refused here rather than left to fail at mint time, because the etching is permanent and
+      // this mistake would only surface once somebody tried to mint and their node said no.
+      if (price > tickers.MAX_MINT_PRICE) {
+        throw new Error(`a mint price of ${price / 1e6} XVG cannot be paid by an ordinary wallet: `
+          + `Verge Core refuses any transaction fee above ${tickers.ABSURD_FEE_UNITS / 1e6} XVG, and `
+          + `the relay fee stacks on top of the price. The ceiling is ${tickers.MAX_MINT_PRICE / 1e6} XVG`);
+      }
+      if (price > 0) m.f = price;
+    }
     if (!(m.a > 0)) throw new Error('mint terms need a positive amount per mint');
     body.m = m;
   }
@@ -159,6 +190,26 @@ function buildEtch(asset, recipient, opts = {}) {
     value: recipient.value != null ? recipient.value : dust,
     carriesAsset: premine > 0,
   }];
+
+  // The ticker price. `l` publishes the two numbers a recovery tool needs, and the output beside it
+  // is the money. Both live in this transaction, so an indexer replaying blocks can check the
+  // payment with nothing else in front of it.
+  const price = tickers.priceOf(ticker);
+  let lockScript = null;
+  if (asset.lock) {
+    const redeem = tickers.lockRedeemScript(asset.lock.locktime, asset.lock.pubkey);
+    lockScript = tickers.p2shScriptPubKey(redeem);
+    const key = Buffer.isBuffer(asset.lock.pubkey) ? asset.lock.pubkey : Buffer.from(String(asset.lock.pubkey), 'hex');
+    body.l = { t: Number(asset.lock.locktime), k: key };
+    outputs.push({
+      value: price,
+      scriptPubKey: lockScript,
+      redeemScript: redeem,
+      carriesAsset: false,
+      isPriceLock: true,
+    });
+  }
+
   assertDust(outputs, dust);
 
   return {
@@ -167,6 +218,8 @@ function buildEtch(asset, recipient, opts = {}) {
     outputs,
     premineOutput: 0,
     ticker,
+    price,
+    lockScriptPubKey: lockScript,
   };
 }
 

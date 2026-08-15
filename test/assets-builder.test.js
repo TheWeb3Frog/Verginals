@@ -6,10 +6,14 @@ const assert = require('assert');
 const { DUST_UNITS, buildTransfer, buildMint, buildCheckpoint, buildEtch } = require('../src/assets/builder');
 const codec = require('../src/assets/codec');
 const cbor = require('../src/cbor');
+const {
+  priceOf, LOCK_SECONDS, lockRedeemScript, p2shScriptPubKey, MAX_MINT_PRICE, ABSURD_FEE_UNITS,
+} = require('../src/assets/tickers');
 
 let passed = 0;
 const test = (name, fn) => { fn(); passed += 1; console.log('  ok - ' + name); };
 const REF = 131001;
+const KEY = Buffer.from('02' + '11'.repeat(32), 'hex');
 const REF2 = 131002;
 
 test('the OP_RETURN is always last, so no edict can point at it', () => {
@@ -139,6 +143,69 @@ test('an open mint that premines the whole supply is refused (it could never min
     () => buildEtch({ ticker: 'FULL', supply: 1000, premine: 1000, terms: { amount: 10 } }, { address: 'D1' }),
     /can never mint/,
   );
+});
+
+// §7.2 and §2.2: the two prices. One is locked in this transaction, the other is charged per mint
+// and never appears as an output at all.
+
+test('an etch pays its ticker price into a lock output of its own transaction', () => {
+  const lock = { locktime: 1700000000 + LOCK_SECONDS, pubkey: KEY };
+  const p = buildEtch({ ticker: 'FROG', supply: 1000, premine: 1000, lock }, { address: 'D1' });
+  assert.strictEqual(p.price, priceOf('FROG'));
+  const paid = p.outputs.find((o) => o.isPriceLock);
+  assert.ok(paid, 'no lock output');
+  assert.strictEqual(paid.value, priceOf('FROG'));
+  assert.ok(paid.scriptPubKey.equals(p2shScriptPubKey(lockRedeemScript(lock.locktime, KEY))));
+  // and the premine output is still first, so nothing an edict could point at moved
+  assert.strictEqual(p.premineOutput, 0);
+  assert.strictEqual(p.outputs[0].address, 'D1');
+});
+
+test('the etching publishes the two numbers a recovery tool needs, and nothing else', () => {
+  const lock = { locktime: 1700000000 + LOCK_SECONDS, pubkey: KEY };
+  const p = buildEtch({ ticker: 'FROG', supply: 1000, premine: 1000, lock }, { address: 'D1' });
+  const body = cbor.decode(p.body);
+  assert.strictEqual(body.l.t, lock.locktime);
+  assert.ok(Buffer.from(Object.values(body.l.k)).equals(KEY));
+});
+
+test('a mint price rides in the terms and is charged as a fee, not an output', () => {
+  const lock = { locktime: 1700000000 + LOCK_SECONDS, pubkey: KEY };
+  const p = buildEtch({
+    ticker: 'FROG', supply: 100000, premine: 0, lock,
+    terms: { amount: 1000, price: 20 * 1e6 },
+  }, { address: 'D1' });
+  assert.strictEqual(cbor.decode(p.body).m.f, 20 * 1e6);
+
+  const m = buildMint(100001, { address: 'D2' }, { mintPrice: 20 * 1e6 });
+  assert.strictEqual(m.mintPrice, 20 * 1e6);
+  // nothing in the plan holds the price: the caller has to leave it behind as fee
+  const paid = m.outputs.reduce((sum, o) => sum + (o.value || 0), 0);
+  assert.ok(paid < 20 * 1e6, 'the price leaked into an output');
+});
+
+test('a mint price above what a node will relay is refused at etch time', () => {
+  // measured on regtest: Verge Core refuses any ABSOLUTE fee over 50 XVG, so a higher price would
+  // etch an asset nobody could mint with an ordinary wallet, permanently
+  const lock = { locktime: 1700000000 + LOCK_SECONDS, pubkey: KEY };
+  const etchAt = (price) => buildEtch({
+    ticker: 'FROG', supply: 100000, premine: 0, lock, terms: { amount: 1000, price },
+  }, { address: 'D1' });
+  assert.doesNotThrow(() => etchAt(MAX_MINT_PRICE));
+  assert.throws(() => etchAt(MAX_MINT_PRICE + 1), /ordinary wallet/);
+  assert.throws(() => etchAt(ABSURD_FEE_UNITS), /ordinary wallet/);
+  // the headroom is for the relay fee that stacks on top of the price
+  assert.ok(MAX_MINT_PRICE < ABSURD_FEE_UNITS);
+});
+
+test('a fractional or negative price is refused before it can be etched forever', () => {
+  const lock = { locktime: 1700000000 + LOCK_SECONDS, pubkey: KEY };
+  // atomic units are whole by definition, so half a unit is not a price, it is a typo
+  for (const price of [-1, 0.5, 20 * 1e6 + 0.5, Infinity]) {
+    assert.throws(() => buildEtch({
+      ticker: 'FROG', supply: 100000, premine: 0, lock, terms: { amount: 1000, price },
+    }, { address: 'D1' }), /whole number/, String(price));
+  }
 });
 
 console.log('\nassets builder: ' + passed + ' passed');

@@ -3,7 +3,8 @@
 // Run: node test/assets-tickers.test.js
 const assert = require('assert');
 const {
-  priceOf, splitOf, isPaid, costOfHoarding, PRICE_LONG_XVG,
+  priceOf, costOfHoarding, PRICE_LONG_XVG, LOCK_SECONDS, LOCK_GRACE_SECONDS,
+  lockRedeemScript, p2shScriptPubKey, isLocked,
   normalizeSpacers, displayTicker, bareTicker, SPACER_CHAR,
 } = require('../src/assets/tickers');
 
@@ -11,9 +12,12 @@ const COIN = 1e6;
 let passed = 0;
 const test = (name, fn) => { fn(); passed += 1; console.log('  ok - ' + name); };
 
-const PROJECT = 'DPROJECTTREASURYADDRESS';
-const VERGE = 'DVERGEOFFICIALADDRESS';
-const out = (address, value) => ({ address, value, isOpReturn: false });
+const NOW = 1700000000;
+const KEY = Buffer.from('02' + '11'.repeat(32), 'hex');
+const lockedOut = (value, locktime = NOW + LOCK_SECONDS, key = KEY) => ({
+  value, scriptPubKey: p2shScriptPubKey(lockRedeemScript(locktime, key)), isOpReturn: false,
+});
+const elsewhere = (value) => ({ value, scriptPubKey: Buffer.from('76a914' + '22'.repeat(20) + '88ac', 'hex'), isOpReturn: false });
 
 test('the published schedule is exactly what the spec promises', () => {
   const expected = { 3: 25000, 4: 10000, 5: 5000, 6: 2500, 8: 500, 10: 100 };
@@ -46,59 +50,97 @@ test('an impossible ticker is rejected rather than priced', () => {
   }
 });
 
-test('the fee splits in half, with any odd unit going to Verge', () => {
-  const s = splitOf('FROG');
-  assert.strictEqual(s.project + s.verge, s.total);
-  assert.strictEqual(s.project, s.verge); // 10000 XVG is even in units
-  // an odd total must never round in the project's favour
-  const odd = { total: 7, project: Math.floor(7 / 2), verge: 7 - Math.floor(7 / 2) };
-  assert.ok(odd.verge > odd.project);
+test('a lock the etcher can open is a P2SH wrapping a CLTV script', () => {
+  const redeem = lockRedeemScript(NOW + LOCK_SECONDS, KEY);
+  // <push locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP <push 33-byte key> OP_CHECKSIG
+  assert.strictEqual(redeem[redeem.length - 1], 0xac);
+  assert.ok(redeem.includes(Buffer.from([0xb1, 0x75])), 'no CLTV then DROP');
+  assert.ok(redeem.includes(KEY), 'the key is not in the script');
+  const spk = p2shScriptPubKey(redeem);
+  assert.strictEqual(spk.length, 23);
+  assert.strictEqual(spk[0], 0xa9);
+  assert.strictEqual(spk[spk.length - 1], 0x87);
 });
 
-test('an etching that pays both halves is valid', () => {
-  const { project, verge } = splitOf('FROG');
-  const tx = { outputs: [out(PROJECT, project), out(VERGE, verge), out('DSOMEONE', 100000)] };
-  assert.strictEqual(isPaid(tx, 'FROG', { project: PROJECT, verge: VERGE }).ok, true);
+test('a block height, or a key that is not a compressed point, cannot be a lock', () => {
+  assert.throws(() => lockRedeemScript(800000, KEY), /timestamp/);          // below the threshold
+  assert.throws(() => lockRedeemScript(NOW + LOCK_SECONDS, Buffer.alloc(33)), /compressed/);
+  assert.throws(() => lockRedeemScript(NOW + LOCK_SECONDS, Buffer.alloc(32, 2)), /compressed/);
 });
 
-test('paying only the project does not buy a ticker', () => {
-  const { project, verge } = splitOf('FROG');
-  const tx = { outputs: [out(PROJECT, project + verge)] }; // full amount, wrong split
-  const r = isPaid(tx, 'FROG', { project: PROJECT, verge: VERGE });
+test('an etching that locks the full price is paid for', () => {
+  const tx = { time: NOW, outputs: [elsewhere(100000), lockedOut(priceOf('FROG'))] };
+  const r = isLocked(tx, 'FROG', { t: NOW + LOCK_SECONDS, k: KEY });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.locked, priceOf('FROG'));
+});
+
+test('underpaying the lock by a single unit does not buy the ticker', () => {
+  const tx = { time: NOW, outputs: [lockedOut(priceOf('FROG') - 1)] };
+  assert.strictEqual(isLocked(tx, 'FROG', { t: NOW + LOCK_SECONDS, k: KEY }).ok, false);
+});
+
+test('paying the price anywhere else does not buy the ticker', () => {
+  // the whole amount, to an ordinary address, with a perfectly good lock declared and never funded
+  const tx = { time: NOW, outputs: [elsewhere(priceOf('FROG'))] };
+  const r = isLocked(tx, 'FROG', { t: NOW + LOCK_SECONDS, k: KEY });
   assert.strictEqual(r.ok, false);
-  assert.match(r.reason, /verge share/);
+  assert.match(r.reason, /not locked/);
 });
 
-test('paying only Verge does not buy a ticker either', () => {
-  const { project, verge } = splitOf('FROG');
-  const tx = { outputs: [out(VERGE, project + verge)] };
-  const r = isPaid(tx, 'FROG', { project: PROJECT, verge: VERGE });
+test('several outputs to the same lock add up', () => {
+  const half = Math.floor(priceOf('MOON') / 2);
+  const tx = { time: NOW, outputs: [lockedOut(half), lockedOut(priceOf('MOON') - half)] };
+  assert.strictEqual(isLocked(tx, 'MOON', { t: NOW + LOCK_SECONDS, k: KEY }).ok, true);
+});
+
+test('overpaying the lock is fine, it is the etcher\'s own money', () => {
+  const tx = { time: NOW, outputs: [lockedOut(priceOf('MOON') * 3)] };
+  assert.strictEqual(isLocked(tx, 'MOON', { t: NOW + LOCK_SECONDS, k: KEY }).ok, true);
+});
+
+test('a lock that expires too soon is not a lock', () => {
+  // the attack this rule exists for: declare a timestamp already past, pay yourself, reopen it in
+  // the next block, and hold a ticker for the cost of a transaction fee
+  const short = NOW + LOCK_SECONDS - LOCK_GRACE_SECONDS - 1;
+  const tx = { time: NOW, outputs: [lockedOut(priceOf('FROG'), short)] };
+  const r = isLocked(tx, 'FROG', { t: short, k: KEY });
   assert.strictEqual(r.ok, false);
-  assert.match(r.reason, /project share/);
+  assert.match(r.reason, /shorter than/);
 });
 
-test('underpaying by a single unit is refused', () => {
-  const { project, verge } = splitOf('MOON');
-  const tx = { outputs: [out(PROJECT, project - 1), out(VERGE, verge)] };
-  assert.strictEqual(isPaid(tx, 'MOON', { project: PROJECT, verge: VERGE }).ok, false);
+test('the grace window absorbs the delay between signing and confirming', () => {
+  // an etcher computes the lock when they sign; the block that carries it is always later
+  const signedEarlier = NOW - LOCK_GRACE_SECONDS + 60 + LOCK_SECONDS;
+  const tx = { time: NOW, outputs: [lockedOut(priceOf('FROG'), signedEarlier)] };
+  assert.strictEqual(isLocked(tx, 'FROG', { t: signedEarlier, k: KEY }).ok, true);
 });
 
-test('overpaying is fine', () => {
-  const { project, verge } = splitOf('MOON');
-  const tx = { outputs: [out(PROJECT, project * 2), out(VERGE, verge * 2)] };
-  assert.strictEqual(isPaid(tx, 'MOON', { project: PROJECT, verge: VERGE }).ok, true);
+test('paying a lock the etching did not declare buys nothing', () => {
+  // the output is funded, but `l` names a different key, so the script the indexer rebuilds is not
+  // the one that got paid
+  const other = Buffer.from('03' + '33'.repeat(32), 'hex');
+  const tx = { time: NOW, outputs: [lockedOut(priceOf('FROG'))] };
+  assert.strictEqual(isLocked(tx, 'FROG', { t: NOW + LOCK_SECONDS, k: other }).ok, false);
 });
 
-test('several outputs to the same address add up', () => {
-  const { project, verge } = splitOf('MOON');
-  const tx = { outputs: [out(PROJECT, project - 1000), out(PROJECT, 1000), out(VERGE, verge)] };
-  assert.strictEqual(isPaid(tx, 'MOON', { project: PROJECT, verge: VERGE }).ok, true);
+test('an etching with no lock at all is refused', () => {
+  const tx = { time: NOW, outputs: [lockedOut(priceOf('FROG'))] };
+  for (const bad of [null, undefined, {}, { t: NOW + LOCK_SECONDS }, { k: KEY }]) {
+    const r = isLocked(tx, 'FROG', bad);
+    assert.strictEqual(r.ok, false, JSON.stringify(bad));
+  }
 });
 
-test('with no payout addresses configured, nothing can be registered', () => {
-  const r = isPaid({ outputs: [] }, 'FROG', null);
+test('with no block time there is nothing to measure the lock against, so it fails', () => {
+  const tx = { outputs: [lockedOut(priceOf('FROG'))] };
+  const r = isLocked(tx, 'FROG', { t: NOW + LOCK_SECONDS, k: KEY });
   assert.strictEqual(r.ok, false);
-  assert.match(r.reason, /not configured/);
+  assert.match(r.reason, /block time/);
+});
+
+test('the lock lasts the 1460 days the spec promises', () => {
+  assert.strictEqual(LOCK_SECONDS, 1460 * 24 * 3600);
 });
 
 test('a long ticker is nearly free, so honest naming is never blocked', () => {

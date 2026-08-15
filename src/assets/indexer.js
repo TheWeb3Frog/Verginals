@@ -14,6 +14,7 @@
 
 const crypto = require('crypto');
 const codec = require('./codec');
+const tickers = require('./tickers');
 
 const sha256 = (b) => crypto.createHash('sha256').update(b).digest();
 const outpoint = (txid, vout) => `${txid}:${vout}`;
@@ -82,12 +83,17 @@ function applyTx(state, tx, opts = {}) {
   if (tx.etching) {
     const ref = assetRefOf(tx.height, tx.txIndex);
     const rec = normaliseEtching(tx.etching, ref);
-    if (rec && !state.tickers.has(rec.ticker)) {
+    // The price has to be locked in this same transaction (spec §7.2), or the ticker is not taken.
+    // Checked here rather than by the caller because it is what makes a ticker allocation valid, and
+    // an indexer that skipped it would hand out names for free and then disagree with every other.
+    const paid = rec ? tickers.isLocked(tx, rec.ticker, tx.etching.lock) : null;
+    if (rec && paid.ok && !state.tickers.has(rec.ticker)) {
       state.assets.set(ref, rec);
       state.tickers.set(rec.ticker, ref);
       if (rec.premine > 0) pool.set(ref, (pool.get(ref) || 0) + rec.premine);
     }
-    // A duplicate ticker is ignored, not fatal: the transaction still moves whatever it carried.
+    // A duplicate ticker or an unpaid one is ignored, not fatal: the transaction still moves
+    // whatever it carried.
   }
 
   // 3) Decode the protocol message, if the transaction carries one.
@@ -145,7 +151,7 @@ function normaliseEtching(e, ref) {
   if (!Number.isInteger(premine) || premine < 0 || premine > supply) return null;
   return {
     ref, ticker, name: e.name || ticker, divisibility, supply, premine,
-    terms: e.terms || null,          // { amount, cap, openHeight, closeHeight }
+    terms: e.terms || null,          // { amount, cap, openHeight, closeHeight, price }
     allowlistRoot: e.allowlistRoot || null,
     parent: e.parent || null,
     metadataRef: e.metadataRef || null,
@@ -165,11 +171,31 @@ function applyMint(state, tx, msg, pool) {
   if (t.closeHeight != null && tx.height > t.closeHeight) return;
   if (t.cap != null && asset.mintCount >= t.cap) return;
   if (asset.premine + asset.minted + amount > asset.supply) return;
+  if (!feePaid(tx, t)) return;
   if (asset.allowlistRoot && !allowlistOk(tx, asset, msg)) return;
 
   asset.minted += amount;
   asset.mintCount += 1;
   pool.set(msg.assetRef, (pool.get(msg.assetRef) || 0) + amount);
+}
+
+/**
+ * Did this mint pay what the etcher asked for?
+ *
+ * The price is a transaction FEE, so there is no output to look at and nothing to address: the
+ * miner of the block receives it, exactly like any other fee. That is the whole reason it works as
+ * a price, because it needs no beneficiary and no payout address in the protocol.
+ *
+ * Fails CLOSED. `tx.fee` is supplied by the caller (scanner.resolveFee), and an indexer that cannot
+ * resolve it must refuse the mint rather than wave it through, or two indexers reading the same
+ * chain would produce different balances depending on how their node is configured.
+ */
+function feePaid(tx, terms) {
+  const price = Number(terms.price || 0);
+  if (price <= 0) return true;
+  const fee = tx.fee;
+  if (typeof fee !== 'number' || !Number.isFinite(fee)) return false;
+  return fee >= price;
 }
 
 /**

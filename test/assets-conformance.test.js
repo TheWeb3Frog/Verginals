@@ -15,6 +15,7 @@ const indexerImpl = require('../src/assets/indexer');
 const verifyImpl = require('../src/assets/verify');
 const { buildTree } = require('../src/assets/checkpoint');
 const codec = require('../src/assets/codec');
+const { lockFor } = require('./fixtures/etchlock');
 
 let passed = 0;
 const test = (name, fn) => { fn(); passed += 1; console.log('  ok - ' + name); };
@@ -38,6 +39,19 @@ function makeRng(seed) {
 
 const out = (value = DUST, address = null) => ({ value, scriptPubKey: Buffer.from('aa', 'hex'), isOpReturn: false, address });
 const opret = (data) => ({ value: 0, isOpReturn: true, opReturnData: data });
+
+/**
+ * An etching that pays for its ticker (§7.2), so both implementations register it. The lock output
+ * goes last, leaving the indices the edicts in these histories point at exactly where they were.
+ */
+function paidEtch(tx) {
+  const paid = lockFor(String(tx.etching.ticker || '').toUpperCase());
+  return Object.assign({}, tx, {
+    time: paid.time,
+    outputs: [...tx.outputs, paid.output],
+    etching: Object.assign({ lock: paid.lock }, tx.etching),
+  });
+}
 
 /** A random but structurally valid history: etchings, mints, transfers, plain sends and junk. */
 function randomHistory(seed, length = 40) {
@@ -63,8 +77,11 @@ function randomHistory(seed, length = 40) {
         if (rnd() < 0.5) etching.terms.cap = 1 + Math.floor(rnd() * 4);
         if (rnd() < 0.3) etching.terms.openHeight = height + Math.floor(rnd() * 5);
         if (rnd() < 0.3) etching.terms.closeHeight = height + Math.floor(rnd() * 10);
+        // Half the open mints charge for a mint, so the histories exercise both branches of the
+        // fee rule and the mints below have to be funded or refused.
+        if (rnd() < 0.5) etching.terms.price = 20 * 1e6;
       }
-      txs.push({ txid, height, txIndex: 1, inputs: [], outputs: [out(), out()], etching });
+      txs.push(paidEtch({ txid, height, txIndex: 1, inputs: [], outputs: [out(), out()], etching }));
       refs.push(indexerImpl.assetRefOf(height, 1));
       spendable.push(txid + ':0', txid + ':1');
       continue;
@@ -75,8 +92,11 @@ function randomHistory(seed, length = 40) {
     const inputs = spend.map((s) => ({ txid: s.split(':')[0], vout: Number(s.split(':')[1]) }));
 
     if (kind < 0.4) {
-      // mint
-      txs.push({ txid, height, txIndex: 0, inputs, outputs: [out(), opret(codec.encodeMint(ref))] });
+      // mint, paying a fee drawn from either side of the 20 XVG price: underpaid, exactly paid,
+      // overpaid, and sometimes unknown, which must be refused rather than waved through
+      const fees = [0, 19999999, 20 * 1e6, 45 * 1e6, null];
+      txs.push({ txid, height, txIndex: 0, inputs, fee: pick(fees),
+        outputs: [out(), opret(codec.encodeMint(ref))] });
     } else if (kind < 0.7) {
       // transfer, sometimes to an output that does not exist or is dust
       const amount = rnd() < 0.3 ? 0 : Math.floor(rnd() * 5000);
@@ -106,8 +126,8 @@ test('both implementations agree on an empty history', () => {
 test('both agree on a simple etch, mint and transfer', () => {
   const REF = indexerImpl.assetRefOf(100, 1);
   const txs = [
-    { txid: 'e', height: 100, txIndex: 1, inputs: [], outputs: [out()],
-      etching: { ticker: 'CONF', supply: 100000, premine: 40000, divisibility: 2, terms: { amount: 1000 } } },
+    paidEtch({ txid: 'e', height: 100, txIndex: 1, inputs: [], outputs: [out()],
+      etching: { ticker: 'CONF', supply: 100000, premine: 40000, divisibility: 2, terms: { amount: 1000 } } }),
     { txid: 'm', height: 101, txIndex: 0, inputs: [], outputs: [out(), opret(codec.encodeMint(REF))] },
     { txid: 't', height: 102, txIndex: 0, inputs: [{ txid: 'e', vout: 0 }],
       outputs: [out(), out(), opret(codec.encodeEdicts([{ assetRef: REF, amount: 15000, output: 1 }]))] },
@@ -136,8 +156,8 @@ test('both agree on long histories where balances are repeatedly split and merge
 
 test('both agree on the awkward cases: burns, dust outputs and malformed messages', () => {
   const REF = indexerImpl.assetRefOf(100, 1);
-  const etch = { txid: 'e', height: 100, txIndex: 1, inputs: [], outputs: [out()],
-    etching: { ticker: 'EDGE', supply: 50000, premine: 50000 } };
+  const etch = paidEtch({ txid: 'e', height: 100, txIndex: 1, inputs: [], outputs: [out()],
+    etching: { ticker: 'EDGE', supply: 50000, premine: 50000 } });
   const cases = [
     // burned: no eligible output at all
     [etch, { txid: 'b', height: 101, txIndex: 0, inputs: [{ txid: 'e', vout: 0 }], outputs: [opret(Buffer.from('x'))] }],
@@ -159,8 +179,8 @@ test('both agree on the awkward cases: burns, dust outputs and malformed message
 test('both agree that a mint past its cap or window changes nothing', () => {
   const REF = indexerImpl.assetRefOf(100, 1);
   const txs = [
-    { txid: 'e', height: 100, txIndex: 1, inputs: [], outputs: [out()],
-      etching: { ticker: 'CAPD', supply: 100000, premine: 0, terms: { amount: 1000, cap: 2, openHeight: 105, closeHeight: 110 } } },
+    paidEtch({ txid: 'e', height: 100, txIndex: 1, inputs: [], outputs: [out()],
+      etching: { ticker: 'CAPD', supply: 100000, premine: 0, terms: { amount: 1000, cap: 2, openHeight: 105, closeHeight: 110 } } }),
   ];
   for (const h of [101, 106, 107, 108, 115]) {
     txs.push({ txid: 'm' + h, height: h, txIndex: 0, inputs: [], outputs: [out(), opret(codec.encodeMint(REF))] });
@@ -178,10 +198,10 @@ test('both ignore an undefined etching field, and ignore it the same way', () =>
   const edicts = codec.encodeEdicts([{ assetRef: REF, amount: 10000, output: 1 }]);
   const move = { txid: 'm', height: 101, txIndex: 0,
     inputs: [{ txid: 'e', vout: 0 }], outputs: [out(), out(), opret(edicts)] };
-  const plain = [{ txid: 'e', height: 100, txIndex: 1, inputs: [], outputs: [out()],
-    etching: { ticker: 'PLAIN', supply: 50000, premine: 50000 } }, move];
-  const decorated = [{ txid: 'e', height: 100, txIndex: 1, inputs: [], outputs: [out()],
-    etching: { ticker: 'PLAIN', supply: 50000, premine: 50000, owner: 'DSOMEONE', royalty: { bps: 500 } } }, move];
+  const plain = [paidEtch({ txid: 'e', height: 100, txIndex: 1, inputs: [], outputs: [out()],
+    etching: { ticker: 'PLAIN', supply: 50000, premine: 50000 } }), move];
+  const decorated = [paidEtch({ txid: 'e', height: 100, txIndex: 1, inputs: [], outputs: [out()],
+    etching: { ticker: 'PLAIN', supply: 50000, premine: 50000, owner: 'DSOMEONE', royalty: { bps: 500 } } }), move];
   assert.ok(agree(plain).same);
   assert.ok(agree(decorated).same);
   // and the extra field changed nothing at all, in either implementation
@@ -191,8 +211,8 @@ test('both ignore an undefined etching field, and ignore it the same way', () =>
 test('a deliberately broken implementation is caught (the harness can fail)', () => {
   // guards against a harness that would pass no matter what
   const REF = indexerImpl.assetRefOf(100, 1);
-  const txs = [{ txid: 'e', height: 100, txIndex: 1, inputs: [], outputs: [out()],
-    etching: { ticker: 'SANITY', supply: 1000, premine: 1000 } }];
+  const txs = [paidEtch({ txid: 'e', height: 100, txIndex: 1, inputs: [], outputs: [out()],
+    etching: { ticker: 'SANITY', supply: 1000, premine: 1000 } })];
   const good = rootOf(indexerImpl.index(txs).entries());
   const tampered = verifyImpl.index(txs);
   tampered.record('tx:0', REF, 1); // one extra unit out of nowhere

@@ -4,6 +4,17 @@ const assert = require('assert');
 const { AssetState, applyTx, assetRefOf } = require('../src/assets/indexer');
 const { stateRoot, proveBalance, verifyBalance, buildTree, compareCheckpoints } = require('../src/assets/checkpoint');
 const codec = require('../src/assets/codec');
+const { lockFor } = require('./fixtures/etchlock');
+
+/** An etching that pays its ticker price (§7.2), or the indexer ignores it and nothing registers. */
+function paidEtch(tx) {
+  const paid = lockFor(String(tx.etching.ticker || '').toUpperCase());
+  return Object.assign({}, tx, {
+    time: paid.time,
+    outputs: [...tx.outputs, paid.output],
+    etching: Object.assign({ lock: paid.lock }, tx.etching),
+  });
+}
 
 let passed = 0;
 const test = (name, fn) => { fn(); passed += 1; console.log('  ok - ' + name); };
@@ -16,10 +27,10 @@ const REF = assetRefOf(100, 1);
 /** A state holding several balances across several outpoints. */
 function populated() {
   const s = new AssetState();
-  applyTx(s, {
+  applyTx(s, paidEtch({
     txid: 'etch', height: 100, txIndex: 1, inputs: [], outputs: [out()],
     etching: { ticker: 'FROG', supply: 1000000, premine: 1000000, divisibility: 2 },
-  });
+  }));
   applyTx(s, {
     txid: 'split', height: 101, txIndex: 0,
     inputs: [{ txid: 'etch', vout: 0 }],
@@ -86,10 +97,10 @@ test('an unknown outpoint has no proof', () => {
 
 test('a single-leaf tree proves with an empty path', () => {
   const s = new AssetState();
-  applyTx(s, {
+  applyTx(s, paidEtch({
     txid: 'solo', height: 1, txIndex: 1, inputs: [], outputs: [out()],
     etching: { ticker: 'SOLO', supply: 10, premine: 10 },
-  });
+  }));
   const p = proveBalance(s, 'solo:0', assetRefOf(1, 1));
   assert.deepStrictEqual(p.path, []);
   assert.ok(verifyBalance(p.entry, p.path, stateRoot(s)));
@@ -129,10 +140,10 @@ test('two indexers that agree produce the same root; a divergence is detectable'
   assert.strictEqual(compareCheckpoints(a, b).agree, true);
 
   const cheating = populated();
-  applyTx(cheating, {
+  applyTx(cheating, paidEtch({
     txid: 'secret', height: 102, txIndex: 0, inputs: [], outputs: [out()],
     etching: { ticker: 'FAKE', supply: 1, premine: 1 },
-  });
+  }));
   const c = { height: 500, root: stateRoot(cheating) };
   assert.strictEqual(compareCheckpoints(a, c).agree, false);
 });

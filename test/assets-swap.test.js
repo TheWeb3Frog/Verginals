@@ -8,6 +8,7 @@
 const assert = require('assert');
 const { AssetState, applyTx, assetRefOf } = require('../src/assets/indexer');
 const codec = require('../src/assets/codec');
+const { lockFor } = require('./fixtures/etchlock');
 const {
   PADDING_INDEX, CARRIER_INDEX, PRICE_INDEX,
   listingTerms, validateListing, takerEdicts, verifySettlement,
@@ -25,9 +26,11 @@ const opret = (d) => ({ value: 0, isOpReturn: true, opReturnData: d });
 /** A maker holding 1000 FROG on one carrier. */
 function maker() {
   const s = new AssetState();
+  const paid = lockFor('FROG');
   applyTx(s, {
-    txid: 'etch', height: 100, txIndex: 1, inputs: [], outputs: [out(DUST, 'DMAKER')],
-    etching: { ticker: 'FROG', supply: 1000, premine: 1000, divisibility: 0 },
+    txid: 'etch', height: 100, txIndex: 1, inputs: [], time: paid.time,
+    outputs: [out(DUST, 'DMAKER'), paid.output],
+    etching: { ticker: 'FROG', supply: 1000, premine: 1000, divisibility: 0, lock: paid.lock },
   });
   return s;
 }

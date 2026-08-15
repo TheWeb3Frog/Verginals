@@ -4,6 +4,7 @@ const assert = require('assert');
 const crypto = require('crypto');
 const { AssetState, applyTx, index, assetRefOf, outpoint } = require('../src/assets/indexer');
 const codec = require('../src/assets/codec');
+const { lockFor } = require('./fixtures/etchlock');
 
 let passed = 0;
 const test = (name, fn) => { fn(); passed += 1; console.log('  ok - ' + name); };
@@ -16,14 +17,23 @@ const opret = (payload) => ({ value: 0, isOpReturn: true, opReturnData: payload 
 const ETCH = { ticker: 'FROG', name: 'Frog', divisibility: 2, supply: 1000000, premine: 100000 };
 const REF = assetRefOf(100, 1);
 
+/**
+ * An etching transaction that pays for its ticker (§7.2). The lock output sits AFTER the premine
+ * output so the indices every other test asserts on do not move.
+ */
+function etchTx(txid, height, txIndex, etching) {
+  const paid = lockFor(etching.ticker);
+  return {
+    txid, height, txIndex, inputs: [], time: paid.time,
+    outputs: [out(), paid.output],
+    etching: Object.assign({ lock: paid.lock }, etching),
+  };
+}
+
 /** A chain that etches FROG with a 100000-unit premine into tx "etch":0. */
 function etched(extra = {}) {
   const state = new AssetState();
-  applyTx(state, {
-    txid: 'etch', height: 100, txIndex: 1, inputs: [],
-    outputs: [out()],
-    etching: Object.assign({}, ETCH, extra),
-  });
+  applyTx(state, etchTx('etch', 100, 1, Object.assign({}, ETCH, extra)));
   return state;
 }
 
@@ -35,10 +45,7 @@ test('an etching registers the asset and premines to the first output', () => {
 
 test('a duplicate ticker is ignored and does not overwrite the first', () => {
   const s = etched();
-  applyTx(s, {
-    txid: 'etch2', height: 101, txIndex: 0, inputs: [], outputs: [out()],
-    etching: { ticker: 'FROG', supply: 5, premine: 5 },
-  });
+  applyTx(s, etchTx('etch2', 101, 0, { ticker: 'FROG', supply: 5, premine: 5 }));
   assert.strictEqual(s.tickers.get('FROG'), REF);
   assert.strictEqual(s.assets.size, 1);
 });
@@ -46,9 +53,14 @@ test('a duplicate ticker is ignored and does not overwrite the first', () => {
 test('an invalid etching (bad ticker, premine over supply) is refused', () => {
   for (const bad of [{ ticker: 'lower case!' }, { premine: 999999999 }, { divisibility: 9 }]) {
     const s = new AssetState();
+    const etching = Object.assign({}, ETCH, bad);
+    // A bad ticker cannot be priced, so it cannot be paid for either: pay FROG's price and let the
+    // etching fail on its own merits rather than on a missing lock.
+    const paid = lockFor('FROG');
     applyTx(s, {
-      txid: 't', height: 1, txIndex: 0, inputs: [], outputs: [out()],
-      etching: Object.assign({}, ETCH, bad),
+      txid: 't', height: 1, txIndex: 0, inputs: [], time: paid.time,
+      outputs: [out(), paid.output],
+      etching: Object.assign({ lock: paid.lock }, etching),
     });
     assert.strictEqual(s.assets.size, 0, JSON.stringify(bad));
   }
@@ -159,6 +171,73 @@ test('a mint cannot push the asset past its supply cap', () => {
   assert.strictEqual(s.balanceOf('m2:0', REF), 0); // would exceed supply
 });
 
+// §2.2: the mint price is a transaction FEE, which is the only price on this protocol that reaches
+// anyone at all. It reaches the miner, exactly like every other fee, so there is still no
+// beneficiary written into the rules.
+const PRICE = 20 * 1e6;
+
+test('a mint that pays the price the etcher set is credited', () => {
+  const s = etched({ premine: 0, terms: { amount: 1000, price: PRICE } });
+  applyTx(s, { txid: 'm', height: 200, txIndex: 0, inputs: [], fee: PRICE,
+    outputs: [out(), opret(codec.encodeMint(REF))] });
+  assert.strictEqual(s.balanceOf('m:0', REF), 1000);
+});
+
+test('a mint that underpays by one unit mints nothing', () => {
+  const s = etched({ premine: 0, terms: { amount: 1000, price: PRICE } });
+  applyTx(s, { txid: 'm', height: 200, txIndex: 0, inputs: [], fee: PRICE - 1,
+    outputs: [out(), opret(codec.encodeMint(REF))] });
+  assert.strictEqual(s.balanceOf('m:0', REF), 0);
+  assert.strictEqual(s.assets.get(REF).minted, 0);
+});
+
+test('paying the relay minimum instead of the price mints nothing', () => {
+  // the failure this rule exists to prevent: an ordinary wallet funds the transaction the ordinary
+  // way, pays 0.1 XVG, and takes the whole supply for the price of the network fees
+  const s = etched({ premine: 0, terms: { amount: 1000, price: PRICE } });
+  applyTx(s, { txid: 'm', height: 200, txIndex: 0, inputs: [], fee: 100000,
+    outputs: [out(), opret(codec.encodeMint(REF))] });
+  assert.strictEqual(s.balanceOf('m:0', REF), 0);
+});
+
+test('overpaying is fine, and the miner keeps the difference', () => {
+  const s = etched({ premine: 0, terms: { amount: 1000, price: PRICE } });
+  applyTx(s, { txid: 'm', height: 200, txIndex: 0, inputs: [], fee: PRICE * 4,
+    outputs: [out(), opret(codec.encodeMint(REF))] });
+  assert.strictEqual(s.balanceOf('m:0', REF), 1000);
+});
+
+test('a fee the indexer could not resolve fails closed', () => {
+  // two indexers reading the same chain must agree, so an unknown fee has to be refused rather
+  // than waved through: one node with txindex and one without would otherwise disagree on balances
+  const s = etched({ premine: 0, terms: { amount: 1000, price: PRICE } });
+  for (const fee of [null, undefined, NaN, 'lots']) {
+    applyTx(s, { txid: 'm' + String(fee), height: 200, txIndex: 0, inputs: [], fee,
+      outputs: [out(), opret(codec.encodeMint(REF))] });
+  }
+  assert.strictEqual(s.assets.get(REF).minted, 0);
+});
+
+test('an asset that charges nothing per mint does not need a fee at all', () => {
+  const s = etched({ premine: 0, terms: { amount: 1000 } });
+  applyTx(s, { txid: 'm', height: 200, txIndex: 0, inputs: [],
+    outputs: [out(), opret(codec.encodeMint(REF))] });
+  assert.strictEqual(s.balanceOf('m:0', REF), 1000);
+});
+
+// §7.2: paying for the ticker is what makes an allocation valid, so this is tested here as well as
+// in assets-tickers.test.js, where the lock itself is picked apart.
+test('an etching that never locked the price does not take the ticker', () => {
+  const s = new AssetState();
+  applyTx(s, { txid: 'free', height: 100, txIndex: 1, inputs: [], time: 1700000000,
+    outputs: [out()], etching: ETCH });
+  assert.strictEqual(s.assets.size, 0);
+  assert.strictEqual(s.tickers.size, 0);
+  // and the name is still there for whoever does pay for it
+  applyTx(s, etchTx('paid', 101, 1, ETCH));
+  assert.strictEqual(s.tickers.get('FROG'), assetRefOf(101, 1));
+});
+
 // §6: an etch has no owner, so nothing about a registered asset can be revised after the fact. There
 // is no update message to test against, which is the point; what can be tested is that a later
 // etching cannot reach an existing one (above) and that an unrecognised field is ignored rather than
@@ -208,10 +287,7 @@ test('an allowlisted mint needs a valid proof from a spent input', () => {
 
 test('one output can hold several different assets at once', () => {
   const s = etched();
-  applyTx(s, {
-    txid: 'etch2', height: 100, txIndex: 2, inputs: [], outputs: [out()],
-    etching: { ticker: 'MOON', supply: 500, premine: 500 },
-  });
+  applyTx(s, etchTx('etch2', 100, 2, { ticker: 'MOON', supply: 500, premine: 500 }));
   const REF2 = assetRefOf(100, 2);
   applyTx(s, {
     txid: 'merge', height: 102, txIndex: 0,
@@ -224,7 +300,7 @@ test('one output can hold several different assets at once', () => {
 
 test('indexing is deterministic: the same blocks always give the same state', () => {
   const txs = [
-    { txid: 'e', height: 100, txIndex: 1, inputs: [], outputs: [out()], etching: ETCH },
+    etchTx('e', 100, 1, ETCH),
     { txid: 'm', height: 101, txIndex: 0, inputs: [{ txid: 'e', vout: 0 }],
       outputs: [out(), out(), opret(codec.encodeEdicts([{ assetRef: REF, amount: 40000, output: 1 }]))] },
   ];

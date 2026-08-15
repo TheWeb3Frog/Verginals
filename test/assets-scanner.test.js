@@ -1,7 +1,9 @@
 // Scanner: the boundary between real chain data and the pure state machine (ASSETS-PLAN §2.1).
 // Run: node test/assets-scanner.test.js
 const assert = require('assert');
-const { ETCH_CONTENT_TYPE, readOpReturn, detectEtching, toIndexerTx } = require('../src/assets/scanner');
+const {
+  ETCH_CONTENT_TYPE, readOpReturn, detectEtching, toIndexerTx, resolveFee, mintedAssetRef,
+} = require('../src/assets/scanner');
 const { buildEtch } = require('../src/assets/builder');
 const { buildInscriptionScript } = require('../src/envelope');
 const codec = require('../src/assets/codec');
@@ -107,6 +109,64 @@ test('values convert to atomic units and a single-address output keeps its addre
 test('a coinbase input is dropped rather than treated as a spend', () => {
   const tx = { txid: 'cb', vin: [{ coinbase: 'abcd' }], vout: [] };
   assert.deepStrictEqual(toIndexerTx(tx, 1, 0).inputs, []);
+});
+
+// §7.2 and §2.2: the fields the two prices ride in, and the fee an indexer has to compute itself
+// because Verge Core will not hand it over.
+
+const KEY = Buffer.from('02' + '11'.repeat(32), 'hex');
+
+test('the price lock and the mint price survive the round trip through an inscription', () => {
+  const etch = buildEtch({
+    ticker: 'PRICED', supply: 100000, premine: 0,
+    terms: { amount: 1000, price: 20 * 1e6 },
+    lock: { locktime: 1700000000 + 126144000, pubkey: KEY },
+  }, { address: 'D1' });
+  const found = detectEtching(revealTx(etch.body, etch.contentType));
+  assert.strictEqual(found.terms.price, 20 * 1e6);
+  assert.strictEqual(found.lock.t, 1700000000 + 126144000);
+  assert.ok(found.lock.k.equals(KEY));
+});
+
+test('an unreadable mint price makes the whole etching unreadable', () => {
+  // dropping it would quietly turn a priced mint into a free one, which is the expensive direction
+  // to be wrong in
+  const cbor = require('../src/cbor');
+  const body = cbor.encode({ t: 'BADFEE', n: 'x', d: 0, s: 1000, p: 0, m: { a: 10, f: 'twenty' } });
+  assert.strictEqual(detectEtching(revealTx(body, ETCH_CONTENT_TYPE)), null);
+});
+
+test('the fee is what the inputs held minus what the outputs hold', async () => {
+  const chain = {
+    getRawTransaction: async (txid) => ({ vout: [{ value: 100 }, { value: 50 }] }),
+  };
+  const tx = { vin: [{ txid: 'a', vout: 0 }, { txid: 'b', vout: 1 }], vout: [{ value: 120 }] };
+  assert.strictEqual(await resolveFee(chain, tx), Math.round(30 * 1e6));
+});
+
+test('an input nobody can resolve gives no fee at all, rather than a wrong one', async () => {
+  const chain = { getRawTransaction: async () => { throw new Error('no txindex'); } };
+  const tx = { vin: [{ txid: 'a', vout: 0 }], vout: [{ value: 1 }] };
+  assert.strictEqual(await resolveFee(chain, tx), null);
+  // and a coinbase, which has no previous output to look up, is not a fee payer either
+  assert.strictEqual(await resolveFee(chain, { vin: [{ coinbase: 'ab' }], vout: [] }), null);
+});
+
+test('resolving a fee asks about each outpoint once, however often it comes back', async () => {
+  let calls = 0;
+  const chain = { getRawTransaction: async () => { calls += 1; return { vout: [{ value: 10 }] }; } };
+  const cache = new Map();
+  const tx = { vin: [{ txid: 'a', vout: 0 }], vout: [{ value: 9 }] };
+  await resolveFee(chain, tx, cache);
+  await resolveFee(chain, tx, cache);
+  assert.strictEqual(calls, 1);
+});
+
+test('a mint is spotted from its OP_RETURN alone, so the fee lookup can be skipped otherwise', () => {
+  const mint = { vout: [{ scriptPubKey: { hex: '6a' + Buffer.concat([
+    Buffer.from([codec.encodeMint(131001).length]), codec.encodeMint(131001)]).toString('hex') } }] };
+  assert.strictEqual(mintedAssetRef(mint), 131001);
+  assert.strictEqual(mintedAssetRef({ vout: [{ scriptPubKey: { hex: '76a914' } }] }), null);
 });
 
 console.log('\nassets scanner: ' + passed + ' passed');

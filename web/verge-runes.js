@@ -32,6 +32,7 @@ const SAMPLE = {
     perMint: 100000,      //      1,000.00
     mintCap: 20000,       // 1,000,000 + 20,000 x 1,000 = 21,000,000
     mintsUsed: 14000,
+    mintPrice: 20,        // XVG per mint, chosen by this etcher, paid to the miner as fee
   },
   balance: 125000,
   outpoint: 'b7d2f4a1c9e83b06f5a2d47c1e9b380a5c6f2d13e847a9b0c1d2e3f4a5b6c7d8:1',
@@ -351,6 +352,7 @@ function etchSection() {
   field('Supply cap', '21,000,000.00', true);
   field('Divisibility', '2 decimals', true);
   field('Premine', '1,000,000.00 to you', true);
+  field('Price per mint', '20 XVG (suggested)', true);
   card.append(grid);
 
   const summary = el('div', '');
@@ -363,6 +365,7 @@ function etchSection() {
   kv('This etching is', 'a fungible token (supply above 1)');
   kv('Ticker price', '2,500 XVG for six characters, locked not spent');
   kv('That price returns', releaseDate());
+  kv('Taking the whole mint would cost', fmt(SAMPLE.asset.mintCap * SAMPLE.asset.mintPrice) + ' XVG in fees');
   kv('Inscription + fees', '~0.6 XVG, these are spent');
   kv('Changeable later', 'nothing, by anyone, ever');
   card.append(summary);
@@ -390,7 +393,7 @@ function mintSection() {
   mid.append(el('div', 'vr-name', 'Grumpy Token'));
   const a = SAMPLE.asset;
   mid.append(el('div', 'vr-sub',
-    `${display(a.perMint, a.divisibility)} per mint · closes at height 9,400,000`));
+    `${display(a.perMint, a.divisibility)} per mint · ${a.mintPrice} XVG each · closes at height 9,400,000`));
   row.append(mid);
   row.append(el('span', 'vr-tag ok', 'ELIGIBLE'));
   open.append(row);
@@ -417,11 +420,15 @@ function mintSection() {
   kv(detail, 'Allowlist', 'yes, 4,096 entries');
   kv(detail, 'Your proof', 'found, max 5,000.00');
   kv(detail, 'You have minted', '0 times');
+  // The price is a transaction fee, so the wallet has to say where the money goes. A number the
+  // user cannot account for reads as a wallet keeping it.
+  kv(detail, 'Price set by the etcher', a.mintPrice + ' XVG, paid to the miner as network fee');
+  kv(detail, 'Total to broadcast', '~' + (a.mintPrice + 0.2).toFixed(1) + ' XVG, price plus relay');
   open.append(detail);
 
   const act = el('div', 'vr-row');
   act.style.marginTop = '14px';
-  const b = el('button', 'vr-btn', 'Mint 1,000.00 GRUMPY');
+  const b = el('button', 'vr-btn', `Mint 1,000.00 GRUMPY for ${a.mintPrice} XVG`);
   b.disabled = true;
   act.append(b, el('span', 'vr-tag sample', 'PREVIEW, NOT WIRED'));
   open.append(act);

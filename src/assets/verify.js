@@ -96,6 +96,63 @@ function messageOf(tx) {
   return null;
 }
 
+// --- §7.2, re-derived ----------------------------------------------------------------------------
+//
+// Deliberately not calling tickers.js. Sharing that code would make a slip in it invisible to the
+// conformance harness, and the price schedule plus the script shape are exactly the sort of thing
+// two implementations must agree on independently or the ticker namespace splits.
+
+const LOCK_SECONDS_V = 126144000;
+const LOCK_GRACE_V = 86400;
+const SCHEDULE_V = [0, 100000, 50000, 25000, 10000, 5000, 2500, 1000, 500, 250, 100, 50];
+
+function priceUnits(ticker) {
+  const n = ticker.length;
+  const xvg = n >= 12 ? 10 : SCHEDULE_V[n];
+  return xvg == null ? null : Math.round(xvg * 1e6);
+}
+
+/** Rebuild the output the etching's `l` field commits to, then read the transaction for it. */
+function lockedEnough(tx, ticker, lock) {
+  const owed = priceUnits(ticker);
+  if (owed == null || !lock) return false;
+  const key = Buffer.isBuffer(lock.k) ? lock.k : null;
+  const when = Number(lock.t);
+  if (!key || key.length !== 33 || (key[0] !== 2 && key[0] !== 3)) return false;
+  if (!Number.isInteger(when) || when < 500000000) return false;
+
+  const stamp = Number(tx.time || 0);
+  if (!stamp || when < stamp + LOCK_SECONDS_V - LOCK_GRACE_V) return false;
+
+  // <locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP <pubkey> OP_CHECKSIG, wrapped in P2SH.
+  const num = [];
+  let rest = when;
+  while (rest > 0) { num.push(rest & 0xff); rest = Math.floor(rest / 256); }
+  if (num[num.length - 1] & 0x80) num.push(0);
+  const redeem = Buffer.concat([
+    Buffer.from([num.length]), Buffer.from(num),
+    Buffer.from([0xb1, 0x75]),
+    Buffer.from([key.length]), key,
+    Buffer.from([0xac]),
+  ]);
+  const crypto = require('crypto');
+  const h = crypto.createHash('ripemd160').update(crypto.createHash('sha256').update(redeem).digest()).digest();
+  const spk = Buffer.concat([Buffer.from([0xa9, 0x14]), h, Buffer.from([0x87])]);
+
+  let paid = 0;
+  for (const o of tx.outputs || []) {
+    if (o.scriptPubKey && Buffer.isBuffer(o.scriptPubKey) && o.scriptPubKey.equals(spk)) paid += o.value;
+  }
+  return paid >= owed;
+}
+
+/** §2.2: a priced mint owes its price in transaction fee, and an unknown fee is not a paid one. */
+function feeCovers(tx, terms) {
+  const price = Number((terms && terms.price) || 0);
+  if (!(price > 0)) return true;
+  return typeof tx.fee === 'number' && Number.isFinite(tx.fee) && tx.fee >= price;
+}
+
 /** Spec §5. */
 function allowlistOk(tx, def) {
   const crypto = require('crypto');
@@ -135,7 +192,7 @@ function apply(journal, tx, opts = {}) {
   if (tx.etching) {
     const ref = refOf(tx.height, tx.txIndex);
     const def = validDefinition(tx.etching);
-    if (def && !journal.tickerOwner.has(def.ticker)) {
+    if (def && lockedEnough(tx, def.ticker, tx.etching.lock) && !journal.tickerOwner.has(def.ticker)) {
       journal.definitions.set(ref, def);
       journal.tickerOwner.set(def.ticker, ref);
       journal.issued.set(ref, { minted: 0, mintCount: 0 });
@@ -157,7 +214,8 @@ function apply(journal, tx, opts = {}) {
     const underCap = t && (t.cap == null || iss.mintCount < t.cap);
     const underSupply = def && (def.premine + iss.minted + per <= def.supply);
     const gateOk = !def || !def.allowlistRoot || allowlistOk(tx, def);
-    if (def && per > 0 && withinWindow && underCap && underSupply && gateOk) {
+    const feeOk = feeCovers(tx, t);
+    if (def && per > 0 && withinWindow && underCap && underSupply && gateOk && feeOk) {
       iss.minted += per;
       iss.mintCount += 1;
       pooled.set(message.assetRef, (pooled.get(message.assetRef) || 0) + per);

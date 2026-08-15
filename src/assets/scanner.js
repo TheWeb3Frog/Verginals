@@ -67,6 +67,18 @@ function detectEtching(tx) {
     if (body.m.c != null) etching.terms.cap = body.m.c;
     if (body.m.h0 != null) etching.terms.openHeight = body.m.h0;
     if (body.m.h1 != null) etching.terms.closeHeight = body.m.h1;
+    // What each mint owes in transaction fee. Unreadable means unreadable, not free: dropping a
+    // price nobody could parse would turn a priced mint into an open one.
+    if (body.m.f != null) {
+      const price = Number(body.m.f);
+      if (!Number.isInteger(price) || price < 0) return null;
+      etching.terms.price = price;
+    }
+  }
+  if (body.l != null) {
+    // The price lock (spec §7.2). Kept raw here; tickers.isLocked decides whether it pays.
+    const key = toBuffer(body.l.k);
+    if (key) etching.lock = { t: Number(body.l.t), k: key };
   }
   if (body.a != null) {
     // A gated mint whose gate cannot be read must NOT be registered as an open one: dropping an
@@ -103,7 +115,8 @@ function readOpReturn(vout) {
  * @param {Object} tx      verbose getrawtransaction / block tx
  * @param {number} height
  * @param {number} txIndex position in the block
- * @param {Object} [opts]  { etching } when this tx also carries an asset inscription
+ * @param {Object} [opts]  { etching, time, fee } when this tx carries an asset inscription, and the
+ *                         block time and fee the caller has resolved for it
  */
 function toIndexerTx(tx, height, txIndex, opts = {}) {
   const inputs = (tx.vin || [])
@@ -132,6 +145,54 @@ function toIndexerTx(tx, height, txIndex, opts = {}) {
   return Object.assign({ txid: tx.txid, height, txIndex, inputs, outputs }, extra);
 }
 
+/**
+ * The transaction fee, in atomic units: everything the inputs held, minus everything the outputs
+ * hold. This is the mint price (spec §2.2), so an indexer has to be able to compute it.
+ *
+ * It costs one lookup per input, because Verge Core will not hand back input values any other way:
+ * `getblock` verbosity 3 is not implemented, so there is no inline prevout to read and no `fee`
+ * field on a block transaction. `txindex=1` is therefore a requirement for indexing priced mints,
+ * not a convenience.
+ *
+ * The cost is bounded by only ever asking about transactions that actually carry a mint of a priced
+ * asset, which is a small share of a block and usually one or two inputs each.
+ *
+ * @param {Object} chain { getRawTransaction(txid, verbose) }
+ * @param {Object} tx    the verbose RPC transaction
+ * @returns {Promise<number|null>} null when any input value could not be resolved
+ */
+async function resolveFee(chain, tx, cache = null) {
+  let inTotal = 0;
+  for (const vin of tx.vin || []) {
+    if (!vin.txid) return null;                // a coinbase pays no fee and mints nothing
+    const key = vin.txid + ':' + vin.vout;
+    let value = cache ? cache.get(key) : undefined;
+    if (value === undefined) {
+      let prev;
+      try { prev = await chain.getRawTransaction(vin.txid, true); } catch { return null; }
+      const out = prev && prev.vout && prev.vout[vin.vout];
+      if (!out) return null;
+      value = Math.round(Number(out.value) * 1e6);
+      if (cache) cache.set(key, value);
+    }
+    inTotal += value;
+  }
+  const outTotal = (tx.vout || []).reduce((s, o) => s + Math.round(Number(o.value) * 1e6), 0);
+  const fee = inTotal - outTotal;
+  return fee >= 0 ? fee : null;
+}
+
+/** Does this transaction carry a mint message? Cheap, and it decides whether a fee lookup is worth it. */
+function mintedAssetRef(tx) {
+  for (const o of tx.vout || []) {
+    const data = readOpReturn(o);
+    if (data === null) continue;
+    const m = codec.decode(data);
+    if (m && m.type === 'mint') return m.assetRef;
+  }
+  return null;
+}
+
 /** True when a transaction carries something this protocol should look at (cheap pre-filter). */
 function isRelevant(tx) {
   return (tx.vout || []).some((o) => {
@@ -152,19 +213,40 @@ function isRelevant(tx) {
  */
 async function scanRange(chain, state, from, to, applyTx, opts = {}) {
   const etchings = opts.etchingsByTxid || {};
+  const valueCache = new Map();
   let applied = 0;
+  let feeLookups = 0;
   for (let h = from; h <= to; h++) {
     const hash = await chain.getBlockHash(h);
     const block = await chain.getBlock(hash, 2); // verbosity 2 = full transactions
-    (block.tx || []).forEach((tx, i) => {
+    const txs = block.tx || [];
+    for (let i = 0; i < txs.length; i++) {
+      const tx = txs[i];
       const etching = etchings[tx.txid];
+      const extra = { time: block.time };
+      if (etching) extra.etching = etching;
+
+      // The fee is only worth resolving for a mint of an asset that charges one, and that keeps the
+      // extra lookups to a handful per block instead of one per input of every transaction.
+      const ref = mintedAssetRef(tx);
+      if (ref !== null) {
+        const asset = state.assets.get(ref);
+        if (asset && asset.terms && asset.terms.price > 0) {
+          extra.fee = await resolveFee(chain, tx, valueCache);
+          feeLookups += 1;
+        }
+      }
+
       // Everything is applied, not just "relevant" transactions: an ordinary send still MOVES a
       // balance through the default assignment, and skipping it would silently lose funds.
-      applyTx(state, toIndexerTx(tx, h, i, etching ? { etching } : {}), opts);
+      applyTx(state, toIndexerTx(tx, h, i, extra), opts);
       applied += 1;
-    });
+    }
   }
-  return { applied, height: to };
+  return { applied, height: to, feeLookups };
 }
 
-module.exports = { ETCH_CONTENT_TYPE, readOpReturn, detectEtching, toIndexerTx, isRelevant, scanRange };
+module.exports = {
+  ETCH_CONTENT_TYPE, readOpReturn, detectEtching, toIndexerTx, isRelevant, scanRange,
+  resolveFee, mintedAssetRef,
+};

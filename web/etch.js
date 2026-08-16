@@ -283,35 +283,24 @@ $('#et-compose').addEventListener('click', async () => {
   out.append(el('h3', '', 'The exact bytes that get written'));
   out.append(el('div', 'et-hex', r.bodyHex));
 
-  // The recovery card. Everything needed to reopen the lock, in one block somebody can copy in one
-  // gesture, because three values scattered across a page is three chances to save two of them.
-  out.append(el('h3', '', 'Your recovery card'));
-  out.append(el('p', 'et-note', 'Keep this with the key above. Without it you can still recover your '
-    + 'coins, but only by rescanning the whole chain for them.'));
-  const card = [
-    'VERGE RUNES RECOVERY CARD',
-    'coin           ' + (r.display || r.ticker),
-    'unlock key     ' + lockKey.wif,
-    'release date   ' + r.lock.locktime + '   (' + new Date(r.lock.releases).toISOString().slice(0, 10) + ')',
-    'locked amount  ' + xvg(r.price) + ' XVG',
-    'lock address   ' + r.lock.address,
-    'etch txid      (filled in once the etching is broadcast)',
-    '',
-    'To recover, four years from now, open the recovery tool:',
-    '  https://theweb3frog.github.io/Verginals/',
-    'It also lives in the public repository, so it cannot be taken away:',
-    '  github.com/TheWeb3Frog/Verginals  (docs/index.html)',
-  ].join('\n');
-  const pre = el('div', 'et-hex');
-  pre.style.whiteSpace = 'pre';
-  pre.style.maxHeight = 'none';
-  pre.textContent = card;
-  out.append(pre);
+  // Deliberately NOT a recovery card yet. The lock address and the release date shown above belong
+  // to this composition and nothing else: etching for real computes them again at that moment, and
+  // ten seconds of difference is a different address. Printing them as something to keep would hand
+  // somebody a card pointing at an address that never held their money, which is the exact failure
+  // this whole feature exists to prevent. The real card is printed once, after the etching.
+  out.append(el('p', 'et-note', 'The lock address and release date above are for this preview. They '
+    + 'are decided at the moment you etch, and you get them, with everything else you need to '
+    + 'recover your coins, once the coin exists.'));
 
   const next = el('div');
   if (r.launched) {
-    next.append(el('p', '', 'To finish: fund each inscription address, then broadcast the reveal '
-      + 'carrying the lock output. The wallet does this for you.'));
+    const go = el('button', 'et-btn', 'Etch it for real');
+    next.append(el('p', 'et-note', 'This is the last reversible moment. Once you pay, the coin is '
+      + 'made and everything above is permanent.'));
+    next.append(go);
+    const live = el('div', 'et-result');
+    next.append(live);
+    go.addEventListener('click', () => { go.disabled = true; startEtch(payload, live); });
   } else {
     next.append(el('p', 'et-note', 'Verge Runes is not switched on yet on this server, so nothing '
       + 'here has been broadcast and no coins have moved. This is the real etching your coin would '
@@ -346,3 +335,81 @@ for (const id of ['#et-name', '#et-supply', '#et-div', '#et-premine', '#et-per',
   $(id).addEventListener('input', refresh);
 }
 refresh();
+
+// --- paying for it, and watching it happen --------------------------------------------------------
+
+/**
+ * Quote, then poll until the coin exists.
+ *
+ * The polling is what actually drives the work: the server splits and reveals when it sees the
+ * payment. A rune's identity is (height, txIndex), so it genuinely cannot be known until a miner
+ * places the transaction, which is why the last line only appears at the end rather than being
+ * promised earlier.
+ */
+async function startEtch(payload, host) {
+  const say = (text, cls) => { host.textContent = ''; host.append(el('p', cls || '', text)); };
+  say('Asking for a payment address…');
+
+  let job;
+  try {
+    job = await (await fetch('/api/runes/etch', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload),
+    })).json();
+    if (job.error) throw new Error(job.error);
+  } catch (e) { return say(e.message, 'et-err'); }
+
+  host.textContent = '';
+  host.append(el('h3', '', 'Pay once, and the coin is made'));
+  const box = el('div');
+  kv(box, 'Send exactly', xvg(job.total) + ' XVG', 'lead');
+  kv(box, 'To this address', job.payTo, 'lead');
+  kv(box, 'For', job.display || job.ticker);
+  host.append(box);
+  const state = el('p', 'et-note', 'Waiting for your payment. You can leave this page open.');
+  host.append(state);
+
+  for (let i = 0; i < 3600; i++) {
+    await new Promise((r) => setTimeout(r, 4000));
+    let s;
+    try {
+      s = await (await fetch('/api/runes/etch/status?job=' + encodeURIComponent(job.jobId))).json();
+    } catch { continue; }
+
+    if (s.status === 'error') { state.className = 'et-err'; state.textContent = s.error; return; }
+    if (s.runeRef) {
+      host.textContent = '';
+      host.append(el('h3', '', 'Your coin exists'));
+      const done = el('div');
+      kv(done, 'Coin', s.display || s.ticker, 'lead');
+      kv(done, 'Reference', s.runeRef, 'lead');
+      kv(done, 'Etch transaction', s.revealTxid);
+      kv(done, 'Locked', xvg(job.breakdown.ticker) + ' XVG at ' + s.lockAddress);
+      kv(done, 'Yours again on', new Date(s.locktime * 1000)
+        .toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }));
+      host.append(done);
+      // The etch txid only exists now, and it is the piece that makes recovery one lookup instead
+      // of a full rescan, so the card is reprinted complete rather than left half filled.
+      host.append(el('h3', '', 'Your recovery card, complete'));
+      const card = [
+        'VERGE RUNES RECOVERY CARD',
+        'coin           ' + (s.display || s.ticker),
+        'unlock key     ' + lockKey.wif,
+        'release date   ' + s.locktime,
+        'lock address   ' + s.lockAddress,
+        'etch txid      ' + s.revealTxid,
+        '',
+        'Recover at https://theweb3frog.github.io/Verginals/ or /unlock on this site.',
+      ].join('\n');
+      const pre = el('div', 'et-hex');
+      pre.style.whiteSpace = 'pre';
+      pre.style.maxHeight = 'none';
+      pre.textContent = card;
+      host.append(pre);
+      return;
+    }
+    if (s.revealTxid) state.textContent = 'Broadcast. Waiting for a block to place it…';
+    else if (s.splitTxid) state.textContent = 'Payment received. Writing the etching…';
+    else if (s.received) state.textContent = 'Seen ' + xvg(s.received) + ' of ' + xvg(job.total) + ' XVG…';
+  }
+  state.textContent = 'Still waiting. Your job id is ' + job.jobId + ', nothing is lost.';
+}

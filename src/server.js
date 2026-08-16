@@ -1778,6 +1778,198 @@ async function handleRuneLock(req, res, url) {
   });
 }
 
+// --- etching for real (RUNES-SPEC-v0 §1, §7.2) ---------------------------------------------------
+//
+// The same shape as the inscription mint that has run in production for months: one deposit address,
+// a split into the commit outputs, then a reveal. src/runes/etchjob.js prices it and lays out the
+// two transactions; this drives them and remembers where it got to.
+//
+// The one thing an etching adds is the thing that costs the money. THE TICKER PRICE MUST BE AN
+// OUTPUT OF THE REVEAL ITSELF, because an indexer decides whether a ticker was claimed from the
+// transaction in front of it. Pay it anywhere else and the etcher buys nothing.
+
+const etchjob = require('./runes/etchjob');
+const etchDriving = new Set(); // jobs a poll is already driving, so two polls cannot double-spend
+
+/** POST /api/runes/etch: quote an etching and hand back one address to pay. */
+async function handleRuneEtchCreate(req, res) {
+  if (!RUNES_ENABLED) {
+    return sendJSON(res, 503, {
+      error: 'Verge Runes is not switched on yet on this server. You can compose an etching at '
+        + '/etch and see exactly what it would cost, but nothing is broadcast.',
+    });
+  }
+  let body;
+  try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); }
+  catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+
+  const { network } = pickNetwork(NETWORK);
+  try { bitcoin.address.toOutputScript(String(body.recipient), network); }
+  catch (_) { return sendJSON(res, 400, { error: 'recipient must be a valid address on this network' }); }
+
+  let lockPubkey;
+  try {
+    lockPubkey = Buffer.from(String(body.lockPubkey || ''), 'hex');
+    if (lockPubkey.length !== 33 || (lockPubkey[0] !== 2 && lockPubkey[0] !== 3)) throw new Error('bad');
+  } catch (_) {
+    return sendJSON(res, 400, { error: 'lockPubkey must be a 33-byte compressed public key, as hex' });
+  }
+
+  const locktime = Math.floor(Date.now() / 1000) + tickers.LOCK_SECONDS + 86400;
+  let quote;
+  try {
+    quote = etchjob.quoteEtch({
+      rune: {
+        ticker: body.ticker, name: body.name, divisibility: body.divisibility,
+        supply: body.supply, premine: body.premine, terms: body.terms || null,
+      },
+      recipient: String(body.recipient), lockPubkey, locktime,
+      buildPlan, networkName: NETWORK,
+    });
+  } catch (e) { return sendJSON(res, 400, { error: e.message }); }
+
+  const depositKey = ECPair.makeRandom({ network });
+  const depositAddress = p2pkhAddress(depositKey, network);
+  // Watch-only and without a rescan: the address was made a moment ago, so there is nothing behind
+  // it to find, and a rescan here would block the node for minutes.
+  await client.call('importaddress', [depositAddress, 'verginals-etch:' + crypto.randomBytes(4).toString('hex'), false]);
+
+  const job = {
+    id: crypto.randomBytes(16).toString('hex'),
+    kind: 'etch',
+    status: 'awaiting_payment',
+    createdAt: Date.now(),
+    networkName: NETWORK,
+    depositAddress,
+    depositWif: depositKey.toWIF(),
+    lockAddress: bitcoin.address.fromOutputScript(quote.etch.lockScriptPubKey, network),
+    locktime,
+    recipient: String(body.recipient),
+    ticker: quote.etch.ticker,
+    display: quote.etch.display,
+    plan: quote.plan,
+    numInputs: quote.numInputs,
+    perInput: quote.perInput,
+    price: quote.price,
+    priceHolder: quote.priceHolder,
+    revealFee: quote.revealFee,
+    total: quote.total,
+    driveAttempts: 0,
+  };
+  saveJob(job);
+
+  return sendJSON(res, 200, {
+    jobId: job.id,
+    payTo: depositAddress,
+    total: quote.total,
+    breakdown: { ticker: quote.price, inscription: quote.numInputs * quote.perInput,
+      fees: quote.splitFee + quote.revealFee, slack: quote.priceHolder - quote.price },
+    ticker: quote.etch.ticker,
+    display: quote.etch.display,
+    lockAddress: job.lockAddress,
+    locktime,
+    releases: new Date(locktime * 1000).toISOString(),
+  });
+}
+
+/**
+ * Split the deposit, then reveal, paying the ticker price into the lock in that same transaction.
+ * Idempotent on both halves: a job that already broadcast one of them does not do it twice.
+ */
+async function driveEtch(job, depositUtxos) {
+  const { network } = pickNetwork(job.networkName);
+  const depositKey = ECPair.fromWIF(job.depositWif, network);
+  const quote = { plan: job.plan, numInputs: job.numInputs, perInput: job.perInput,
+    price: job.price, priceHolder: job.priceHolder };
+
+  if (!job.splitTxid) {
+    const funding = buildFundingTx({
+      network,
+      inputs: depositUtxos.map((u) => ({ txid: u.txid, vout: u.vout, value: toUnits(u.amount) })),
+      outputs: etchjob.splitOutputs(quote, job.depositAddress),
+      signer: depositKey,
+    });
+    job.splitTxid = await chain.sendRawTransaction(funding.hex);
+    job.status = 'funding';
+    saveJob(job);
+  }
+
+  if (!job.revealTxid) {
+    const reveal = revealFromPlan({
+      plan: job.plan,
+      utxos: job.plan.inputs.map((_, i) => `${job.splitTxid}:${i}`),
+      values: job.plan.inputs.map(() => job.perInput),
+      to: job.recipient,
+      fee: job.revealFee,
+      pay: etchjob.payFor(quote, job.splitTxid, job.depositWif, job.depositAddress, job.lockAddress),
+    });
+    job.revealTxid = await chain.sendRawTransaction(reveal.hex);
+    saveJob(job);
+  }
+
+  job.status = 'broadcast';
+  saveJob(job);
+  return job;
+}
+
+/** GET /api/runes/etch/status?job=...: poll, and finish the job once the payment lands. */
+async function handleRuneEtchStatus(req, res, url) {
+  const job = loadJob(String(url.searchParams.get('job') || ''));
+  if (!job || job.kind !== 'etch') return sendJSON(res, 404, { error: 'no such etching' });
+
+  const reply = (extra) => sendJSON(res, 200, Object.assign({
+    status: job.status, ticker: job.ticker, display: job.display,
+    payTo: job.depositAddress, total: job.total,
+    lockAddress: job.lockAddress, locktime: job.locktime,
+    splitTxid: job.splitTxid || null, revealTxid: job.revealTxid || null,
+    error: job.error || null,
+  }, extra || {}));
+
+  // Once the reveal is out, the only thing left to learn is where it confirmed, because a rune's
+  // identity is (height, txIndex) and neither exists until a miner places the transaction.
+  if (job.revealTxid) {
+    try {
+      const tx = await chain.getRawTransaction(job.revealTxid, true);
+      if (tx && tx.blockhash) {
+        const block = await client.call('getblock', [tx.blockhash, 2]);
+        const txIndex = (block.tx || []).findIndex((t) => t.txid === job.revealTxid);
+        if (txIndex >= 0) {
+          job.runeRef = require('./runes/codec').refOf(block.height, txIndex);
+          job.status = 'confirmed';
+          saveJob(job);
+          return reply({ runeRef: job.runeRef, height: block.height, confirmations: tx.confirmations || 1 });
+        }
+      }
+    } catch (_) { /* not mined yet, or the node cannot see it: report what we have */ }
+    return reply({ runeRef: job.runeRef || null });
+  }
+
+  if (etchDriving.has(job.id)) return reply({ working: true });
+
+  let received = 0;
+  let utxos = [];
+  try {
+    utxos = await client.call('listunspent', [0, 9999999, [job.depositAddress]]);
+    received = utxos.reduce((s, u) => s + toUnits(u.amount), 0);
+  } catch (_) { return reply({}); }
+
+  if (received < job.total) return reply({ received, needed: job.total });
+
+  etchDriving.add(job.id);
+  job.driveAttempts = (job.driveAttempts || 0) + 1;
+  try {
+    await driveEtch(job, utxos);
+  } catch (e) {
+    job.status = 'error';
+    job.error = e.message;
+    saveJob(job);
+    console.error(`Etch ${job.id} (${job.ticker}) failed: ${e.message}`);
+  } finally {
+    etchDriving.delete(job.id);
+  }
+  return reply({ received });
+}
+
 /** GET /api/adventure/orb: what the player holds and which bloodlines it could carry (§2). */
 function handleAdventureOrb(req, res) {
   const address = adventurePlayer(req, res);
@@ -3089,6 +3281,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && p === '/api/runes/balances') return await handleRuneBalances(req, res);
     if (req.method === 'POST' && p === '/api/runes/etch/plan') return await handleRuneEtchPlan(req, res);
     if (req.method === 'GET' && p === '/api/runes/lock') return await handleRuneLock(req, res, url);
+    if (req.method === 'POST' && p === '/api/runes/etch') return await handleRuneEtchCreate(req, res);
+    if (req.method === 'GET' && p === '/api/runes/etch/status') return await handleRuneEtchStatus(req, res, url);
     if (req.method === 'GET' && p === '/api/inscriptions') return await handleInscriptions(res, url.searchParams.get('owner'));
       if (req.method === 'GET' && p === '/api/index/digest') {
         if (!allowRead(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });

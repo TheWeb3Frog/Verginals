@@ -116,6 +116,14 @@ $('#et-genkey').addEventListener('click', async () => {
   const pk = el('p', '', 'public half sent with the etching: ' + lockKey.pubHex.slice(0, 24) + '…');
   pk.style.opacity = '.6';
   host.append(pk);
+  // Saying "save the key" is not enough, and the omission is expensive: the coins do not sit at the
+  // ordinary address of this key, so somebody importing it into a wallet in four years sees zero and
+  // concludes it is gone. They need the release date and the transaction too, and they need to be
+  // told where the recovery tool lives before they need it rather than after.
+  const note = el('p', 'et-note', 'You will need two more things when the four years are up, and '
+    + 'they only exist once your coin is etched: the release date and the etch transaction id. '
+    + 'Compose below and this page hands you all three together.');
+  host.append(note);
   refresh();
 });
 
@@ -274,6 +282,31 @@ $('#et-compose').addEventListener('click', async () => {
 
   out.append(el('h3', '', 'The exact bytes that get written'));
   out.append(el('div', 'et-hex', r.bodyHex));
+
+  // The recovery card. Everything needed to reopen the lock, in one block somebody can copy in one
+  // gesture, because three values scattered across a page is three chances to save two of them.
+  out.append(el('h3', '', 'Your recovery card'));
+  out.append(el('p', 'et-note', 'Keep this with the key above. Without it you can still recover your '
+    + 'coins, but only by rescanning the whole chain for them.'));
+  const card = [
+    'VERGE RUNES RECOVERY CARD',
+    'coin           ' + (r.display || r.ticker),
+    'unlock key     ' + lockKey.wif,
+    'release date   ' + r.lock.locktime + '   (' + new Date(r.lock.releases).toISOString().slice(0, 10) + ')',
+    'locked amount  ' + xvg(r.price) + ' XVG',
+    'lock address   ' + r.lock.address,
+    'etch txid      (filled in once the etching is broadcast)',
+    '',
+    'To recover, four years from now, open the recovery tool:',
+    '  https://theweb3frog.github.io/Verginals/',
+    'It also lives in the public repository, so it cannot be taken away:',
+    '  github.com/TheWeb3Frog/Verginals  (docs/index.html)',
+  ].join('\n');
+  const pre = el('div', 'et-hex');
+  pre.style.whiteSpace = 'pre';
+  pre.style.maxHeight = 'none';
+  pre.textContent = card;
+  out.append(pre);
 
   const next = el('div');
   if (r.launched) {

@@ -27,7 +27,8 @@ const os = require('os');
 
 const bitcoin = require('bitcoinjs-lib');
 const { COIN } = require('./networks');
-const { decodeMetadata } = require('./indexer');
+// Indexer is still used directly for its static reveal parser, quite apart from the running index.
+const { Indexer, decodeMetadata } = require('./indexer');
 const { IndexService, ReorgTooDeep } = require('./indexservice');
 const { bufferToParentId, parentIdToBuffer } = require('./envelope');
 
@@ -2899,7 +2900,7 @@ const server = http.createServer(async (req, res) => {
       if ((m = p.match(/^\/api\/market\/accept\/([0-9a-fA-F]{64}:\d+)\/([a-km-zA-HJ-NP-Z1-9]{25,40})$/)) && req.method === 'GET') return await handleMarketAcceptData(res, m[1], m[2]);
     }
     if (req.method === 'GET' && p.startsWith('/api/job/')) return await handleJob(res, p.slice('/api/job/'.length));
-    if (req.method === 'POST' && p === '/api/runes/balances') return handleRuneBalances(req, res);
+    if (req.method === 'POST' && p === '/api/runes/balances') return await handleRuneBalances(req, res);
     if (req.method === 'GET' && p === '/api/inscriptions') return await handleInscriptions(res, url.searchParams.get('owner'));
       if (req.method === 'GET' && p === '/api/index/digest') {
         if (!allowRead(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });

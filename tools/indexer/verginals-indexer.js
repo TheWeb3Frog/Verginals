@@ -28,6 +28,7 @@
  *     --rpc-user USER --rpc-pass PASS \
  *     [--rpc-host 127.0.0.1] [--rpc-port 20102] \
  *     [--from 9290000] [--port 3401] [--state ./verginals-index.json] [--once]
+ *     [--runes] [--runes-from HEIGHT]
  *
  * Every flag also reads from an env var: VERGINALS_RPC_USER, VERGINALS_RPC_PASS, VERGINALS_RPC_HOST,
  * VERGINALS_RPC_PORT, VERGINALS_INDEX_FROM, VERGINALS_INDEXER_PORT, VERGINALS_INDEX_STATE.
@@ -37,7 +38,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const { Indexer } = require('../../src/indexer');
+const { IndexService, ReorgTooDeep } = require('../../src/indexservice');
 const { RpcClient, VergeChain } = require('../../src/rpc');
 
 // --- configuration ------------------------------------------------------------------------------
@@ -61,6 +62,11 @@ const CFG = {
   state: flag('state', process.env.VERGINALS_INDEX_STATE || path.join(process.cwd(), 'verginals-index.json')),
   once: has('once'),
   pollMs: Number(flag('poll-ms', 20000)),
+  // Verge Runes ride inside inscriptions (RUNES-SPEC-v0 §1), so the same scan can build both
+  // ledgers for almost nothing. Off by default: the protocol is not launched, and an index nobody
+  // reads is still a promise to keep it correct.
+  runes: has('runes'),
+  runesFrom: Number(flag('runes-from', process.env.VERGINALS_RUNES_FROM || 0)) || null,
 };
 
 if (!CFG.rpcUser || !CFG.rpcPass) {
@@ -73,71 +79,58 @@ const client = new RpcClient({
   host: CFG.rpcHost, port: CFG.rpcPort, user: CFG.rpcUser, pass: CFG.rpcPass,
 });
 const chain = new VergeChain(client);
-const indexer = new Indexer();
-let scannedThrough = CFG.from - 1;
-
-// --- state on disk ------------------------------------------------------------------------------
 
 /**
  * The index is cheap to hold and expensive to rebuild: a cold start walks every block from `from`
  * to the tip, which is minutes, and a wallet backend that does that on every restart is a wallet
  * backend people turn off. Nothing here holds inscription bodies, only their hashes, so the file
  * stays small.
+ *
+ * Saving is driven by the service, which calls back every time it takes an internal snapshot. Those
+ * are the same heights the old loop saved at, and tying the two together means the file on disk and
+ * the state a reorg rewinds to are always the same thing.
  */
+const svc = new IndexService({
+  chain,
+  from: CFG.from,
+  runes: CFG.runes,
+  runesFrom: CFG.runesFrom,
+  onSnapshot: (h) => { save(); process.stdout.write(`  indexed to ${h}\r`); },
+});
+const indexer = svc.inscriptions;
+
 function save() {
-  const payload = {
-    version: 1,
-    from: CFG.from,
-    scannedThrough,
-    nextNumber: indexer.nextNumber,
-    inscriptions: [...indexer.inscriptions.entries()],
-    locations: [...indexer.locations.entries()],
-    // Kept because a checkpoint cannot be recomputed after the fact: the state it covers is gone
-    // once the coins move on. Lose these and the instance can no longer be compared with a peer
-    // until it has crossed a new checkpoint of its own.
-    checkpoints: [...indexer.checkpoints.entries()],
-  };
   const tmp = `${CFG.state}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(payload));
+  fs.writeFileSync(tmp, JSON.stringify(svc.toJSON()));
   fs.renameSync(tmp, CFG.state);
 }
 
 function load() {
   let raw;
   try { raw = JSON.parse(fs.readFileSync(CFG.state, 'utf8')); } catch (_) { return false; }
-  // A state file built from a different start height is not resumable: inscription numbers are
-  // assigned in scan order, so resuming across a changed `from` would renumber everything.
-  if (!raw || raw.version !== 1 || raw.from !== CFG.from) {
-    console.error(`state file is for --from ${raw && raw.from}, running with ${CFG.from}. Rebuilding.`);
-    return false;
-  }
-  indexer.nextNumber = raw.nextNumber;
-  indexer.inscriptions = new Map(raw.inscriptions);
-  indexer.locations = new Map(raw.locations);
-  indexer.checkpoints = new Map(raw.checkpoints || []);
-  scannedThrough = raw.scannedThrough;
-  return true;
+  const r = svc.load(raw);
+  if (!r.ok) console.error(`${r.reason}. Rebuilding.`);
+  return r.ok;
 }
 
-// --- the scan -----------------------------------------------------------------------------------
-
-let scanning = null;
+/**
+ * Catch up, and survive the chain changing its mind.
+ *
+ * A reorg deeper than the service can rewind is not something to retry: every poll would fail the
+ * same way. It is reported once, loudly, with the one action that fixes it.
+ */
 async function sync() {
-  if (scanning) return scanning;
-  scanning = (async () => {
-    const tip = await chain.getBlockCount();
-    let saved = scannedThrough;
-    for (let h = scannedThrough + 1; h <= tip; h++) {
-      indexer.processBlock(await chain.fetchDecodedBlock(h));
-      scannedThrough = h;
-      // Checkpoint every thousand blocks so a kill during the first long scan does not throw the
-      // whole thing away.
-      if (h - saved >= 1000) { save(); saved = h; process.stdout.write(`  indexed to ${h}\r`); }
-    }
-    if (scannedThrough !== saved) save();
+  try {
+    const tip = await svc.sync();
+    save();
     return tip;
-  })();
-  try { return await scanning; } finally { scanning = null; }
+  } catch (e) {
+    if (e instanceof ReorgTooDeep) {
+      console.error(`\n${e.message}\n  rm ${CFG.state}  and start again.`);
+      process.exit(3);
+    }
+    throw e;
+  }
 }
 
 // --- the read API -------------------------------------------------------------------------------
@@ -174,11 +167,17 @@ const server = http.createServer(async (req, res) => {
       const tip = await chain.getBlockCount().catch(() => null);
       return json(res, 200, {
         from: CFG.from,
-        scannedThrough,
+        scannedThrough: svc.scannedThrough,
         tip,
-        synced: tip !== null && tip - scannedThrough < 2,
+        synced: tip !== null && tip - svc.scannedThrough < 2,
         count: indexer.inscriptions.size,
         digest: indexer.digest(),
+        // How many times the chain changed its mind under us, and how far back we could still
+        // repair it from. Both belong in a health check: an index that has never noticed a reorg
+        // and an index that cannot notice one look identical from the outside.
+        reorgsRepaired: svc.reorgs,
+        trailDepth: svc.trail.depth,
+        runes: CFG.runes ? { count: svc.runes.runes.size, tickers: svc.runes.tickers.size } : null,
       });
     }
 
@@ -203,7 +202,7 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, { height: h, digest, checkpoints: range });
       }
       return json(res, 200, {
-        height: scannedThrough,
+        height: svc.scannedThrough,
         count: indexer.inscriptions.size,
         digest: indexer.digest(),
         checkpoints: range,
@@ -212,7 +211,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && p === '/inscriptions') {
-      return json(res, 200, { height: scannedThrough, count: indexer.inscriptions.size, inscriptions: indexer.list() });
+      return json(res, 200, { height: svc.scannedThrough, count: indexer.inscriptions.size, inscriptions: indexer.list() });
     }
 
     // The whole outpoint -> number map. Small enough to ship to a client whole, which is the shape
@@ -221,8 +220,8 @@ const server = http.createServer(async (req, res) => {
       const at = {};
       for (const i of indexer.list()) at[i.location] = i.number;
       const digest = indexer.digest();
-      return json(res, 200, { height: scannedThrough, count: indexer.inscriptions.size, digest, at }, {
-        etag: `W/"${scannedThrough}-${digest.slice(0, 16)}"`,
+      return json(res, 200, { height: svc.scannedThrough, count: indexer.inscriptions.size, digest, at }, {
+        etag: `W/"${svc.scannedThrough}-${digest.slice(0, 16)}"`,
         'cache-control': 'public, max-age=30',
       });
     }
@@ -241,7 +240,7 @@ const server = http.createServer(async (req, res) => {
         const hit = byLocation.get(String(o));
         if (hit) found[o] = { id: hit.id, number: hit.number, contentType: hit.contentType };
       }
-      return json(res, 200, { height: scannedThrough, found });
+      return json(res, 200, { height: svc.scannedThrough, found });
     }
 
     return json(res, 404, { error: 'not found', routes: ['/status', '/digest', '/inscriptions', '/snapshot', 'POST /inscriptions/at'] });
@@ -255,11 +254,11 @@ const server = http.createServer(async (req, res) => {
 (async () => {
   const resumed = load();
   console.log(`Verginals indexer · node ${CFG.rpcHost}:${CFG.rpcPort} · from height ${CFG.from}`);
-  console.log(resumed ? `resumed from ${CFG.state} at height ${scannedThrough}` : 'no usable state file, scanning from scratch');
+  console.log(resumed ? `resumed from ${CFG.state} at height ${svc.scannedThrough}` : 'no usable state file, scanning from scratch');
 
   const t0 = Date.now();
   const tip = await sync();
-  console.log(`indexed to ${scannedThrough} (tip ${tip}) in ${Math.round((Date.now() - t0) / 1000)}s`);
+  console.log(`indexed to ${svc.scannedThrough} (tip ${tip}) in ${Math.round((Date.now() - t0) / 1000)}s`);
   console.log(`${indexer.inscriptions.size} inscriptions · digest ${indexer.digest()}`);
 
   if (CFG.once) {

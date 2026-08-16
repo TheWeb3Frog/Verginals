@@ -61,6 +61,14 @@ An etching is an ordinary Verge inscription whose content type is `application/v
 It therefore inherits, for free, everything the inscription layer already provides: permanence,
 provenance, and the parent/child relation used for collections.
 
+That inheritance is structural, not a coincidence of tooling, and it is the one thing Bitcoin cannot
+copy. Runes there was deliberately built to be independent of inscriptions: a Runestone is a bare
+OP_RETURN with no envelope, no parent and no provenance, and `ord` indexes both only because it is
+one binary. A Bitcoin rune cannot belong to a collection. Here a rune etching *is* an inscription, so
+one index reads both, one coin can carry a Verginal and a token at once, and a rune's parent claim is
+verified by the same rule inscriptions use: the etching must SPEND the parent it names (§10.2).
+Without that check a rune could claim any collection it liked.
+
 ---
 
 ## 2. The rune primitive
@@ -742,12 +750,21 @@ ever presented well-formed input, would have passed through several of them.
 
 Stated here rather than discovered later.
 
-**No reorg handling.** The state machine only moves forward: there is no rollback path, no per-height
-journal to unwind, and the height it tracks is monotonic. A chain reorganisation therefore corrupts
-an index permanently, and any root published from it is wrong. Since checkpoints are the whole trust
-story of §8, an indexer serving real balances needs this before it is trustworthy, and the answer is
-likely to be either an undo journal or a rescan from the last agreed checkpoint. Nothing in the wire
-format blocks either.
+**Reorgs are handled by the service, not by the state machine.** `applyTx` only moves forward and has
+no undo, which is deliberate: it is a pure reduction and the conformance harness depends on that.
+Rewinding is the driver's job (`src/indexservice.js`). It follows the chain by block hash rather than
+by height, keeps periodic snapshots of the whole state, and on a fork restores the newest snapshot at
+or before it and reads the replacement blocks. A reorg deeper than the retained trail is refused
+loudly rather than repaired badly.
+
+Two traps are worth recording, because both were live before this was written and neither is obvious:
+
+- A reorg does not have to make the chain longer. If blocks are replaced at heights already counted,
+  the tip number is unchanged or lower, and a scan that only inspects NEW blocks fetches nothing and
+  notices nothing. The position already held has to be re-checked before it is extended.
+- A snapshot held by reference is not a snapshot. The state contains records that later blocks
+  mutate in place, so a shallow copy silently rewrites itself and restores to a state that never
+  existed. It is serialised, which also makes a snapshot and a state file the same thing.
 
 **The second implementation shares an author.** `verify.js` is a deliberate re-derivation with no
 data structure in common, and it catches implementation slips. It cannot catch a shared

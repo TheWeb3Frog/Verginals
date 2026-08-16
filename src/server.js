@@ -27,7 +27,8 @@ const os = require('os');
 
 const bitcoin = require('bitcoinjs-lib');
 const { COIN } = require('./networks');
-const { Indexer, decodeMetadata } = require('./indexer');
+const { decodeMetadata } = require('./indexer');
+const { IndexService, ReorgTooDeep } = require('./indexservice');
 const { bufferToParentId, parentIdToBuffer } = require('./envelope');
 
 /** Decode tag-3 parent claims (buffers) from a reveal into inscription-id strings, best-effort. */
@@ -97,6 +98,9 @@ const ADVENTURE_ENABLED = ARENA_ENABLED && process.env.VERGINALS_ADVENTURE_ENABL
 // actually serving proofs: a wallet told "runes are live" by a server that cannot prove balances
 // will refuse to spend anything at all.
 const RUNES_ENABLED = process.env.VERGINALS_RUNES_ENABLED === '1';
+// Where the rune ledger starts. Runes ride inside inscriptions, so they cannot predate the
+// inscription index; leaving it unset simply starts both at the same height.
+const RUNES_FROM = Number(process.env.VERGINALS_RUNES_FROM || 0) || null;
 const MAX_BODY = 8 * 1024 * 1024; // 8 MB JSON cap
 
 const toXVG = (units) => units / COIN;
@@ -188,24 +192,36 @@ function loadJob(id) {
 
 // --- incremental indexer service ---------------------------------------------------------
 
-const indexer = new Indexer();
-let lastScanned = INDEX_FROM - 1;
-let scanning = null; // promise mutex
+/**
+ * One scan builds both ledgers (src/indexservice.js). Runes follow the launch flag, so nothing is
+ * indexed for them until the protocol is switched on.
+ *
+ * Nothing is written to disk here, deliberately. Rebuilding from INDEX_FROM on every boot costs a
+ * few minutes and means a restart is always a clean read of the real chain; until now that was also
+ * the only thing protecting this index from a reorg, since a scan that walks heights cannot tell
+ * that a block it already counted was replaced. It can tell now, so the accident is a choice.
+ */
+const service = new IndexService({
+  chain,
+  from: INDEX_FROM,
+  runes: RUNES_ENABLED,
+  runesFrom: RUNES_FROM,
+});
+const indexer = service.inscriptions;
 
 async function syncIndex() {
-  if (scanning) return scanning;
-  scanning = (async () => {
-    const tip = await chain.getBlockCount();
-    for (let h = lastScanned + 1; h <= tip; h++) {
-      indexer.processBlock(await chain.fetchDecodedBlock(h));
-      lastScanned = h;
-    }
-    return tip;
-  })();
   try {
-    return await scanning;
-  } finally {
-    scanning = null;
+    return await service.sync();
+  } catch (e) {
+    if (e instanceof ReorgTooDeep) {
+      // Nothing is persisted, so the repair is to start the state again from the chain rather than
+      // to ask anyone to delete a file.
+      console.error(`[index] ${e.message} Rebuilding from ${INDEX_FROM}.`);
+      service.restore(new IndexService({ chain, from: INDEX_FROM, runes: RUNES_ENABLED,
+        runesFrom: RUNES_FROM }).toJSON());
+      return service.scannedThrough;
+    }
+    throw e;
   }
 }
 
@@ -359,7 +375,7 @@ function serveSprite(res, layer, encodedName) {
 async function handleInfo(res) {
   const tip = await chain.getBlockCount();
   sendJSON(res, 200, {
-    network: NETWORK, tip, indexFrom: INDEX_FROM, indexedThrough: lastScanned, arena: ARENA_ENABLED,
+    network: NETWORK, tip, indexFrom: INDEX_FROM, indexedThrough: service.scannedThrough, arena: ARENA_ENABLED,
     adventure: ADVENTURE_ENABLED && !!adventure,
     // Whether this server indexes fungible runes (RUNES-SPEC-v0). The wallet needs this, and the
     // reason is not cosmetic: it treats a coin whose rune status it cannot determine as untouchable,
@@ -1571,17 +1587,45 @@ async function handleAdventureTournamentJoin(req, res, id) {
  * root and discards what does not check out, so serving an empty answer THEN would be a lie a
  * wallet cannot catch, and would let someone burn a token by spending its carrier as change.
  */
-function handleRuneBalances(req, res) {
-  if (RUNES_ENABLED) {
-    // Deliberately not a lie-by-default: when the flag is on, an indexer must be wired in here.
-    return sendJSON(res, 503, { error: 'the rune indexer is not available on this server' });
+async function handleRuneBalances(req, res) {
+  const { stateRoot, proveBalance, proveRune } = require('./runes/checkpoint');
+  const state = service.runes;
+  const root = Array.from(stateRoot(state));
+
+  if (!RUNES_ENABLED) {
+    // Nothing has ever been etched, so no outpoint carries anything and the empty root proves it.
+    return sendJSON(res, 200, { root, entries: [], runes: [], launched: false });
   }
-  const { RuneState } = require('./runes/indexer');
-  const { stateRoot } = require('./runes/checkpoint');
+
+  let body;
+  try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); }
+  catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+  const outpoints = Array.isArray(body.outpoints) ? body.outpoints.slice(0, 500) : [];
+
+  // Every balance travels with the proof that puts it under the root, and so does the DEFINITION of
+  // each rune involved: a proof that an outpoint holds 500 of 9400123:7 says nothing about what
+  // 9400123:7 is, and a wallet that shows a ticker it cannot prove is trusting this server again
+  // (spec §8.1).
+  const entries = [];
+  const refs = new Set();
+  for (const op of outpoints) {
+    const held = state.balances.get(String(op));
+    if (!held) continue;
+    for (const ref of held.keys()) {
+      const p = proveBalance(state, String(op), ref);
+      if (!p) continue;
+      entries.push({ entry: p.entry, path: p.path.map((b) => Array.from(b)) });
+      refs.add(ref);
+    }
+  }
+  const runes = [];
+  for (const ref of refs) {
+    const p = proveRune(state, ref);
+    if (p) runes.push({ entry: p.entry, path: p.path.map((b) => Array.from(b)) });
+  }
+
   return sendJSON(res, 200, {
-    root: Array.from(stateRoot(new RuneState())),
-    entries: [],
-    launched: false,
+    root, entries, runes, launched: true, height: service.scannedThrough,
   });
 }
 
@@ -2432,7 +2476,7 @@ async function buildInscriptionsPayload() {
   const pendingCount = list.filter((i) => i.status === 'pending').length;
   return {
     indexFrom: INDEX_FROM,
-    indexedThrough: lastScanned,
+    indexedThrough: service.scannedThrough,
     tip,
     indexReady,
     count: list.length,
@@ -2521,9 +2565,9 @@ async function handleIndexDigest(res, wantHeight) {
 
   const tip = await chain.getBlockCount().catch(() => null);
   return sendJSON(res, 200, {
-    height: lastScanned,
+    height: service.scannedThrough,
     tip,
-    synced: tip !== null && tip - lastScanned < 2,
+    synced: tip !== null && tip - service.scannedThrough < 2,
     count: indexer.inscriptions.size,
     digest: indexer.digest(),
     checkpoints: range,
@@ -2546,15 +2590,15 @@ async function handleIndexSnapshot(res) {
   const at = {};
   for (const i of indexer.list()) at[i.location] = i.number;
   const body = {
-    height: lastScanned,
+    height: service.scannedThrough,
     tip,
-    synced: tip !== null && tip - lastScanned < 2,
+    synced: tip !== null && tip - service.scannedThrough < 2,
     count: indexer.inscriptions.size,
     digest: indexer.digest(),
     at,
   };
   // Weak ETag on the digest and height: a mirror can revalidate in one conditional request.
-  res.setHeader('etag', `W/"${lastScanned}-${body.digest.slice(0, 16)}"`);
+  res.setHeader('etag', `W/"${service.scannedThrough}-${body.digest.slice(0, 16)}"`);
   res.setHeader('cache-control', 'public, max-age=30');
   sendJSON(res, 200, body);
 }

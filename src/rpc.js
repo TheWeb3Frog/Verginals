@@ -113,9 +113,28 @@ function prevoutRefs(block) {
   return refs;
 }
 
-/** Decode a verbose block into { height, txs } ready for Indexer.processBlock. */
+/**
+ * Decode a verbose block into { height, txs } ready for Indexer.processBlock.
+ *
+ * `hash` and `prevHash` come along because an indexer that only knows heights cannot tell that the
+ * chain reorganised under it: the node answers with a different block at the same height and the
+ * scan never notices. `time` is here because a rune etching is only paid for if its price lock
+ * outlasts the block that carries it (RUNES-SPEC-v0 §7.2), and that is measured from the block time.
+ *
+ * `raw` and `prevValues` are kept so a second state machine can read the same fetch rather than
+ * asking the node all over again. The prevout values in particular cost one lookup each and are the
+ * expensive part of a scan; rune mint prices are computed from exactly the same numbers.
+ */
 function decodeBlock(block, prevValues) {
-  return { height: block.height, txs: block.tx.map((tx) => decodeTx(tx, prevValues)) };
+  return {
+    height: block.height,
+    hash: block.hash || null,
+    prevHash: block.previousblockhash || null,
+    time: block.time || null,
+    txs: block.tx.map((tx) => decodeTx(tx, prevValues)),
+    raw: block,
+    prevValues,
+  };
 }
 
 // --- JSON-RPC transport ------------------------------------------------------------------

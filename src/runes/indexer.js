@@ -59,6 +59,41 @@ class RuneState {
       yield { runeRef: ref, ticker: r.ticker, divisibility: r.divisibility, supply: r.supply, spacers: r.spacers };
     }
   }
+
+  /**
+   * Plain-object form, so a service can put this on disk and pick it up again.
+   *
+   * Kept here rather than in the service because this is where the shape is defined: balances are a
+   * map of maps and allowlist entitlements are keyed by a composite, and a writer that guessed at
+   * either would produce a file that loads into a subtly different state. Buffers (the allowlist
+   * root) go to hex and come back, because JSON has no opinion about bytes.
+   */
+  toJSON() {
+    return {
+      height: this.height,
+      runes: [...this.runes.entries()].map(([ref, r]) => [ref, Object.assign({}, r, {
+        allowlistRoot: r.allowlistRoot ? r.allowlistRoot.toString('hex') : null,
+      })]),
+      tickers: [...this.tickers.entries()],
+      balances: [...this.balances.entries()].map(([op, m]) => [op, [...m.entries()]]),
+      allowlistMinted: [...this.allowlistMinted.entries()],
+    };
+  }
+
+  static fromJSON(obj) {
+    const s = new RuneState();
+    if (!obj) return s;
+    s.height = Number(obj.height || 0);
+    for (const [ref, r] of obj.runes || []) {
+      s.runes.set(ref, Object.assign({}, r, {
+        allowlistRoot: r.allowlistRoot ? Buffer.from(r.allowlistRoot, 'hex') : null,
+      }));
+    }
+    for (const [t, ref] of obj.tickers || []) s.tickers.set(t, ref);
+    for (const [op, entries] of obj.balances || []) s.balances.set(op, new Map(entries));
+    for (const [k, v] of obj.allowlistMinted || []) s.allowlistMinted.set(k, v);
+    return s;
+  }
 }
 
 /** The identity of the rune etched at this position (spec §4.1). Two numbers, never combined. */

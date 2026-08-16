@@ -2946,6 +2946,22 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && /^\/runes\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
     if (req.method === 'GET' && p === '/etch') return serveStatic(res, 'etch.html');
     if (req.method === 'GET' && /^\/etch\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
+    // The offline recovery kit, handed over as a DOWNLOAD rather than rendered.
+    //
+    // That is not a detail. The site's CSP forbids inline scripts, and this file is one inline
+    // script by design, so served as a page it would sit there doing nothing and quietly teach
+    // somebody that the recovery tool is broken. Its whole purpose is to be saved and opened from
+    // disk, where there is no CSP and no server, so handing it over as a file is both the only way
+    // it works and the behaviour that matches what it is for.
+    if (req.method === 'GET' && p === '/recovery-kit.html') {
+      const f = path.join(WEB_DIR, 'recovery-kit.html');
+      if (!fs.existsSync(f)) return sendJSON(res, 404, { error: 'not built: node tools/recovery-kit/build.js' });
+      writeHead(res, 200, {
+        'content-type': 'text/html; charset=utf-8',
+        'content-disposition': 'attachment; filename="verge-runes-recovery-kit.html"',
+      });
+      return fs.createReadStream(f).pipe(res);
+    }
     if (req.method === 'GET' && p === '/unlock') return serveStatic(res, 'unlock.html');
     if (req.method === 'GET' && /^\/unlock\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
     // The etch page needs secp256k1 to make the key that reopens a ticker price in four years, and

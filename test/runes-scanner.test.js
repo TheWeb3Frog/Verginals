@@ -27,8 +27,7 @@ function revealTx(body, contentType, key = Buffer.alloc(33, 2)) {
 }
 
 test('a rune etching is recovered from a real inscription envelope', () => {
-  const etch = buildEtch({ ticker: 'SCAN', name: 'Scanner', divisibility: 2, supply: 5000, premine: 1000 },
-    { address: 'D1' });
+  const etch = buildEtch({ ticker: 'SCAN', name: 'Scanner', divisibility: 2, supply: 5000, premine: 1000 }, { address: 'D1' }, { unpaid: true });
   const found = detectEtching(revealTx(etch.body, etch.contentType));
   assert.ok(found, 'nothing detected');
   assert.strictEqual(found.ticker, 'SCAN');
@@ -43,7 +42,7 @@ test('mint terms and allowlist survive the round trip through the envelope', () 
     ticker: 'RICH', supply: 100000, premine: 0,
     terms: { amount: 100, cap: 7, openHeight: 10, closeHeight: 20 },
     allowlistRoot: root,
-  }, { address: 'D1' });
+  }, { address: 'D1' }, { unpaid: true });
   const found = detectEtching(revealTx(etch.body, etch.contentType));
   assert.deepStrictEqual(found.terms, { amount: 100, cap: 7, openHeight: 10, closeHeight: 20 });
   assert.ok(Buffer.from(found.allowlistRoot).equals(root));
@@ -66,7 +65,7 @@ test('a corrupt rune body is ignored rather than throwing', () => {
 });
 
 test('toIndexerTx discovers the etching without being told about it', () => {
-  const etch = buildEtch({ ticker: 'AUTO', supply: 10, premine: 10 }, { address: 'D1' });
+  const etch = buildEtch({ ticker: 'AUTO', supply: 10, premine: 10 }, { address: 'D1' }, { unpaid: true });
   const tx = revealTx(etch.body, etch.contentType);
   tx.vout = [{ value: 0.1, scriptPubKey: { hex: '76a900', addresses: ['D1'] } }];
   const out = toIndexerTx(tx, 500, 3);
@@ -77,7 +76,7 @@ test('toIndexerTx discovers the etching without being told about it', () => {
 });
 
 test('an etching supplied by the caller wins over one found in the transaction', () => {
-  const etch = buildEtch({ ticker: 'ONCHAIN', supply: 10, premine: 10 }, { address: 'D1' });
+  const etch = buildEtch({ ticker: 'ONCHAIN', supply: 10, premine: 10 }, { address: 'D1' }, { unpaid: true });
   const tx = revealTx(etch.body, etch.contentType);
   tx.vout = [];
   const out = toIndexerTx(tx, 1, 0, { etching: { ticker: 'OVERRIDE', supply: 1, premine: 1 } });
@@ -139,7 +138,7 @@ test('an unreadable mint price makes the whole etching unreadable', () => {
 test('a name etched with separators comes back off the chain with them', () => {
   const B = '\u2022';
   const etch = buildEtch({ ticker: 'DOG' + B + 'GO' + B + 'TO' + B + 'THE' + B + 'MOON',
-    supply: 1000, premine: 1000 }, { address: 'D1' });
+    supply: 1000, premine: 1000 }, { address: 'D1' }, { unpaid: true });
   const found = detectEtching(revealTx(etch.body, etch.contentType));
   assert.strictEqual(found.ticker, 'DOGGOTOTHEMOON');
   assert.strictEqual(found.spacers, etch.spacers);

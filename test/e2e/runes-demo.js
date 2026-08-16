@@ -32,7 +32,10 @@ const { RuneState, applyTx } = require(path.join(ROOT, 'src/runes/indexer'));
 const { index: verifyIndex } = require(path.join(ROOT, 'src/runes/verify'));
 const { scanRange, detectEtching } = require(path.join(ROOT, 'src/runes/scanner'));
 const { stateRoot, proveBalance, verifyBalance } = require(path.join(ROOT, 'src/runes/checkpoint'));
-const { priceOf } = require(path.join(ROOT, 'src/runes/tickers'));
+const { priceOf, LOCK_SECONDS } = require(path.join(ROOT, 'src/runes/tickers'));
+const { ECPair } = require(path.join(ROOT, 'src/builder'));
+const { xvgToUnits } = require(path.join(ROOT, 'src/rpc'));
+const bitcoin = require('bitcoinjs-lib');
 
 const COIN = 1e6;
 
@@ -168,15 +171,33 @@ async function main() {
   const perMint = Math.max(1, Math.round((supply - premine) / 120));
 
   step(2, `Creating a Verge Rune called ${TICKER}`);
+  const { network } = pickNetwork('regtest');
+  // The ticker is paid for in the etching itself, into an output only the etcher can reopen and
+  // only after four years (§7.2). It is the anti-squatting mechanism, so a demo that skipped it
+  // would be demonstrating a protocol nobody built.
+  const lockKey = ECPair.makeRandom({ network });
   const etch = buildEtch({
     ticker: TICKER, name: process.env.NAME || TICKER, divisibility: DECIMALS,
     supply, premine, terms: { amount: perMint, cap: 20 },
+    lock: {
+      locktime: Math.floor(Date.now() / 1000) + LOCK_SECONDS + 3600,
+      pubkey: Buffer.from(lockKey.publicKey),
+    },
   }, { address: alice, value: DUST_UNITS });
   const show = (u) => (u / 10 ** DECIMALS).toLocaleString('en-US', { minimumFractionDigits: DECIMALS });
   say(`      supply ${show(supply)}   premine ${show(premine)}   open mint ${show(perMint)} per claim, 20 claims`);
   say(`      the definition is ${etch.body.length} bytes of CBOR, carried in an inscription`);
 
-  const { network } = pickNetwork('regtest');
+  // Fund a plain key with the price, so the reveal can carry the lock output.
+  const payKey = ECPair.makeRandom({ network });
+  const payAddr = bitcoin.payments.p2pkh({ pubkey: Buffer.from(payKey.publicKey), network }).address;
+  const lockAddr = bitcoin.address.fromOutputScript(etch.lockScriptPubKey, network);
+  const fundTxid = await rpc('sendtoaddress', [payAddr,
+    Number(((etch.price + 2 * DUST_UNITS) / COIN).toFixed(6))]);
+  await rpc('generate', [1]);
+  const fundTx = await rpc('getrawtransaction', [fundTxid, true]);
+  const payVout = fundTx.vout.findIndex((o) => (o.scriptPubKey.addresses || []).includes(payAddr));
+
   const plan = buildPlan({
     body: etch.body, contentType: etch.contentType, networkName: 'regtest',
     amount: 2 * DUST_UNITS, file: 'demo.cbor',
@@ -197,12 +218,21 @@ async function main() {
     utxos.push(`${commitTxid}:${v}`);
     values.push(2 * DUST_UNITS);
   }
-  const reveal = revealFromPlan({ plan, utxos, to: alice, fee: DUST_UNITS, values, network });
+  const reveal = revealFromPlan({
+    plan, utxos, to: alice, fee: DUST_UNITS, values, network,
+    pay: {
+      txid: fundTxid, vout: payVout, value: xvgToUnits(fundTx.vout[payVout].value),
+      wif: payKey.toWIF(), change: payAddr,
+      outputs: [{ address: lockAddr, value: etch.price }],
+    },
+  });
   const etchTxid = await rpc('sendrawtransaction', [reveal.hex]);
   await rpc('generate', [1]);
   ok(`etched on chain in ${etchTxid.slice(0, 16)}...`);
-  say(`      on mainnet a ${TICKER.length}-character ticker costs `
-    + `${(priceOf(TICKER) / COIN).toLocaleString()} XVG, to price out squatters`);
+  say(`      the ${TICKER.length}-character ticker cost ${(etch.price / COIN).toLocaleString()} XVG, `
+    + 'locked for four years in this same transaction and then the etcher\'s again');
+  say('      nothing is burnt and nobody is paid: the deterrent is the wait, so the protocol');
+  say('      never has to name who receives the money');
 
   // --- 3. an indexer discovers it unaided -------------------------------------------------------
   step(3, 'An indexer finds the token by itself, from blocks alone');
@@ -265,21 +295,24 @@ async function main() {
   step(7, 'Two independently written indexers agree on the state');
   const rebuilt = new RuneState();
   await scanRange(chain, rebuilt, start + 1, end, applyTx);
+  const { toIndexerTx } = require(path.join(ROOT, 'src/runes/scanner'));
   const txsForVerify = [];
   for (let h = start + 1; h <= end; h++) {
     const b = await chain.getBlock(await chain.getBlockHash(h), 2);
-    b.tx.forEach((tx, i) => {
-      const { toIndexerTx } = require(path.join(ROOT, 'src/runes/scanner'));
-      txsForVerify.push(toIndexerTx(tx, h, i));
-    });
+    // The block TIME has to come along: an etching is only paid for if its lock outlasts the block
+    // carrying it, so a replay without it registers no runes at all. Feeding the two implementations
+    // different inputs and calling the result a divergence would be a lie in both directions.
+    b.tx.forEach((tx, i) => txsForVerify.push(toIndexerTx(tx, h, i, { time: b.time })));
   }
   const second = verifyIndex(txsForVerify);
-  const rootA = stateRoot(rebuilt).toString('hex');
-  const { buildTree } = require(path.join(ROOT, 'src/runes/checkpoint'));
-  const rootB = buildTree([...second.entries()]).root.toString('hex');
+  const { buildTree, allEntries } = require(path.join(ROOT, 'src/runes/checkpoint'));
+  // Both roots over the same thing: balances AND what each rune reference means (§8.1).
+  const rootA = buildTree(allEntries(rebuilt)).root.toString('hex');
+  const rootB = buildTree(allEntries(second)).root.toString('hex');
   ok(`implementation A: ${rootA.slice(0, 24)}...`);
   ok(`implementation B: ${rootB.slice(0, 24)}...`);
-  ok(rootA === rootB ? 'identical, so a divergence would be publicly detectable' : 'DIVERGED');
+  if (rootA === rootB) ok('identical, so a divergence would be publicly detectable');
+  else { say(`      \x1b[31mDIVERGED\x1b[0m: ${rootA} vs ${rootB}`); process.exitCode = 1; }
 
   // --- 8. something you can actually look at ----------------------------------------------------
   step(8, 'Writing a report you can open');

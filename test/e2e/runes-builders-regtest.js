@@ -9,6 +9,7 @@ const ROOT = path.join(__dirname, '..', '..');
 const { rpc } = require('./rpc.js');
 const codec = require(path.join(ROOT, 'src/runes/codec'));
 const { RuneState, applyTx, runeRefOf } = require(path.join(ROOT, 'src/runes/indexer'));
+const { lockFor } = require(path.join(ROOT, 'test/fixtures/etchlock'));
 const { scanRange } = require(path.join(ROOT, 'src/runes/scanner'));
 const { buildTransfer, buildMint, DUST_UNITS } = require(path.join(ROOT, 'src/runes/builder'));
 const { selectCoins, assertNoRunesSpent } = require(path.join(ROOT, 'src/runes/coinselect'));
@@ -65,10 +66,13 @@ const chain = {
   const etching = { ticker: 'BLDR', name: 'Builder', divisibility: 2, supply: 1000000, premine: 500000,
     terms: { amount: 2500 } };
   const state = new RuneState();
+  // It has to pay for the ticker (§7.2) or it registers nothing, and every check below that expects
+  // a balance would read zero.
+  const paid = lockFor('BLDR');
   applyTx(state, {
-    txid: 'synthetic-etch', height: start + 1, txIndex: 1, inputs: [],
-    outputs: [{ value: DUST_UNITS, scriptPubKey: Buffer.alloc(1), isOpReturn: false }],
-    etching,
+    txid: 'synthetic-etch', height: start + 1, txIndex: 1, inputs: [], time: paid.time,
+    outputs: [{ value: DUST_UNITS, scriptPubKey: Buffer.alloc(1), isOpReturn: false }, paid.output],
+    etching: Object.assign({ lock: paid.lock }, etching),
   });
 
   // ---- 1. a real mint built by buildMint ------------------------------------------------------

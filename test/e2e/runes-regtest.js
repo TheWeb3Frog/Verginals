@@ -10,6 +10,7 @@ const codec = require(path.join(ROOT, 'src/runes/codec'));
 const { RuneState, applyTx, runeRefOf } = require(path.join(ROOT, 'src/runes/indexer'));
 const { scanRange, toIndexerTx, readOpReturn } = require(path.join(ROOT, 'src/runes/scanner'));
 const { stateRoot, proveBalance, verifyBalance } = require(path.join(ROOT, 'src/runes/checkpoint'));
+const { lockFor } = require(path.join(ROOT, 'test/fixtures/etchlock'));
 
 const COIN = 1e6;
 let checks = 0, failed = 0;
@@ -84,9 +85,17 @@ const chain = {
     terms: { amount: 1000 } };
   const chainState = new RuneState();
   const etchTxid = 'synthetic-etch';
-  applyTx(chainState, { txid: etchTxid, height: startHeight + 1, txIndex: 1, inputs: [], outputs: [
-    { value: 100000, scriptPubKey: Buffer.alloc(1), isOpReturn: false },
-  ], etching });
+
+  // The etching has to PAY for its ticker (spec §7.2), and an unpaid one registers nothing at all.
+  // Without this the rune never existed, the mint below had nothing to mint, and the determinism
+  // check compared two empty states and passed for the wrong reason.
+  const paid = lockFor('REGT');
+  const etchTx = () => ({
+    txid: etchTxid, height: startHeight + 1, txIndex: 1, inputs: [], time: paid.time,
+    outputs: [{ value: 100000, scriptPubKey: Buffer.alloc(1), isOpReturn: false }, paid.output],
+    etching: Object.assign({ lock: paid.lock }, etching),
+  });
+  applyTx(chainState, etchTx());
   check('the synthetic etching registered the rune', chainState.runes.get(REF) && chainState.runes.get(REF).ticker === 'REGT');
 
   const endHeight = (await rpc('getblockchaininfo')).blocks;
@@ -112,9 +121,7 @@ const chain = {
 
   // ---- 6. determinism: a second independent scan gives the same root ---------------------------
   const second = new RuneState();
-  applyTx(second, { txid: etchTxid, height: startHeight + 1, txIndex: 1, inputs: [], outputs: [
-    { value: 100000, scriptPubKey: Buffer.alloc(1), isOpReturn: false },
-  ], etching });
+  applyTx(second, etchTx());
   await scanRange(chain, second, startHeight + 1, endHeight, applyTx);
   check('two independent scans of the same chain produce the same root', stateRoot(second).equals(root),
     stateRoot(second).toString('hex').slice(0, 16) + ' vs ' + root.toString('hex').slice(0, 16));

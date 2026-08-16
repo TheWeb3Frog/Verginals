@@ -205,6 +205,15 @@ function buildEtch(rune, recipient, opts = {}) {
   // payment with nothing else in front of it.
   const price = tickers.priceOf(ticker);
   let lockScript = null;
+  // An etching with no lock is ignored by every indexer and the ticker stays free (§7.2), so
+  // building one is never what a caller meant: they would broadcast a reveal, pay its fee, and own
+  // nothing. Refused by default rather than returned, since the plan itself looks perfectly healthy
+  // and the mistake only shows up as an absence, days later, with the money already spent.
+  if (!rune.lock && !opts.unpaid) {
+    throw new Error(`etching ${ticker} needs a price lock: without one the ticker is not claimed and `
+      + `the reveal fee buys nothing. Pass { lock: { locktime, pubkey } }, or opts.unpaid to build `
+      + 'the payload alone.');
+  }
   if (rune.lock) {
     const redeem = tickers.lockRedeemScript(rune.lock.locktime, rune.lock.pubkey);
     lockScript = tickers.p2shScriptPubKey(redeem);

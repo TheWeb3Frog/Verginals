@@ -15,6 +15,10 @@ const { RuneState, applyTx, runeRefOf } = require(path.join(ROOT, 'src/runes/ind
 const { scanRange, detectEtching } = require(path.join(ROOT, 'src/runes/scanner'));
 const { stateRoot, proveBalance, verifyBalance } = require(path.join(ROOT, 'src/runes/checkpoint'));
 const codec = require(path.join(ROOT, 'src/runes/codec'));
+const tickers = require(path.join(ROOT, 'src/runes/tickers'));
+const { ECPair } = require(path.join(ROOT, 'src/builder'));
+const { xvgToUnits } = require(path.join(ROOT, 'src/rpc'));
+const bitcoin = require('bitcoinjs-lib');
 
 const COIN = 1e6;
 let checks = 0, failed = 0;
@@ -54,12 +58,35 @@ const chain = {
   const buyer = await rpc('getnewaddress');
 
   // ---- 1. ETCH: inscribe the rune definition for real ----------------------------------------
+  //
+  // The ticker is PAID FOR, for real, in this same transaction (§7.2): the reveal carries a P2SH
+  // CLTV output holding the price. Nothing registers without it, so this is the part that makes the
+  // etching an etching rather than an inscription that happens to contain CBOR.
+  const lockKey = ECPair.makeRandom({ network });
+  const locktime = Math.floor(Date.now() / 1000) + tickers.LOCK_SECONDS + 3600;
   const etch = buildEtch({
     ticker: 'CYCLE', name: 'Full Cycle', divisibility: 2,
     supply: 1000000, premine: 400000,
     terms: { amount: 5000, cap: 10 },
+    lock: { locktime, pubkey: Buffer.from(lockKey.publicKey) },
   }, { address: holder, value: DUST_UNITS });
   check('buildEtch produced the rune content type', etch.contentType === 'application/vnd.verge-rune+cbor');
+  check('buildEtch refuses to build an etching that could never claim its ticker', (() => {
+    try { buildEtch({ ticker: 'NOLOCK', supply: 10, premine: 10 }, { address: holder }); return false; }
+    catch (e) { return /price lock/.test(e.message); }
+  })());
+
+  // Fund a plain key with the price plus a little, so the reveal can pay the lock output from it.
+  const payKey = ECPair.makeRandom({ network });
+  const payAddr = bitcoin.payments.p2pkh({ pubkey: Buffer.from(payKey.publicKey), network }).address;
+  const lockAddr = bitcoin.address.fromOutputScript(etch.lockScriptPubKey, network);
+  const payValue = etch.price + 2 * DUST_UNITS;
+  const fundTxid = await rpc('sendtoaddress', [payAddr, Number((payValue / COIN).toFixed(6))]);
+  await rpc('generate', [1]);
+  const fundTx = await rpc('getrawtransaction', [fundTxid, true]);
+  const payVout = fundTx.vout.findIndex((o) => (o.scriptPubKey.addresses || []).includes(payAddr));
+  check('the price for the ticker is funded and ready to lock', payVout >= 0,
+    (etch.price / COIN) + ' XVG for a 5-character name');
 
   const plan = buildPlan({
     body: etch.body, contentType: etch.contentType, networkName: 'regtest',
@@ -88,6 +115,12 @@ const chain = {
   }
   const reveal = revealFromPlan({
     plan, utxos, to: holder, fee: DUST_UNITS, values, network,
+    // The lock output rides along, funded by the key above, so the etching pays for its own ticker.
+    pay: {
+      txid: fundTxid, vout: payVout, value: xvgToUnits(fundTx.vout[payVout].value),
+      wif: payKey.toWIF(), change: payAddr,
+      outputs: [{ address: lockAddr, value: etch.price }],
+    },
   });
   const etchTxid = await rpc('sendrawtransaction', [reveal.hex]);
   await rpc('generate', [1]);

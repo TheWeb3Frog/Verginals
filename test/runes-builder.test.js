@@ -109,7 +109,7 @@ test('an etch produces the CBOR body the indexer will read back', () => {
   const plan = buildEtch({
     ticker: 'frog', name: 'Frog Token', divisibility: 2, supply: 1000000, premine: 100000,
     terms: { amount: 1000, cap: 500, openHeight: 200, closeHeight: 300 },
-  }, { address: 'D1' });
+  }, { address: 'D1' }, { unpaid: true });
 
   assert.strictEqual(plan.ticker, 'FROG'); // upper-cased
   assert.strictEqual(plan.contentType, 'application/vnd.verge-rune+cbor');
@@ -140,7 +140,7 @@ test('etch validation refuses what the indexer would silently drop', () => {
 test('an open mint that premines the whole supply is refused (it could never mint)', () => {
   // exactly the mistake that made the regtest run fail the first time
   assert.throws(
-    () => buildEtch({ ticker: 'FULL', supply: 1000, premine: 1000, terms: { amount: 10 } }, { address: 'D1' }),
+    () => buildEtch({ ticker: 'FULL', supply: 1000, premine: 1000, terms: { amount: 10 } }, { address: 'D1' }, { unpaid: true }),
     /can never mint/,
   );
 });
@@ -189,8 +189,7 @@ test('a mint price rides in the terms and is charged as a fee, not an output', (
 
 test('a name typed with separators etches as the bare name plus a mask', () => {
   const B = '\u2022';
-  const p = buildEtch({ ticker: 'DOG' + B + 'GO' + B + 'TO' + B + 'THE' + B + 'MOON', supply: 1000, premine: 1000 },
-    { address: 'D1' });
+  const p = buildEtch({ ticker: 'DOG' + B + 'GO' + B + 'TO' + B + 'THE' + B + 'MOON', supply: 1000, premine: 1000 }, { address: 'D1' }, { unpaid: true });
   assert.strictEqual(p.ticker, 'DOGGOTOTHEMOON');            // the identity is bare
   assert.strictEqual(p.display, 'DOG' + B + 'GO' + B + 'TO' + B + 'THE' + B + 'MOON');
   assert.strictEqual(cbor.decode(p.body).t, 'DOGGOTOTHEMOON');
@@ -200,8 +199,8 @@ test('a name typed with separators etches as the bare name plus a mask', () => {
 
 test('separators cost nothing: the price follows the bare length', () => {
   const B = '\u2022';
-  const spaced = buildEtch({ ticker: 'GR' + B + 'UM' + B + 'PY', supply: 1000, premine: 1000 }, { address: 'D1' });
-  const bare = buildEtch({ ticker: 'GRUMPY', supply: 1000, premine: 1000 }, { address: 'D1' });
+  const spaced = buildEtch({ ticker: 'GR' + B + 'UM' + B + 'PY', supply: 1000, premine: 1000 }, { address: 'D1' }, { unpaid: true });
+  const bare = buildEtch({ ticker: 'GRUMPY', supply: 1000, premine: 1000 }, { address: 'D1' }, { unpaid: true });
   assert.strictEqual(spaced.price, bare.price);
   assert.strictEqual(spaced.price, priceOf('GRUMPY'));
   assert.strictEqual(spaced.ticker, bare.ticker);
@@ -212,23 +211,22 @@ test('a full length name survives its separators', () => {
   // counting the separators against the limit silently eats a real letter for each one
   const B = '\u2022';
   const typed = 'MY' + B + 'VERY' + B + 'LONG' + B + 'HONEST' + B + 'PROJEC' + B + 'NAME';
-  const p = buildEtch({ ticker: typed, supply: 10, premine: 10 }, { address: 'D1' });
+  const p = buildEtch({ ticker: typed, supply: 10, premine: 10 }, { address: 'D1' }, { unpaid: true });
   assert.strictEqual(p.ticker.length, 26);
   assert.strictEqual(p.ticker, 'MYVERYLONGHONESTPROJECNAME');
   assert.strictEqual(p.display, typed);
   // and the limit is still 26 REAL characters, counted without them
-  assert.throws(() => buildEtch({ ticker: 'A' + B + 'A'.repeat(26), supply: 10, premine: 10 },
-    { address: 'D1' }), /1\.\.26/);
+  assert.throws(() => buildEtch({ ticker: 'A' + B + 'A'.repeat(26), supply: 10, premine: 10 }, { address: 'D1' }, { unpaid: true }), /1\.\.26/);
 });
 
 test('a mask can be given directly instead of typing separators', () => {
-  const p = buildEtch({ ticker: 'ABC', spacers: 0b11, supply: 10, premine: 10 }, { address: 'D1' });
+  const p = buildEtch({ ticker: 'ABC', spacers: 0b11, supply: 10, premine: 10 }, { address: 'D1' }, { unpaid: true });
   assert.strictEqual(p.display, 'A\u2022B\u2022C');
   assert.strictEqual(cbor.decode(p.body).x, 0b11);
 });
 
 test('a name with no separators carries no mask at all', () => {
-  const p = buildEtch({ ticker: 'PLAIN', supply: 10, premine: 10 }, { address: 'D1' });
+  const p = buildEtch({ ticker: 'PLAIN', supply: 10, premine: 10 }, { address: 'D1' }, { unpaid: true });
   assert.strictEqual(p.spacers, 0);
   assert.strictEqual(cbor.decode(p.body).x, undefined, 'an empty field is still bytes on chain');
 });
@@ -238,7 +236,7 @@ test('separators that cannot be rendered are dropped, never fatal', () => {
   // leading, trailing and doubled: an etching is paid for and permanent, so none of these may
   // destroy it over where a bullet goes
   for (const typed of [B + 'ABC', 'ABC' + B, 'A' + B + B + 'BC', B + B + 'A' + B + B + 'BC' + B]) {
-    const p = buildEtch({ ticker: typed, supply: 10, premine: 10 }, { address: 'D1' });
+    const p = buildEtch({ ticker: typed, supply: 10, premine: 10 }, { address: 'D1' }, { unpaid: true });
     assert.strictEqual(p.ticker, 'ABC', JSON.stringify(typed));
     assert.strictEqual(p.display, typed.replace(new RegExp(B + '+', 'g'), B).replace(new RegExp('^' + B + '|' + B + '$', 'g'), ''),
       JSON.stringify(typed));

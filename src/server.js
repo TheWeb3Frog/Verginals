@@ -30,6 +30,8 @@ const { COIN } = require('./networks');
 // Indexer is still used directly for its static reveal parser, quite apart from the running index.
 const { Indexer, decodeMetadata } = require('./indexer');
 const { IndexService, ReorgTooDeep } = require('./indexservice');
+const runeBuilder = require('./runes/builder');
+const tickers = require('./runes/tickers');
 const { bufferToParentId, parentIdToBuffer } = require('./envelope');
 
 /** Decode tag-3 parent claims (buffers) from a reveal into inscription-id strings, best-effort. */
@@ -1630,6 +1632,93 @@ async function handleRuneBalances(req, res) {
   });
 }
 
+/**
+ * POST /api/runes/etch/plan: compose an etching, without broadcasting anything.
+ *
+ * This runs the REAL builder, not a description of it: the CBOR body, the price, the lock script and
+ * the commit addresses all come out of src/runes/builder.js and src/cli.js, the same code the
+ * end-to-end suites drive against a live chain. A page that reimplemented any of it in the browser
+ * would drift from the protocol the first time either changed.
+ *
+ * The lock PUBLIC key arrives from the caller and the private key never comes near this server. That
+ * key is the only way to reopen the ticker price in four years, so the one place it must not live is
+ * somewhere the etcher does not control.
+ *
+ * Composing is free and tells nobody any lies, so it answers whether or not the protocol is live.
+ * Broadcasting is what stays behind the flag.
+ */
+async function handleRuneEtchPlan(req, res) {
+  let body;
+  try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); }
+  catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+
+  const { network } = pickNetwork(NETWORK);
+  const okAddress = (a) => {
+    try { bitcoin.address.toOutputScript(String(a), network); return true; } catch { return false; }
+  };
+  if (!okAddress(body.recipient)) {
+    return sendJSON(res, 400, { error: 'recipient must be a valid address on this network' });
+  }
+  let lockPubkey;
+  try {
+    lockPubkey = Buffer.from(String(body.lockPubkey || ''), 'hex');
+    if (lockPubkey.length !== 33 || (lockPubkey[0] !== 2 && lockPubkey[0] !== 3)) throw new Error('bad key');
+  } catch (_) {
+    return sendJSON(res, 400, { error: 'lockPubkey must be a 33-byte compressed public key, as hex' });
+  }
+
+  // The lock is measured from the block that confirms the etching, not from now, so it is dated a
+  // day beyond the protocol's own grace. An etching that takes longer than that to confirm simply
+  // does not claim the ticker, and the money stays reopenable on the date shown.
+  const locktime = Math.floor(Date.now() / 1000) + tickers.LOCK_SECONDS + 86400;
+
+  let etch;
+  try {
+    etch = runeBuilder.buildEtch({
+      ticker: body.ticker,
+      name: body.name,
+      divisibility: body.divisibility,
+      supply: body.supply,
+      premine: body.premine,
+      terms: body.terms || null,
+      lock: { locktime, pubkey: lockPubkey },
+    }, { address: String(body.recipient), value: runeBuilder.DUST_UNITS });
+  } catch (e) {
+    return sendJSON(res, 400, { error: e.message });
+  }
+
+  // The etching rides in an ordinary inscription, so the existing commit/reveal pipeline carries it.
+  const perInput = 2 * runeBuilder.DUST_UNITS;
+  let plan;
+  try {
+    plan = buildPlan({
+      body: etch.body, contentType: etch.contentType, networkName: NETWORK,
+      amount: perInput, file: `${etch.ticker.toLowerCase()}.cbor`,
+    });
+  } catch (e) {
+    return sendJSON(res, 400, { error: e.message });
+  }
+
+  const lockAddress = bitcoin.address.fromOutputScript(etch.lockScriptPubKey, network);
+  const commitTotal = plan.inputs.length * perInput;
+  return sendJSON(res, 200, {
+    ticker: etch.ticker,
+    display: etch.display,
+    spacers: etch.spacers,
+    bodyHex: etch.body.toString('hex'),
+    bodyBytes: etch.body.length,
+    contentType: etch.contentType,
+    price: etch.price,
+    lock: { address: lockAddress, locktime, releases: new Date(locktime * 1000).toISOString() },
+    // The commit key is ephemeral: it funds the reveal and is spent in the same breath. It is NOT
+    // the lock key, and losing it costs only the commit funding.
+    commit: { addresses: plan.inputs.map((i) => i.address), perInput, total: commitTotal, wif: plan.wif },
+    premineOutput: etch.premineOutput,
+    cost: { lock: etch.price, commit: commitTotal, total: etch.price + commitTotal },
+    launched: RUNES_ENABLED,
+  });
+}
+
 /** GET /api/adventure/orb: what the player holds and which bloodlines it could carry (§2). */
 function handleAdventureOrb(req, res) {
   const address = adventurePlayer(req, res);
@@ -2796,6 +2885,19 @@ const server = http.createServer(async (req, res) => {
       return serveStatic(res, 'runes.html');
     }
     if (req.method === 'GET' && /^\/runes\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
+    if (req.method === 'GET' && p === '/etch') return serveStatic(res, 'etch.html');
+    if (req.method === 'GET' && /^\/etch\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
+    // The etch page needs secp256k1 to make the key that reopens a ticker price in four years, and
+    // the browser has no such primitive. This serves the ONE copy the wallet extension already
+    // uses, by an explicit filename rather than through serveStatic, whose root is web/ and should
+    // stay that way. Vendoring a second copy would mean the page and the wallet could one day
+    // derive different keys from the same secret, which is a way to lose money quietly.
+    if (req.method === 'GET' && p === '/verge-crypto.js') {
+      const f = path.join(__dirname, '..', 'extension', 'lib', 'verge.js');
+      if (!fs.existsSync(f)) return sendJSON(res, 404, { error: 'not found' });
+      writeHead(res, 200, { 'content-type': 'text/javascript; charset=utf-8' });
+      return fs.createReadStream(f).pipe(res);
+    }
     if (req.method === 'GET' && p === '/verge-runes-market') return serveStatic(res, 'verge-runes-market.html');
     if (req.method === 'GET' && p === '/verge-runes-token') return serveStatic(res, 'verge-runes-token.html');
     if (req.method === 'GET' && /^\/verge-runes(-market|-token|-chart)?\.(js|css)$/.test(p)) {
@@ -2901,6 +3003,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && p.startsWith('/api/job/')) return await handleJob(res, p.slice('/api/job/'.length));
     if (req.method === 'POST' && p === '/api/runes/balances') return await handleRuneBalances(req, res);
+    if (req.method === 'POST' && p === '/api/runes/etch/plan') return await handleRuneEtchPlan(req, res);
     if (req.method === 'GET' && p === '/api/inscriptions') return await handleInscriptions(res, url.searchParams.get('owner'));
       if (req.method === 'GET' && p === '/api/index/digest') {
         if (!allowRead(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });

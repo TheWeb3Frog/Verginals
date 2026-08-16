@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Etch a Verge Rune</title>
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/etch.css">
+</head>
+<body>
+<main class="et-wrap">
+
+  <header class="et-head">
+    <p class="et-eyebrow">VERGE RUNES</p>
+    <h1>Etch a coin</h1>
+    <p class="et-lede">
+      A rune is created once and moved for ever after. Everything on this page is permanent from the
+      moment it confirms, so the form shows you the whole cost and the exact bytes before anything
+      is signed. <a href="/runes">How the protocol works</a>.
+    </p>
+    <div id="et-status" class="et-status">Checking what this server reports…</div>
+  </header>
+
+  <form id="et-form" class="et-form" autocomplete="off">
+
+    <section class="et-step">
+      <p class="et-num">1</p>
+      <div class="et-body">
+        <h2>The name</h2>
+        <p class="et-say">
+          Up to 26 characters, A to Z and 0 to 9. Press space for a separator: it is display only and
+          costs nothing, so <b>DOG&#8226;GO</b> and <b>DOGGO</b> are the same coin at the same price.
+        </p>
+        <label class="et-label" for="et-ticker">Ticker <span class="et-perm">PERMANENT</span></label>
+        <input id="et-ticker" class="et-input et-ticker-input" type="text" placeholder="GRUMPY" spellcheck="false">
+        <div id="et-ticker-out" class="et-readout"></div>
+
+        <label class="et-label" for="et-name">Full name <span class="et-opt">optional</span></label>
+        <input id="et-name" class="et-input" type="text" placeholder="Grumpy Cat Coin" maxlength="64">
+      </div>
+    </section>
+
+    <section class="et-step">
+      <p class="et-num">2</p>
+      <div class="et-body">
+        <h2>The supply</h2>
+        <p class="et-say">
+          How many units will ever exist, and how many you keep for yourself. Neither can change
+          afterwards.
+        </p>
+        <div class="et-row">
+          <div>
+            <label class="et-label" for="et-supply">Total supply <span class="et-perm">PERMANENT</span></label>
+            <input id="et-supply" class="et-input" type="text" inputmode="numeric" value="21000000">
+          </div>
+          <div>
+            <label class="et-label" for="et-div">Decimals <span class="et-perm">PERMANENT</span></label>
+            <input id="et-div" class="et-input" type="text" inputmode="numeric" value="2">
+          </div>
+        </div>
+        <label class="et-label" for="et-premine">Kept for you at creation <span class="et-perm">PERMANENT</span></label>
+        <input id="et-premine" class="et-input" type="text" inputmode="numeric" value="0">
+        <div id="et-supply-out" class="et-readout"></div>
+      </div>
+    </section>
+
+    <section class="et-step">
+      <p class="et-num">3</p>
+      <div class="et-body">
+        <h2>Who else can get some</h2>
+        <p class="et-say">
+          Leave this off and the supply is only what you kept. Turn it on and anyone may claim a
+          fixed amount, until the cap is reached.
+        </p>
+        <label class="et-check"><input id="et-openmint" type="checkbox"> Let others mint</label>
+        <div id="et-terms" class="et-terms" hidden>
+          <div class="et-row">
+            <div>
+              <label class="et-label" for="et-per">Units per claim</label>
+              <input id="et-per" class="et-input" type="text" inputmode="numeric" value="1000">
+            </div>
+            <div>
+              <label class="et-label" for="et-cap">Maximum claims <span class="et-opt">optional</span></label>
+              <input id="et-cap" class="et-input" type="text" inputmode="numeric" placeholder="unlimited">
+            </div>
+          </div>
+          <label class="et-label" for="et-price">Network fee per claim <span class="et-opt">in XVG</span></label>
+          <input id="et-price" class="et-input" type="text" inputmode="decimal" value="20">
+          <p class="et-note">
+            This is paid as an ordinary transaction fee, so the miner of the block receives it and
+            the protocol pays nobody. It is what stops one person taking the whole supply for the
+            cost of relay. Maximum 49 XVG, because Verge Core refuses a fee above 50.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="et-step">
+      <p class="et-num">4</p>
+      <div class="et-body">
+        <h2>Where it goes, and the key that gets your money back</h2>
+        <p class="et-say">
+          The ticker price is <b>not spent</b>. It sits in an output only you can reopen, four years
+          from now. That key is generated here, in your browser, and never sent anywhere.
+        </p>
+        <label class="et-label" for="et-recipient">Address that receives your coins</label>
+        <input id="et-recipient" class="et-input" type="text" placeholder="D…" spellcheck="false">
+
+        <div class="et-keybox">
+          <div class="et-keyhead">
+            <span>Your unlock key</span>
+            <button type="button" id="et-genkey" class="et-mini">Generate</button>
+          </div>
+          <div id="et-key-out" class="et-key-out">Not generated yet.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="et-step">
+      <p class="et-num">5</p>
+      <div class="et-body">
+        <h2>What it costs, and what gets written</h2>
+        <div id="et-review" class="et-review">Fill the form above.</div>
+        <button type="button" id="et-compose" class="et-btn" disabled>Compose the etching</button>
+        <div id="et-result" class="et-result" hidden></div>
+      </div>
+    </section>
+  </form>
+
+  <footer class="et-foot">
+    <p>
+      Nothing on this page signs or broadcasts a transaction. It composes the etching and shows you
+      the exact bytes, the exact outputs and the exact cost.
+    </p>
+  </footer>
+</main>
+<script type="module" src="/etch.js"></script>
+</body>
+</html>

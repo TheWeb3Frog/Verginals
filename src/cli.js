@@ -311,8 +311,75 @@ const USAGE = `verginals <command>
   list   [--from H] [--to H] [--json]
   mint commit --file <path> [--content-type CT] [--network testnet|mainnet] [--amount UNITS] [--key WIF] [--out PLAN]
   mint reveal --plan <plan.json> --to <address> --utxo <txid:vout> [--utxo ...] [--fee UNITS] [--broadcast]
+  unlock --wif <WIF> --locktime <UNIX> --to <address> [--txid <etch txid>] [--fee UNITS] [--broadcast]
+         Reopen a locked ticker price. Save the WIF, the locktime and the etch txid when you etch:
+         Verge has no address index, so the txid is what makes this one lookup instead of a rescan.
 
 RPC creds: --host --port --rpcuser --rpcpassword  or  env VERGINALS_RPC_HOST/PORT/USER/PASS`;
+
+/**
+ * Reopen a locked ticker price (RUNES-SPEC-v0 §7.2).
+ *
+ * The command an etcher runs four years after they made their coin. It needs three things they were
+ * told to save, and the reason it needs the ETCH TXID is worth stating: Verge has no address index,
+ * so no node can be asked "what sits at this address". The etching transaction, on the other hand,
+ * is one lookup and it contains the locked output by construction. Without the txid the only route
+ * left is importaddress with a rescan, which works and takes a long time.
+ */
+async function cmdUnlock(flags) {
+  const recover = require('./runes/recover');
+  const { name, network } = pickNetwork(flags.network || 'mainnet');
+  const wif = flags.wif;
+  const locktime = Number(flags.locktime);
+  const to = flags.to;
+  const fee = Number(flags.fee || 200000);
+  if (!wif || !locktime || !to) throw new Error('need --wif, --locktime and --to');
+
+  const { address, redeemScript } = recover.lockAddress({ locktime, wif, network });
+  console.log(`network   ${name}`);
+  console.log(`lock      ${address}`);
+  console.log(`opens     ${new Date(locktime * 1000).toISOString()}`);
+
+  const client = rpcFromEnv(flags);
+  const info = await client.call('getblockchaininfo');
+  const open = recover.isOpen(locktime, info.mediantime);
+  console.log(`chain     median time past ${info.mediantime} -> ${open ? 'OPEN' : 'STILL LOCKED'}`);
+  if (!open) {
+    const left = locktime - info.mediantime;
+    throw new Error(`still locked for about ${Math.ceil(left / 86400)} more day(s). `
+      + 'The chain judges this by median time past, which trails the clock by around an hour.');
+  }
+
+  // Find the locked output. The etch transaction holds it, so one lookup is enough.
+  let utxos = [];
+  if (flags.txid) {
+    const tx = await client.call('getrawtransaction', [flags.txid, true]);
+    utxos = tx.vout
+      .filter((o) => ((o.scriptPubKey || {}).addresses || []).includes(address))
+      .map((o) => ({ txid: flags.txid, vout: o.n, value: Math.round(Number(o.value) * COIN) }));
+    if (!utxos.length) throw new Error(`no output paying ${address} in ${flags.txid}`);
+  } else {
+    // No txid saved: fall back to the node's own view, which needs the address watched first.
+    const unspent = await client.call('listunspent', [1, 9999999, [address]]);
+    utxos = unspent.map((u) => ({ txid: u.txid, vout: u.vout, value: Math.round(Number(u.amount) * COIN) }));
+    if (!utxos.length) {
+      throw new Error(`nothing found at ${address}. Either pass --txid <etch transaction>, or import `
+        + `the address watch-only and rescan first:\n  verge-cli importaddress ${address} lock true`);
+    }
+  }
+  const total = utxos.reduce((s, u) => s + u.value, 0);
+  console.log(`locked    ${fmtXVG(total)} XVG in ${utxos.length} output(s)`);
+
+  const unlock = recover.buildUnlock({ wif, locktime, utxos, to, fee, network });
+  console.log(`unlock    ${unlock.txid}  ->  ${fmtXVG(unlock.value)} XVG to ${to}`);
+  if (!flags.broadcast) {
+    console.log('\n(dry run) add --broadcast to send it. The raw transaction:');
+    console.log(unlock.hex);
+    return;
+  }
+  const sent = await client.call('sendrawtransaction', [unlock.hex]);
+  console.log(`sent      ${sent}`);
+}
 
 async function main(argv) {
   const { _, flags } = parseArgs(argv);
@@ -320,6 +387,7 @@ async function main(argv) {
   if (cmd === 'list') return cmdList(flags);
   if (cmd === 'mint' && sub === 'commit') return cmdMintCommit(flags);
   if (cmd === 'mint' && sub === 'reveal') return cmdMintReveal(flags);
+  if (cmd === 'unlock') return cmdUnlock(flags);
   console.log(USAGE);
   process.exitCode = cmd ? 1 : 0;
 }

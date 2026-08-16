@@ -18,6 +18,11 @@ import { ripemd160 } from '../vendor/ripemd160.js';
 export const NETWORKS = {
   mainnet: { name: 'verge', pubKeyHash: 30, scriptHash: 33, wif: 158 },
   testnet: { name: 'verge-testnet', pubKeyHash: 115, scriptHash: 198, wif: 243 },
+  // regtest is a real Verge network with its own prefixes, and leaving it out did not make anything
+  // safer: callers fell back to mainnet and derived addresses for the wrong chain, which reads to a
+  // user as "your key is wrong" when the key is perfectly good. Listed so the refusal below can be
+  // about an address this code genuinely cannot place, rather than one it was never told about.
+  regtest: { name: 'verge-regtest', pubKeyHash: 111, scriptHash: 196, wif: 239 },
 };
 
 export const COIN = 1_000_000; // 6 decimals; atomic unit = 0.000001 XVG

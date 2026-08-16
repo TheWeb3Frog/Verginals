@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recover your locked coins</title>
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/unlock.css">
+</head>
+<body>
+<main class="un-wrap">
+
+  <header class="un-head">
+    <p class="un-eyebrow">VERGE RUNES</p>
+    <h1>Recover your coins</h1>
+    <p class="un-lede">
+      When you etched your coin, its ticker price was locked for four years. This is where you watch
+      the clock and take it back. <a href="/runes">How the lock works</a>.
+    </p>
+  </header>
+
+  <!-- Step one needs no key at all, which is the point: checking must never be risky. -->
+  <section class="un-step">
+    <h2>Find your lock</h2>
+    <p class="un-say">
+      Paste the transaction that created your coin. Nothing secret goes here, and nothing is sent
+      anywhere: this only reads what is already public on the chain.
+    </p>
+    <label class="un-label" for="un-txid">Etch transaction id</label>
+    <input id="un-txid" class="un-input un-mono" type="text" spellcheck="false"
+           placeholder="71be28430d9e2a71a5246f899472534d709fdc85f77165ff3f799ee6031d43d0">
+    <button type="button" id="un-look" class="un-btn">Look it up</button>
+    <div id="un-found" class="un-found" hidden></div>
+  </section>
+
+  <!-- Step two is the only place a key is ever mentioned, and it stays in this browser. -->
+  <section class="un-step" id="un-claim-step" hidden>
+    <h2>Take it back</h2>
+    <div class="un-warn">
+      <b>Your key never leaves this page.</b> The transaction is built and signed here, in your
+      browser, and only the finished signature is sent to the network. Nobody, including this site,
+      sees the key itself.
+    </div>
+    <label class="un-label" for="un-wif">Your unlock key</label>
+    <input id="un-wif" class="un-input un-mono" type="password" spellcheck="false"
+           placeholder="the key you saved when you made the coin">
+    <label class="un-label" for="un-dest">Send the coins to</label>
+    <input id="un-dest" class="un-input un-mono" type="text" spellcheck="false" placeholder="D…">
+    <button type="button" id="un-claim" class="un-btn un-go" disabled>Recover my coins</button>
+    <div id="un-result" class="un-result" hidden></div>
+  </section>
+
+  <footer class="un-foot">
+    <p>
+      Lost the key and nothing can help you, which is the whole point of a lock only you can open.
+      Lost the transaction id but kept the key? The command line can still find it:
+      <code>node src/cli.js unlock --wif KEY --locktime DATE --to ADDRESS</code>
+    </p>
+  </footer>
+</main>
+<script type="module" src="/unlock.js"></script>
+</body>
+</html>

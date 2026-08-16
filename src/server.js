@@ -84,7 +84,12 @@ const COLLECTION_DIR = process.env.VERGINALS_COLLECTION_DIR || path.join(__dirna
 // Single source of truth for the chain this server operates on. It pins three things that MUST
 // agree: the RPC backend we talk to, the addresses we generate, and the network /api/quote accepts.
 // Defaults to mainnet; set VERGINALS_NETWORK=testnet to point at the dev testnet Docker node.
-const NETWORK = (process.env.VERGINALS_NETWORK || 'mainnet') === 'testnet' ? 'testnet' : 'mainnet';
+// regtest is accepted alongside the two real networks so the whole server can be pointed at a
+// throwaway chain. Address prefixes differ between all three (mainnet 30/33, testnet 115/198,
+// regtest 111/196), so a server told the wrong one derives addresses nobody can pay to, which is
+// exactly how the lock lookup was first found to be untestable.
+const NETWORK = ['testnet', 'regtest'].includes(process.env.VERGINALS_NETWORK || '')
+  ? process.env.VERGINALS_NETWORK : 'mainnet';
 const INDEX_FROM = Number(process.env.VERGINALS_INDEX_FROM || (NETWORK === 'mainnet' ? 9290000 : 125800));
 // Verginals Arena (the game) is kept off the public surface until deliberately launched: with the
 // flag unset, initGame() never runs, the /arena page and every /api/game/* route are inert, and the
@@ -1719,6 +1724,60 @@ async function handleRuneEtchPlan(req, res) {
   });
 }
 
+/**
+ * GET /api/runes/lock?txid=...: what an etching locked, and when it reopens.
+ *
+ * Public data only. No key is involved and none is accepted, which is the point: somebody should be
+ * able to watch their four-year timer run down without ever going near the thing that spends it.
+ *
+ * `gettxout` is what answers "has it been claimed already": it returns null for a spent output, and
+ * that is the only reliable way to ask, because Verge keeps no address index.
+ */
+async function handleRuneLock(req, res, url) {
+  const txid = String(url.searchParams.get('txid') || '');
+  if (!/^[0-9a-fA-F]{64}$/.test(txid)) return sendJSON(res, 400, { error: 'txid must be 64 hex characters' });
+
+  const { network } = pickNetwork(NETWORK);
+  let tx;
+  try { tx = await chain.getRawTransaction(txid, true); }
+  catch (e) { return sendJSON(res, 404, { error: 'no such transaction on this node' }); }
+
+  const { detectEtching } = require('./runes/scanner');
+  const etching = detectEtching(tx);
+  if (!etching) return sendJSON(res, 404, { error: 'that transaction carries no rune etching' });
+  if (!etching.lock) return sendJSON(res, 404, { error: 'that etching published no price lock' });
+
+  const recover = require('./runes/recover');
+  let lock;
+  try {
+    lock = recover.lockAddress({ locktime: etching.lock.t, pubkey: etching.lock.k, network });
+  } catch (e) { return sendJSON(res, 400, { error: 'the etching lock is not readable: ' + e.message }); }
+
+  const vout = (tx.vout || []).find((o) => ((o.scriptPubKey || {}).addresses || []).includes(lock.address));
+  if (!vout) return sendJSON(res, 404, { error: 'this etching never paid its lock' });
+
+  // gettxout answers only for UNSPENT outputs, so a null here means the lock has already been
+  // claimed. It is the only way to ask on a chain with no address index.
+  const live = await client.call('gettxout', [txid, vout.n, true]).catch(() => null);
+  const info = await client.call('getblockchaininfo').catch(() => null);
+  const mtp = info ? info.mediantime : null;
+
+  return sendJSON(res, 200, {
+    txid,
+    ticker: etching.ticker,
+    display: etching.spacers
+      ? require('./runes/tickers').displayTicker(etching.ticker, etching.spacers) : etching.ticker,
+    locktime: etching.lock.t,
+    lockAddress: lock.address,
+    lockPubkey: Buffer.from(etching.lock.k).toString('hex'),
+    value: Math.round(Number(vout.value) * 1e6),
+    vout: vout.n,
+    claimed: live === null,
+    medianTimePast: mtp,
+    open: mtp !== null && recover.isOpen(etching.lock.t, mtp),
+  });
+}
+
 /** GET /api/adventure/orb: what the player holds and which bloodlines it could carry (§2). */
 function handleAdventureOrb(req, res) {
   const address = adventurePlayer(req, res);
@@ -2887,6 +2946,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && /^\/runes\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
     if (req.method === 'GET' && p === '/etch') return serveStatic(res, 'etch.html');
     if (req.method === 'GET' && /^\/etch\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
+    if (req.method === 'GET' && p === '/unlock') return serveStatic(res, 'unlock.html');
+    if (req.method === 'GET' && /^\/unlock\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
     // The etch page needs secp256k1 to make the key that reopens a ticker price in four years, and
     // the browser has no such primitive. This serves the ONE copy the wallet extension already
     // uses, rather than vendoring a second: two copies could one day derive different keys from the
@@ -3011,6 +3072,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p.startsWith('/api/job/')) return await handleJob(res, p.slice('/api/job/'.length));
     if (req.method === 'POST' && p === '/api/runes/balances') return await handleRuneBalances(req, res);
     if (req.method === 'POST' && p === '/api/runes/etch/plan') return await handleRuneEtchPlan(req, res);
+    if (req.method === 'GET' && p === '/api/runes/lock') return await handleRuneLock(req, res, url);
     if (req.method === 'GET' && p === '/api/inscriptions') return await handleInscriptions(res, url.searchParams.get('owner'));
       if (req.method === 'GET' && p === '/api/index/digest') {
         if (!allowRead(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });

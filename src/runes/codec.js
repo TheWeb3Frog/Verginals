@@ -16,9 +16,67 @@ const HEADER = MAGIC.length + 1;
 const OP_MINT = 1;
 const OP_CHECKPOINT = 2;
 
+// --- what names a rune -------------------------------------------------------------------------
+//
+// A rune is identified by WHERE IT WAS ETCHED: the block height and the position of the etching
+// transaction inside that block. Those two numbers are carried as two separate varints and are never
+// combined arithmetically.
+//
+// This used to be packed as `height * 1000 + txIndex` into one varint, which is wrong and was found
+// by review before anything was etched: a block holding 1000 transactions makes the 1000th
+// transaction of block N collide with the first of block N+1. Two different runes then share one
+// reference, the second etching overwrites the first, and their balances merge. A bigger multiplier
+// only moves the cliff, so there is no constant worth choosing here -- the pair must stay a pair.
+//
+// In memory, in JSON and in a checkpoint leaf, a reference is the canonical string "<height>:<txIndex>".
+// It is an opaque identity: parse it, never do arithmetic on it.
+
+/** The canonical identity of a rune etched at (height, txIndex). */
+function refOf(height, txIndex) {
+  if (!Number.isInteger(height) || height < 0) throw new Error('rune height must be a non-negative integer');
+  if (!Number.isInteger(txIndex) || txIndex < 0) throw new Error('rune txIndex must be a non-negative integer');
+  return `${height}:${txIndex}`;
+}
+
+/** Read a canonical reference back into its two numbers, or null if it is not one. */
+function parseRef(ref) {
+  const m = /^(0|[1-9][0-9]*):(0|[1-9][0-9]*)$/.exec(String(ref));
+  if (!m) return null;
+  const height = Number(m[1]);
+  const txIndex = Number(m[2]);
+  if (!Number.isSafeInteger(height) || !Number.isSafeInteger(txIndex)) return null;
+  return { height, txIndex };
+}
+
+/**
+ * Order two references: by height, then by position in the block. This is the sort the checkpoint
+ * tree depends on, so it has to be a total order over well-formed references and it must never fall
+ * back on string comparison ("100:1" sorts before "99:2" lexicographically, which is wrong).
+ * Unparseable references sort last, among themselves by their raw text, so the order stays total.
+ */
+function compareRefs(a, b) {
+  const x = parseRef(a);
+  const y = parseRef(b);
+  if (!x || !y) {
+    if (!x && !y) return String(a) < String(b) ? -1 : (String(a) > String(b) ? 1 : 0);
+    return x ? -1 : 1;
+  }
+  return x.height - y.height || x.txIndex - y.txIndex;
+}
+
+// The first varint of an edict stream is the height of the lowest-referenced rune, and it shares the
+// first body byte with the control opcodes. Heights below this would decode as a mint or a
+// checkpoint, so they are refused at encode time. Nothing is lost: no rune can be etched in the
+// first three blocks of a chain.
+const MIN_RUNE_HEIGHT = 3;
+
 // --- varints ---------------------------------------------------------------------------------
-// LEB128, unsigned. Values are plain JS numbers and must stay within the safe integer range: an
-// amount is atomic units and Verge's whole supply fits comfortably inside 2^53.
+// LEB128, unsigned. Values are plain JS numbers and must stay within the safe integer range.
+//
+// Note that an atomic unit of XVG is NOT safe to assume fits: Verge's supply is about 16.5 billion
+// XVG, which is 1.65e16 atomic units, above the 9.007e15 safe-integer ceiling. Rune amounts are a
+// separate accounting from XVG and an etcher choosing a supply above the ceiling is refused by the
+// builder, but nothing here should be read as a claim about XVG amounts.
 
 function encodeVarint(n) {
   if (!Number.isInteger(n) || n < 0) throw new Error('varint must be a non-negative integer');
@@ -34,7 +92,15 @@ function encodeVarint(n) {
   return Buffer.from(out);
 }
 
-/** Read one varint. Returns null on truncation or on a value too large to represent exactly. */
+/**
+ * Read one varint. Returns null on truncation, on a value too large to represent exactly, and on a
+ * NON-MINIMAL encoding.
+ *
+ * Minimality matters because two byte strings that mean the same thing are two different messages
+ * with one meaning: the transaction they sit in has two valid forms, and a second implementation
+ * that normalises differently reads a different message. LEB128 is minimal exactly when it does not
+ * end in a redundant 0x00 continuation, so that is the whole check.
+ */
 function readVarint(buf, offset) {
   let value = 0;
   let shift = 1;
@@ -42,7 +108,10 @@ function readVarint(buf, offset) {
     const byte = buf[i];
     value += (byte & 0x7f) * shift;
     if (value > Number.MAX_SAFE_INTEGER) return null;
-    if ((byte & 0x80) === 0) return { value, next: i + 1 };
+    if ((byte & 0x80) === 0) {
+      if (i > offset && byte === 0x00) return null; // padded: not the shortest encoding of this value
+      return { value, next: i + 1 };
+    }
     shift *= 128;
     if (shift > Number.MAX_SAFE_INTEGER) return null; // absurdly long encoding
   }
@@ -56,38 +125,44 @@ function readVarint(buf, offset) {
 //   { type: 'mint',       runeRef, proofIndex|null }
 //   { type: 'checkpoint', height, root: Buffer(32) }
 //
-// Edicts carry ABSOLUTE rune references once decoded; the delta encoding of spec §4.1 is an
-// on-the-wire detail and never leaks into the state machine.
+// Edicts carry ABSOLUTE rune references once decoded; the delta encoding below is an on-the-wire
+// detail and never leaks into the state machine.
 
-// An edict stream and the control messages share the first body byte, so the smallest rune
-// references are reserved: the first varint of an edict stream is the lowest absolute reference,
-// and it must not collide with an opcode. Real references are blockHeight.txIndex packed, so they
-// are always far above this floor; the check exists so a hand-built message cannot be mis-decoded
-// as a mint or a checkpoint.
-const MIN_RUNE_REF = 3;
-
-/** Encode a transfer message. Edicts are sorted by runeRef, then delta-encoded. */
+/**
+ * Encode a transfer message.
+ *
+ * Edicts are sorted by (height, txIndex) and the HEIGHT is delta-encoded against the previous edict;
+ * the position within the block is written out in full, because it is small and delta-encoding it
+ * across a height change would mean signed varints for nothing.
+ */
 function encodeEdicts(edicts) {
   if (!Array.isArray(edicts) || edicts.length === 0) throw new Error('at least one edict is required');
-  const sorted = edicts.slice().sort((a, b) => a.runeRef - b.runeRef);
-  if (sorted[0].runeRef < MIN_RUNE_REF) {
-    throw new Error(`rune references below ${MIN_RUNE_REF} are reserved (they would decode as a control message)`);
-  }
-  const parts = [];
-  let prev = 0;
-  sorted.forEach((e, i) => {
-    if (!Number.isInteger(e.runeRef) || e.runeRef < 0) throw new Error('runeRef must be a non-negative integer');
+  const withRef = edicts.map((e) => {
+    const ref = parseRef(e.runeRef);
+    if (!ref) throw new Error(`runeRef must be "<height>:<txIndex>", got ${JSON.stringify(e.runeRef)}`);
     if (!Number.isInteger(e.output) || e.output < 0) throw new Error('output must be a non-negative integer');
-    const delta = e.runeRef - prev;
-    prev = e.runeRef;
-    const last = i === sorted.length - 1 ? 1 : 0;
-    parts.push(encodeVarint(delta), encodeVarint(e.amount), encodeVarint(e.output), encodeVarint(last));
+    return { ...ref, amount: e.amount, output: e.output };
+  });
+  withRef.sort((a, b) => a.height - b.height || a.txIndex - b.txIndex);
+  if (withRef[0].height < MIN_RUNE_HEIGHT) {
+    throw new Error(`rune heights below ${MIN_RUNE_HEIGHT} are reserved (they would decode as a control message)`);
+  }
+
+  const parts = [];
+  let prevHeight = 0;
+  withRef.forEach((e, i) => {
+    const last = i === withRef.length - 1 ? 1 : 0;
+    parts.push(encodeVarint(e.height - prevHeight), encodeVarint(e.txIndex),
+      encodeVarint(e.amount), encodeVarint(e.output), encodeVarint(last));
+    prevHeight = e.height;
   });
   return frame(Buffer.concat(parts));
 }
 
 function encodeMint(runeRef, proofIndex = null) {
-  const parts = [encodeVarint(OP_MINT), encodeVarint(runeRef)];
+  const ref = parseRef(runeRef);
+  if (!ref) throw new Error(`runeRef must be "<height>:<txIndex>", got ${JSON.stringify(runeRef)}`);
+  const parts = [encodeVarint(OP_MINT), encodeVarint(ref.height), encodeVarint(ref.txIndex)];
   if (proofIndex !== null) parts.push(encodeVarint(proofIndex));
   return frame(Buffer.concat(parts));
 }
@@ -116,24 +191,26 @@ function decode(payload) {
   const body = payload.slice(HEADER);
   if (body.length === 0) return null;
 
-  // The control messages are identified by a leading opcode; anything else is an edict stream.
-  // The first varint of an edict stream is the lowest absolute rune reference, which is why
-  // references below MIN_RUNE_REF are reserved and refused at encode time.
+  // The control messages are identified by a leading opcode; anything else is an edict stream, whose
+  // first varint is the height of its lowest reference. That is why heights below MIN_RUNE_HEIGHT
+  // are reserved and refused at encode time.
   if (body[0] === OP_MINT) return decodeMint(body);
   if (body[0] === OP_CHECKPOINT) return decodeCheckpoint(body);
   return decodeEdicts(body);
 }
 
 function decodeMint(body) {
-  const a = readVarint(body, 1);
-  if (!a) return null;
+  const h = readVarint(body, 1);
+  if (!h) return null;
+  const t = readVarint(body, h.next);
+  if (!t) return null;
   let proofIndex = null;
-  if (a.next < body.length) {
-    const p = readVarint(body, a.next);
+  if (t.next < body.length) {
+    const p = readVarint(body, t.next);
     if (!p || p.next !== body.length) return null; // trailing junk: ignore the whole message
     proofIndex = p.value;
   }
-  return { type: 'mint', runeRef: a.value, proofIndex };
+  return { type: 'mint', runeRef: refOf(h.value, t.value), proofIndex };
 }
 
 function decodeCheckpoint(body) {
@@ -147,15 +224,16 @@ function decodeCheckpoint(body) {
 function decodeEdicts(body) {
   const edicts = [];
   let off = 0;
-  let ref = 0;
+  let height = 0;
   while (off < body.length) {
-    const d = readVarint(body, off); if (!d) return null;
-    const amt = readVarint(body, d.next); if (!amt) return null;
+    const dh = readVarint(body, off); if (!dh) return null;
+    const tx = readVarint(body, dh.next); if (!tx) return null;
+    const amt = readVarint(body, tx.next); if (!amt) return null;
     const out = readVarint(body, amt.next); if (!out) return null;
     const flags = readVarint(body, out.next); if (!flags) return null;
     if (flags.value > 1) return null; // reserved bits must be zero
-    ref += d.value;
-    edicts.push({ runeRef: ref, amount: amt.value, output: out.value });
+    height += dh.value;
+    edicts.push({ runeRef: refOf(height, tx.value), amount: amt.value, output: out.value });
     off = flags.next;
     if (flags.value === 1) {
       if (off !== body.length) return null; // data after the terminator: ignore the whole message
@@ -171,7 +249,8 @@ function fits(edicts) {
 }
 
 module.exports = {
-  MAGIC, VERSION, MAX_PAYLOAD, OP_MINT, OP_CHECKPOINT, MIN_RUNE_REF,
+  MAGIC, VERSION, MAX_PAYLOAD, OP_MINT, OP_CHECKPOINT, MIN_RUNE_HEIGHT,
+  refOf, parseRef, compareRefs,
   encodeVarint, readVarint,
   encodeEdicts, encodeMint, encodeCheckpoint, decode, fits,
 };

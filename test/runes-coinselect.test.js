@@ -10,8 +10,8 @@ const {
 let passed = 0;
 const test = (name, fn) => { fn(); passed += 1; console.log('  ok - ' + name); };
 
-const REF = 131001;
-const REF2 = 131002;
+const REF = '131:1';
+const REF2 = '131:2';
 const clean = (txid, value) => ({ txid, vout: 0, value });
 const bearing = (txid, value, runes) => ({ txid, vout: 0, value, runes });
 

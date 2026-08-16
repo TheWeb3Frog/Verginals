@@ -149,10 +149,20 @@ function isLocked(tx, ticker, lock) {
 
   // Several outputs to the same script are summed. They pay into one address either way, so there is
   // nothing to gain by splitting and no reason to refuse it.
-  const locked = (tx.outputs || [])
-    .filter((o) => o.scriptPubKey && Buffer.isBuffer(o.scriptPubKey)
-      && o.scriptPubKey.equals(script.scriptPubKey))
-    .reduce((s, o) => s + o.value, 0);
+  //
+  // Every value is checked before it is added. This used to be a plain sum, and a single output with
+  // a non-numeric value made the total NaN; since `NaN < owed` is false, the check fell through to
+  // "paid" and handed out the ticker for free. A payment check must fail CLOSED, so anything that is
+  // not a whole number of atomic units invalidates the whole lock rather than being skipped.
+  const paying = (tx.outputs || []).filter((o) => o.scriptPubKey && Buffer.isBuffer(o.scriptPubKey)
+    && o.scriptPubKey.equals(script.scriptPubKey));
+  let locked = 0;
+  for (const o of paying) {
+    if (!Number.isInteger(o.value) || o.value < 0) {
+      return { ok: false, owed, locked: 0, reason: 'a lock output has no readable value' };
+    }
+    locked += o.value;
+  }
 
   if (locked < owed) return { ok: false, owed, locked, reason: 'the ticker price is not locked in this transaction' };
   return { ok: true, owed, locked };
@@ -195,8 +205,14 @@ function normalizeSpacers(ticker, mask) {
   // Note that ADJACENT bits are legal and ordinary: bit i and bit i+1 put separators in two
   // neighbouring gaps, which renders A(bullet)B(bullet)C. There is no such thing as two separators
   // in one gap, so there is nothing to forbid.
-  const legal = (1 << Math.max(0, t.length - 1)) - 1;
-  return mask & legal;
+  //
+  // Done with arithmetic rather than `mask & ((1 << gaps) - 1)`, because JS bitwise operators work
+  // on 32-bit integers: `1 << 32` is 1 rather than 2^32, and a mask above 2^31 would be folded
+  // instead of truncated. Both are silently wrong answers, and a ticker is only ever 26 characters,
+  // so the arithmetic form costs nothing and cannot surprise anyone.
+  const gaps = Math.min(Math.max(0, t.length - 1), 31);
+  if (gaps === 0) return 0;
+  return mask % Math.pow(2, gaps);
 }
 
 /** Render a ticker for display. Never use the result as a key: the bare ticker is the identity. */
@@ -207,7 +223,7 @@ function displayTicker(ticker, mask = 0) {
   let out = '';
   for (let i = 0; i < t.length; i++) {
     out += t[i];
-    if (i < t.length - 1 && (m >> i) & 1) out += SPACER_CHAR;
+    if (i < t.length - 1 && Math.floor(m / Math.pow(2, i)) % 2 === 1) out += SPACER_CHAR;
   }
   return out;
 }
@@ -229,17 +245,21 @@ function bareTicker(display) {
  */
 function spacersFromDisplay(display) {
   const s = String(display || '').toUpperCase();
-  let mask = 0;
+  const gaps = new Set();             // which gaps hold a separator
   let seen = 0;                       // characters of the bare name so far
   for (const ch of s) {
     if (ch === SPACER_CHAR) {
       // A separator sits between two characters, so one before any character, or a second in the
-      // same gap, has nowhere to go.
-      if (seen > 0) mask |= 1 << (seen - 1);
+      // same gap, has nowhere to go. Collected as a set of gap indices rather than shifted straight
+      // into a mask: past 31 characters a shift wraps around to the low bits, which would silently
+      // move a separator to the other end of the name.
+      if (seen > 0 && seen <= 31) gaps.add(seen - 1);
       continue;
     }
     seen += 1;
   }
+  let mask = 0;
+  for (const g of gaps) mask += Math.pow(2, g);
   return normalizeSpacers('A'.repeat(seen), mask);
 }
 

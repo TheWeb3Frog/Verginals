@@ -272,12 +272,23 @@ test('a field the protocol does not define is ignored, and the rune registers an
   assert.strictEqual(rune.mutable, undefined);
 });
 
+// The allowlist leaf, spelled out here rather than imported, so this test pins the FORMAT and would
+// notice it changing: a tag byte, the key length, the key, then the entitlement. The length prefix
+// is what stops key||"12" and (key||"1")||"2" being the same leaf.
+function alLeaf(spk, maxAmount) {
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(spk.length, 0);
+  return sha256(Buffer.concat([Buffer.from([0x00]), len, spk, Buffer.from(String(maxAmount))]));
+}
+const alNode = (a, b) => (Buffer.compare(a, b) <= 0
+  ? sha256(Buffer.concat([Buffer.from([0x01]), a, b]))
+  : sha256(Buffer.concat([Buffer.from([0x01]), b, a])));
+
 test('an allowlisted mint needs a valid proof from a spent input', () => {
   const spk = Buffer.from('76a914deadbeef88ac', 'hex');
-  const leaf = sha256(Buffer.concat([spk, Buffer.from('5000')]));
+  const leaf = alLeaf(spk, 5000);
   const sibling = sha256(Buffer.from('other'));
-  const root = Buffer.compare(leaf, sibling) <= 0
-    ? sha256(Buffer.concat([leaf, sibling])) : sha256(Buffer.concat([sibling, leaf]));
+  const root = alNode(leaf, sibling);
   const base = { terms: { amount: 1000 }, allowlistRoot: root };
 
   const ok = etched(base);
@@ -305,6 +316,69 @@ test('an allowlisted mint needs a valid proof from a spent input', () => {
     allowlistProof: { scriptPubKey: spk, maxAmount: 5000, path: [sha256(Buffer.from('wrong'))] },
   });
   assert.strictEqual(tampered.balanceOf('bad:0', REF), 0);
+});
+
+test('an allowlist entry is an entitlement, not a door it can walk through for ever', () => {
+  const spk = Buffer.from('76a914deadbeef88ac', 'hex');
+  const leaf = alLeaf(spk, 2500);                       // 2500 units, so two mints of 1000 and no more
+  const s = etched({ terms: { amount: 1000 }, allowlistRoot: leaf });
+  const proof = { scriptPubKey: spk, maxAmount: 2500, path: [] };
+  for (let i = 0; i < 5; i++) {
+    applyTx(s, {
+      txid: 'wl' + i, height: 200 + i,
+      inputs: [{ txid: 'x', vout: i, scriptPubKey: spk }],   // a fresh coin every time
+      outputs: [out(), opret(codec.encodeMint(REF))],
+      allowlistProof: proof,
+    });
+  }
+  assert.strictEqual(s.runes.get(REF).minted, 2000, 'the entry may take 2500, so two mints of 1000');
+});
+
+test('a hostile allowlist proof is refused, and never throws out of the scan', () => {
+  const spk = Buffer.from('76a914deadbeef88ac', 'hex');
+  const s = etched({ terms: { amount: 1000 }, allowlistRoot: alLeaf(spk, 5000) });
+  const hostile = [
+    { scriptPubKey: spk, maxAmount: 5000, path: ['not a buffer'] },
+    { scriptPubKey: spk, maxAmount: 5000, path: [Buffer.alloc(31)] },
+    { scriptPubKey: spk, maxAmount: '5000', path: [] },
+    { scriptPubKey: 'not a buffer', maxAmount: 5000, path: [] },
+    { scriptPubKey: spk, maxAmount: 5000, path: 'nope' },
+  ];
+  hostile.forEach((allowlistProof, i) => {
+    assert.doesNotThrow(() => applyTx(s, {
+      txid: 'evil' + i, height: 200,
+      inputs: [{ txid: 'x', vout: 0, scriptPubKey: spk }],
+      outputs: [out(), opret(codec.encodeMint(REF))],
+      allowlistProof,
+    }), 'proof ' + i + ' halted the indexer');
+    assert.strictEqual(s.balanceOf('evil' + i + ':0', REF), 0);
+  });
+});
+
+test('terms that are not whole numbers invalidate the etching outright', () => {
+  // A fractional amount used to mint happily and produce a balance no edict could ever encode, so
+  // the units existed and could never move again. Refusing the etching is the only safe answer:
+  // silently dropping the terms would register a DIFFERENT rune from the one that was paid for.
+  for (const terms of [{ amount: 0.1 }, { amount: '1000' }, { amount: 0 }, { amount: 1000, cap: 1.5 },
+    { amount: 1000, price: -1 }, { amount: 1000, openHeight: 200, closeHeight: 100 }]) {
+    const s = etched({ terms });
+    assert.strictEqual(s.tickers.size, 0, 'registered with terms ' + JSON.stringify(terms));
+  }
+  const good = etched({ terms: { amount: 1000 } });
+  assert.strictEqual(good.tickers.size, 1);
+});
+
+test('two runes in the same block never collide, however many transactions it holds', () => {
+  // The packing this replaced was height * 1000 + txIndex, so the 1000th transaction of a block
+  // took the reference of the first transaction of the next one.
+  const s = new RuneState();
+  applyTx(s, etchTx('big', 100, 1000, { ticker: 'AAAA', supply: 1000, premine: 1000 }));
+  applyTx(s, etchTx('next', 101, 0, { ticker: 'BBBB', supply: 2000, premine: 2000 }));
+  assert.strictEqual(s.runes.size, 2);
+  assert.notStrictEqual(runeRefOf(100, 1000), runeRefOf(101, 0));
+  assert.strictEqual(s.balanceOf('big:0', runeRefOf(100, 1000)), 1000);
+  assert.strictEqual(s.balanceOf('next:0', runeRefOf(101, 0)), 2000);
+  assert.strictEqual(s.runes.get(runeRefOf(100, 1000)).ticker, 'AAAA');
 });
 
 test('one output can hold several different runes at once', () => {

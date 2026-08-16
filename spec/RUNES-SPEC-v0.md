@@ -101,6 +101,16 @@ supply = N, divisibility = d   -> a fungible token
 | close height | `h1` | uint, optional | last block height that may mint |
 | mint price | `f` | uint, optional | atomic units each mint must pay **as transaction fee**, see §7.3 |
 
+Every field here is a **non-negative whole number**, and an etching whose terms are not is not a rune
+at all: it is refused outright, exactly as a bad ticker is. `a` must additionally be at least 1, and
+`h1` may not be below `h0`.
+
+That is stricter than it looks and the strictness is the point. A fractional `a` mints perfectly
+happily and produces a balance that no edict can encode, so the units exist on an outpoint and can
+never be moved off it again. Dropping just the offending terms would be worse than refusing the
+etching: it silently registers a premine-only rune where the etcher paid for a mintable one, which
+is a different rune from the one they bought.
+
 An open mint is closed once any of: `c` mints happened, height > `h1`, or `premine + minted` would
 exceed `s`.
 
@@ -149,25 +159,47 @@ The body is a flat varint stream, so it costs nothing when fields are absent.
 
 ### 4.1 Edicts (transfers)
 
-An edict is 4 varints:
+An edict is 5 varints:
 
 ```
-runeRef , amount , outputIndex , flags
+heightDelta , txIndex , amount , outputIndex , flags
 ```
 
-- `runeRef` is **delta-encoded** against the previous edict's reference, so moving several runes
-  in one transaction stays compact and edicts are naturally sorted.
+- `heightDelta` is the block height of the rune, **delta-encoded** against the previous edict, so
+  moving several runes in one transaction stays compact.
+- `txIndex` is the position of the etching transaction inside that block, written in full.
 - `amount = 0` means "all of the remaining pooled balance for this rune".
 - `outputIndex` is the destination output in this transaction.
 - `flags` bit 0 marks the last edict; the remaining bits are reserved and must be 0.
 
-A rune reference is `blockHeight . txIndex` packed as a single varint, which is far smaller than a
-32-byte id and is stable once the etching confirms.
+Edicts are sorted by `(height, txIndex)` ascending.
+
+#### What names a rune
+
+A rune is identified by **where it was etched**: the pair `(blockHeight, txIndex)`. The two numbers
+are carried as two separate varints and are **never combined arithmetically**. In memory, in JSON and
+in a checkpoint leaf, the canonical written form is `"<height>:<txIndex>"`, and it is an opaque
+identity: parse it, never do arithmetic on it. Sorting is by height then position, never as text,
+since `"100:1"` sorts before `"99:2"` lexicographically.
+
+An earlier draft packed this as a single varint, `height * 1000 + txIndex`. That is wrong, and it is
+worth recording why rather than quietly fixing it: a block holding 1000 transactions makes the
+thousandth transaction of block N collide with the first of block N+1. Two runes then share one
+reference, the second etching overwrites the first, and their balances merge into one number. Any
+constant K has the same cliff at K transactions per block, so there is no value worth choosing. The
+pair must stay a pair.
+
+The pair also costs nothing. At a mainnet-scale height a packed reference took 5 bytes; the pair
+takes 4 for the height and 1 for a small position, and a mint message is 9 bytes either way.
+
+Heights below 3 cannot be encoded, because the first varint of an edict stream shares its byte with
+the control opcodes of §4.2 and §4.3. Nothing is lost: no rune can be etched in the first three
+blocks of a chain.
 
 ### 4.2 Mint message
 
 ```
-0x01 , runeRef , [ allowlist proof index ]
+0x01 , height , txIndex , [ allowlist proof index ]
 ```
 
 The minted amount is `m.a` from the etching; it is credited to output 0, or to the first
@@ -188,6 +220,18 @@ is truncated, an output index is out of range, `flags` has a reserved bit set, o
 83 bytes. **Ignoring is not burning**: the default assignment of §3 still applies, so a malformed
 message cannot destroy someone's balance.
 
+Two further rules exist so that two implementations cannot read the same bytes differently:
+
+**Varints must be minimal.** LEB128 allows `0x81 0x00` and `0x01` to both mean 1. A padded encoding
+is refused. One meaning must have one encoding, or a transaction has several valid forms and an
+implementation that normalises differently reads a different message.
+
+**The carrying script must be exactly `OP_RETURN <push>`.** The declared push length is honoured, and
+anything after that push means the output carries no message. Reading to the end of the script
+instead let a trailing byte join the payload and silently change what the message said: one `0x51`
+appended to a mint turned `proofIndex: null` into `proofIndex: 81`. This is stricter than it needs to
+be, deliberately, because "the payload is the one data push" cannot be read two ways.
+
 ---
 
 ## 5. Allowlisted mints
@@ -195,8 +239,29 @@ message cannot destroy someone's balance.
 The etching may carry a 32-byte merkle root `a`. A mint is then valid only if the transaction spends
 an input whose scriptPubKey hashes to a leaf proven by the supplied proof.
 
-Leaf = `SHA256(scriptPubKey || maxAmount)`. The proof travels in a second OP_RETURN output when it
-does not fit, or in an inscription for large proofs.
+```
+leaf   = SHA256( 0x00 || uint32be(len(scriptPubKey)) || scriptPubKey || ascii(maxAmount) )
+parent = SHA256( 0x01 || lower || higher )     // the pair ordered by byte comparison
+```
+
+Three things in that shape are load-bearing:
+
+**The tag bytes.** Leaves and interior nodes are hashed under different tags, so nothing that hashes
+like an interior node can be presented as a leaf and have a proof one step short of the root still
+verify.
+
+**The length prefix.** Without it, `scriptPubKey || "12"` and `(scriptPubKey || "1") || "2"` are the
+same preimage, so two different entitlements share one leaf.
+
+**`maxAmount` is an entitlement, and it is enforced.** An indexer keeps a running total per
+`(rune, leaf)` and refuses a mint that would take the entry past `maxAmount`. Without that ledger the
+same proof mints for ever, which makes an allowlist a door rather than an allocation: the first
+version of this section said it bought "a real airdrop or a fair whitelist" while the amount in the
+leaf was never checked against anything.
+
+The proof travels alongside the transaction, and every field of it is type-checked before use. A path
+element that is not a 32-byte value invalidates the proof; it must never reach a comparison that
+throws, because one hostile transaction would then stop the whole scan.
 
 This gives real airdrops and fair whitelists for **32 bytes** in the etching. Neither BRC-20 nor Runes
 can express it.
@@ -488,20 +553,34 @@ BRC-20 offer no answer at all.
 
 ### 8.1 Checkpoints
 
-Any party may compute, at a given height, a merkle tree over the entire balance set:
+Any party may compute, at a given height, a merkle tree over the entire state: every balance, **and
+every rune definition**.
 
 ```
-leaf   = SHA256( utf8( "<outpoint>|<runeRef>|<amount>" ) )
-         outpoint is "<txid hex>:<vout>", runeRef and amount in decimal
-leaves sorted by (outpoint, runeRef)
-pair   = SHA256( a || b ) with a and b ordered by byte comparison, smaller first
-root   = fold pairs upward; an ODD node is carried up unchanged, never duplicated
-empty  = 32 zero bytes, a valid commitment to "nothing exists yet"
+balance leaf = SHA256( 0x00 || utf8( "<outpoint>|<runeRef>|<amount>" ) )
+               outpoint is "<txid hex>:<vout>", runeRef is "<height>:<txIndex>"
+rune leaf    = SHA256( 0x02 || utf8( "<runeRef>|<ticker>|<divisibility>|<supply>|<spacers>" ) )
+pair         = SHA256( 0x01 || a || b ), a and b ordered by byte comparison, smaller first
+leaves       = every balance sorted by (outpoint, runeRef), THEN every rune sorted by runeRef
+root         = fold pairs upward; an ODD node is carried up unchanged, never duplicated
+empty        = 32 zero bytes, a valid commitment to "nothing exists yet"
 ```
 
 and publish `{ height, root }` in a checkpoint message (§4.3).
 
-Two details here are load-bearing and easy to get wrong in a second implementation:
+Four details here are load-bearing and easy to get wrong in a second implementation:
+
+**The tree commits to what a reference MEANS, not only to how much of it sits where.** An earlier
+draft covered balances alone, so a verified proof told a wallet "outpoint X holds 500 of 9388102:14"
+and left the ticker, the divisibility and the supply coming from whoever answered the query. That is
+exactly the trust a checkpoint exists to remove: a wallet that cannot prove the reference is GRUMPY
+has not proven it holds any GRUMPY. A wallet showing a balance should fetch both proofs.
+
+**Leaves and interior nodes are tagged apart.** Without the tag bytes, anything that hashes like an
+interior node can be handed over as a leaf, and a proof one step short of the root still verifies.
+Here the two preimages happen to differ in length as well, since an outpoint alone is 66 characters
+and an interior preimage is exactly 64, but that is an accident of formatting and the tag is what
+makes it a property.
 
 **A lone node at the end of a level is carried up as it is.** Duplicating it, which is what Bitcoin's
 own transaction tree does, lets one proof authenticate two different trees (the CVE-2012-2459 shape).
@@ -619,7 +698,11 @@ Stated plainly so nobody builds on a promise the chain cannot keep:
 | Max divisibility | 6 |
 | Max ticker length | 26 |
 | Dust minimum on a rune output | 0.1 XVG |
+| Rune reference | the pair `(height, txIndex)`, written `"<height>:<txIndex>"` |
+| Lowest encodable rune height | 3 |
 | Checkpoint leaf hash | SHA256 |
+| Domain tags | `0x00` balance leaf, `0x01` interior node, `0x02` rune definition |
+| Allowlist tags | `0x00` leaf, `0x01` interior node |
 | Ticker price lock | 126,144,000 seconds (1460 days) |
 | Lock derivation branch | `m/44'/77'/0'/2/n` |
 | Lock grace, signing to confirmation | 86,400 seconds |
@@ -641,3 +724,33 @@ an independent implementation can be checked against them. They are the normativ
 6. A malformed message leaving balances intact via the default assignment.
 7. A mint refused past its close height, and one refused for exceeding the cap.
 8. A merkle proof verifying against a checkpoint root, and a tampered proof failing.
+9. Two runes etched at `(N, 1000)` and `(N+1, 0)` keeping separate references and separate balances.
+10. A padded varint refused, and a script with trailing bytes after its push carrying no message.
+11. An etching with fractional mint terms taking no ticker.
+12. An allowlist entry stopping at `maxAmount` however many times its proof is presented.
+13. A rune definition proved against the same root as a balance, and a lie about the ticker failing.
+
+`test/runes-conformance.test.js` drives this implementation and a second, independently written one
+over randomised histories and compares their roots. That harness is only worth what it can catch, so
+each of the defects above was reintroduced into the second implementation alone and the harness was
+confirmed to notice; a history generator that only ever etched at one position in the block, or only
+ever presented well-formed input, would have passed through several of them.
+
+---
+
+## 13. Known gaps
+
+Stated here rather than discovered later.
+
+**No reorg handling.** The state machine only moves forward: there is no rollback path, no per-height
+journal to unwind, and the height it tracks is monotonic. A chain reorganisation therefore corrupts
+an index permanently, and any root published from it is wrong. Since checkpoints are the whole trust
+story of §8, an indexer serving real balances needs this before it is trustworthy, and the answer is
+likely to be either an undo journal or a rescan from the last agreed checkpoint. Nothing in the wire
+format blocks either.
+
+**The second implementation shares an author.** `verify.js` is a deliberate re-derivation with no
+data structure in common, and it catches implementation slips. It cannot catch a shared
+misunderstanding of this document, and it did not: the packed rune reference of §4.1 was written into
+both, so the conformance harness reported agreement on a defect that would have merged two runes into
+one. A genuinely independent implementation, by someone else, remains a launch requirement.

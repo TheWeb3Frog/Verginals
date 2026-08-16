@@ -13,7 +13,7 @@ const assert = require('assert');
 const crypto = require('crypto');
 const indexerImpl = require('../src/runes/indexer');
 const verifyImpl = require('../src/runes/verify');
-const { buildTree } = require('../src/runes/checkpoint');
+const { buildTree, allEntries } = require('../src/runes/checkpoint');
 const codec = require('../src/runes/codec');
 const { lockFor } = require('./fixtures/etchlock');
 
@@ -23,11 +23,20 @@ const test = (name, fn) => { fn(); passed += 1; console.log('  ok - ' + name); }
 const DUST = 100000;
 const rootOf = (entries) => buildTree([...entries]).root.toString('hex');
 
-/** Both implementations, over the same history, must commit to the same root. */
+/**
+ * Both implementations, over the same history, must commit to the same root.
+ *
+ * The root is taken over allEntries, so it covers the rune REGISTRY as well as the balances. Taking
+ * it over balances alone was a real blind spot: two implementations could disagree about a ticker, a
+ * divisibility, a supply or a separator mask and still publish identical roots, and the disagreement
+ * would only surface later as different balances, long after the checkpoint said they agreed.
+ */
+const fullRoot = (state) => rootOf(allEntries(state));
+
 function agree(txs) {
-  const a = indexerImpl.index(txs);
-  const b = verifyImpl.index(txs);
-  return { same: rootOf(a.entries()) === rootOf(b.entries()), a: rootOf(a.entries()), b: rootOf(b.entries()) };
+  const a = fullRoot(indexerImpl.index(txs));
+  const b = fullRoot(verifyImpl.index(txs));
+  return { same: a === b, a, b };
 }
 
 // --- a small deterministic generator ------------------------------------------------------------
@@ -38,6 +47,20 @@ function makeRng(seed) {
 }
 
 const out = (value = DUST, address = null) => ({ value, scriptPubKey: Buffer.from('aa', 'hex'), isOpReturn: false, address });
+
+// One allowlisted key, entitled to a small number of units, so the histories below exercise the
+// entitlement ledger: the same proof presented over and over must stop paying out in BOTH
+// implementations at the same point. Built here from the format the spec pins rather than imported
+// from either implementation, so it is a third opinion about what the leaf looks like.
+const GATE_KEY = Buffer.from('76a914' + '5c'.repeat(20) + '88ac', 'hex');
+const GATE_MAX = 3000;
+const GATE_ROOT = (() => {
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(GATE_KEY.length, 0);
+  return crypto.createHash('sha256')
+    .update(Buffer.concat([Buffer.from([0x00]), len, GATE_KEY, Buffer.from(String(GATE_MAX))])).digest();
+})();
+const GATE_PROOF = { scriptPubKey: GATE_KEY, maxAmount: GATE_MAX, path: [] };
 const opret = (data) => ({ value: 0, isOpReturn: true, opReturnData: data });
 
 /**
@@ -50,6 +73,35 @@ function paidEtch(tx) {
     time: paid.time,
     outputs: [...tx.outputs, paid.output],
     etching: Object.assign({ lock: paid.lock }, tx.etching),
+  });
+}
+
+/**
+ * An etching whose price lock is wrong in one specific way. None of these should take the ticker,
+ * and much more importantly, both implementations have to refuse them for the same reason.
+ *
+ *   value  a lock output whose value is not a readable number. This is the one that mattered: the
+ *          sum went NaN, `NaN < owed` is false, and one implementation read that as PAID.
+ *   part   a lock output whose value is fractional, and just over the price. Summing without
+ *          checking accepts it; checking each value first does not. The `value` case alone does not
+ *          catch that, because NaN compares false whether or not the check is there.
+ *   short  a lock that expires long before the protocol allows.
+ *   none   no lock field at all.
+ */
+function brokenLock(txid, height, txIndex, etching, how) {
+  const paid = lockFor(String(etching.ticker || '').toUpperCase());
+  const base = { txid, height, txIndex, inputs: [], time: paid.time, outputs: [out(), out()] };
+  if (how === 'none') return Object.assign(base, { etching });
+  if (how === 'short') {
+    return Object.assign(base, {
+      outputs: [out(), out(), paid.output],
+      etching: Object.assign({ lock: { t: paid.time + 60, k: paid.lock.k } }, etching),
+    });
+  }
+  const value = how === 'part' ? paid.output.value + 0.5 : undefined;
+  return Object.assign(base, {
+    outputs: [out(), out(), Object.assign({}, paid.output, { value })],
+    etching: Object.assign({ lock: paid.lock }, etching),
   });
 }
 
@@ -67,7 +119,10 @@ function randomHistory(seed, length = 40) {
     const kind = rnd();
 
     if (kind < 0.15 || refs.length === 0) {
-      // etch
+      // etch. The position in the block VARIES, and sometimes runs past 1000: a reference is the
+      // pair (height, txIndex), and a history that only ever etched at index 1 could never have
+      // caught the packing that made block N transaction 1000 collide with block N+1 transaction 0.
+      const txIndex = pick([0, 1, 2, 7, 999, 1000, 1001, 40000]);
       const ticker = 'T' + n;
       const supply = 1000 + Math.floor(rnd() * 100000);
       const premine = Math.floor(rnd() * supply);
@@ -83,9 +138,20 @@ function randomHistory(seed, length = 40) {
         // Half the open mints charge for a mint, so the histories exercise both branches of the
         // fee rule and the mints below have to be funded or refused.
         if (rnd() < 0.5) etching.terms.price = 20 * 1e6;
+        // Terms that are not whole numbers must invalidate the etching in BOTH implementations. A
+        // fractional amount used to mint and leave a balance no edict could encode.
+        if (rnd() < 0.15) etching.terms.amount = pick([0.1, '1000', 0, -5, NaN]);
       }
-      txs.push(paidEtch({ txid, height, txIndex: 1, inputs: [], outputs: [out(), out()], etching }));
-      refs.push(indexerImpl.runeRefOf(height, 1));
+      // Sometimes the price is not properly locked, so the ticker is not taken. Both must agree on
+      // that too, and the malformed value is the case where they used to differ: one summed to NaN
+      // and read it as paid, the other refused.
+      const flaw = rnd();
+      // Some etchings gate their mint on an allowlist, so the entitlement ledger is exercised too.
+      if (etching.terms && rnd() < 0.3) etching.allowlistRoot = GATE_ROOT;
+      const etch = flaw < 0.1 ? brokenLock(txid, height, txIndex, etching, pick(['value', 'part', 'short', 'none']))
+        : paidEtch({ txid, height, txIndex, inputs: [], outputs: [out(), out()], etching });
+      txs.push(etch);
+      refs.push(indexerImpl.runeRefOf(height, txIndex));
       spendable.push(txid + ':0', txid + ':1');
       continue;
     }
@@ -98,8 +164,17 @@ function randomHistory(seed, length = 40) {
       // mint, paying a fee drawn from either side of the 20 XVG price: underpaid, exactly paid,
       // overpaid, and sometimes unknown, which must be refused rather than waved through
       const fees = [0, 19999999, 20 * 1e6, 45 * 1e6, null];
-      txs.push({ txid, height, txIndex: 0, inputs, fee: pick(fees),
-        outputs: [out(), opret(codec.encodeMint(ref))] });
+      const mint = { txid, height, txIndex: 0, inputs, fee: pick(fees),
+        outputs: [out(), opret(codec.encodeMint(ref))] };
+      // Most mints carry the allowlist proof whether or not the rune wants one, so a gated rune is
+      // hammered with the same entitlement repeatedly and an ungated one has to ignore it.
+      if (rnd() < 0.8) {
+        mint.allowlistProof = rnd() < 0.15
+          ? { ...GATE_PROOF, path: pick([['junk'], [Buffer.alloc(31)], 'nope']) } // hostile: must not throw
+          : GATE_PROOF;
+        mint.inputs = [...inputs, { txid: 'gate' + n, vout: 0, scriptPubKey: GATE_KEY }];
+      }
+      txs.push(mint);
     } else if (kind < 0.7) {
       // transfer, sometimes to an output that does not exist or is dust
       const amount = rnd() < 0.3 ? 0 : Math.floor(rnd() * 5000);

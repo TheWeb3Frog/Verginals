@@ -62,9 +62,21 @@ async function sha256(bytes) {
   return new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
 }
 
+// Leaves and interior nodes are hashed under different tags, so nothing that hashes like an
+// interior node can be presented as a leaf. 0x00 balance, 0x01 interior node.
+const TAG_LEAF = 0x00, TAG_NODE = 0x01;
+
+const tagged = (tag, ...parts) => {
+  const out = new Uint8Array(parts.reduce((s, p) => s + p.length, 1));
+  out[0] = tag;
+  let at = 1;
+  for (const p of parts) { out.set(p, at); at += p.length; }
+  return out;
+};
+
 /** Leaf over the canonical text form of the triple. */
 function leafBytes(entry) {
-  return enc.encode(`${entry.outpoint}|${entry.runeRef}|${entry.amount}`);
+  return tagged(TAG_LEAF, enc.encode(`${entry.outpoint}|${entry.runeRef}|${entry.amount}`));
 }
 
 /** Fixed order by byte comparison, so a proof carries no left/right flags. */
@@ -77,10 +89,7 @@ function compare(a, b) {
 
 async function parentHash(a, b) {
   const [x, y] = compare(a, b) <= 0 ? [a, b] : [b, a];
-  const joined = new Uint8Array(x.length + y.length);
-  joined.set(x, 0);
-  joined.set(y, x.length);
-  return sha256(joined);
+  return sha256(tagged(TAG_NODE, x, y));
 }
 
 /**
@@ -117,11 +126,11 @@ async function treeAndProof(entries, index) {
 // A worked example, and named so nobody mistakes it for live data. The amounts are atomic units:
 // GRUMPY has divisibility 2, so 125000 units display as 1,250.00.
 const LEDGER = [
-  { outpoint: '3f9c2a71d4e8b05a6c1f3e7d9b2a4c8e05f6a1b3c7d9e2f4a6b8c0d1e3f5a7b9:0', runeRef: 9388102, amount: 400000 },
-  { outpoint: '7b1e4d0a9c3f6b2e8d5a1c7f0b4e9d2a6c3f8b1e5d7a0c4f9b2e6d8a1c3f5b7e:1', runeRef: 9388102, amount: 250000 },
-  { outpoint: 'b7d2f4a1c9e83b06f5a2d47c1e9b380a5c6f2d13e847a9b0c1d2e3f4a5b6c7d8:1', runeRef: 9388102, amount: 125000 },
-  { outpoint: 'd4a8c1f6b3e07d29a5c8f1b4e7d0a3c6f9b2e5d8a1c4f7b0e3d6a9c2f5b8e1d4:0', runeRef: 9388102, amount: 900000 },
-  { outpoint: 'e2c5a8f1b4d70e39c6a9f2b5d8e1a4c7f0b3e6d9a2c5f8b1e4d7a0c3f6b9e2d5:2', runeRef: 9391044, amount: 60000 },
+  { outpoint: '3f9c2a71d4e8b05a6c1f3e7d9b2a4c8e05f6a1b3c7d9e2f4a6b8c0d1e3f5a7b9:0', runeRef: '9388102:14', amount: 400000 },
+  { outpoint: '7b1e4d0a9c3f6b2e8d5a1c7f0b4e9d2a6c3f8b1e5d7a0c4f9b2e6d8a1c3f5b7e:1', runeRef: '9388102:14', amount: 250000 },
+  { outpoint: 'b7d2f4a1c9e83b06f5a2d47c1e9b380a5c6f2d13e847a9b0c1d2e3f4a5b6c7d8:1', runeRef: '9388102:14', amount: 125000 },
+  { outpoint: 'd4a8c1f6b3e07d29a5c8f1b4e7d0a3c6f9b2e5d8a1c4f7b0e3d6a9c2f5b8e1d4:0', runeRef: '9388102:14', amount: 900000 },
+  { outpoint: 'e2c5a8f1b4d70e39c6a9f2b5d8e1a4c7f0b3e6d9a2c5f8b1e4d7a0c3f6b9e2d5:2', runeRef: '9391044:3', amount: 60000 },
 ];
 const MINE = 2;   // the row the demo claims as yours
 

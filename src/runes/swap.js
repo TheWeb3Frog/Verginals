@@ -18,6 +18,8 @@
 // the attack instead of mitigating it, because when everything is for sale a missing edict costs the
 // maker nothing.
 
+const codec = require('./codec');
+
 /** Marketplace layout indices (MARKETPLACE-SPEC-v0). The maker signs only PRICE_INDEX. */
 const PADDING_INDEX = 0; // buyer: padding-out
 const CARRIER_INDEX = 1; // buyer: the new carrier the rune should land on
@@ -34,8 +36,8 @@ function listingTerms(carrierRunes) {
   if (entries.length === 0) throw new Error('this outpoint carries no rune, list it as an inscription instead');
   return {
     sells: entries
-      .map(([runeRef, amount]) => ({ runeRef: Number(runeRef), amount: Number(amount) }))
-      .sort((a, b) => a.runeRef - b.runeRef),
+      .map(([runeRef, amount]) => ({ runeRef, amount: Number(amount) }))
+      .sort((a, b) => codec.compareRefs(a.runeRef, b.runeRef)),
   };
 }
 
@@ -52,8 +54,13 @@ function validateListing({ declared, onChain, partialAmount = null }) {
   if (partialAmount !== null) {
     return { ok: false, reason: 'a listing must sell the whole carrier: split first, then list the result' };
   }
-  const d = Object.entries(declared || {}).map(([k, v]) => [String(k), Number(v)]).sort();
-  const c = Object.entries(onChain || {}).map(([k, v]) => [String(k), Number(v)]).sort();
+  // Sorted with an explicit comparator on the reference alone. A bare .sort() on [key, value] pairs
+  // compares them as the strings "ref,amount", so the ORDER of the two lists could depend on the
+  // amounts rather than only on which runes are present, which is not what the comparison below
+  // wants to be reading.
+  const byRef = (x, y) => codec.compareRefs(x[0], y[0]);
+  const d = Object.entries(declared || {}).map(([k, v]) => [String(k), Number(v)]).sort(byRef);
+  const c = Object.entries(onChain || {}).map(([k, v]) => [String(k), Number(v)]).sort(byRef);
   if (c.length === 0) return { ok: false, reason: 'the carrier holds no rune on chain' };
   if (d.length !== c.length) return { ok: false, reason: 'the listing does not declare every rune on the carrier' };
   for (let i = 0; i < d.length; i++) {
@@ -71,8 +78,8 @@ function validateListing({ declared, onChain, partialAmount = null }) {
  */
 function takerEdicts(declared) {
   return Object.entries(declared || {})
-    .map(([runeRef]) => ({ runeRef: Number(runeRef), amount: 0, output: CARRIER_INDEX }))
-    .sort((a, b) => a.runeRef - b.runeRef);
+    .map(([runeRef]) => ({ runeRef, amount: 0, output: CARRIER_INDEX }))
+    .sort((a, b) => codec.compareRefs(a.runeRef, b.runeRef));
 }
 
 /**
@@ -81,7 +88,7 @@ function takerEdicts(declared) {
  */
 function verifySettlement({ state, txid, declared, buyerOutputs = [CARRIER_INDEX, PADDING_INDEX] }) {
   for (const [ref, amount] of Object.entries(declared || {})) {
-    const delivered = buyerOutputs.reduce((s, i) => s + state.balanceOf(`${txid}:${i}`, Number(ref)), 0);
+    const delivered = buyerOutputs.reduce((s, i) => s + state.balanceOf(`${txid}:${i}`, ref), 0);
     if (delivered !== Number(amount)) {
       return { ok: false, reason: `rune ${ref}: listed ${amount}, buyer received ${delivered}` };
     }

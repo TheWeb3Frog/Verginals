@@ -2,7 +2,7 @@
 // Run: node test/runes-checkpoint.test.js
 const assert = require('assert');
 const { RuneState, applyTx, runeRefOf } = require('../src/runes/indexer');
-const { stateRoot, proveBalance, verifyBalance, buildTree, compareCheckpoints } = require('../src/runes/checkpoint');
+const { stateRoot, proveBalance, proveRune, verifyBalance, buildTree, compareCheckpoints } = require('../src/runes/checkpoint');
 const codec = require('../src/runes/codec');
 const { lockFor } = require('./fixtures/etchlock');
 
@@ -96,14 +96,35 @@ test('an unknown outpoint has no proof', () => {
 });
 
 test('a single-leaf tree proves with an empty path', () => {
+  const { root } = buildTree([{ outpoint: 'solo:0', runeRef: '1:1', amount: 10 }]);
+  assert.ok(verifyBalance({ outpoint: 'solo:0', runeRef: '1:1', amount: 10 }, [], root));
+});
+
+test('a checkpoint commits to what a reference MEANS, not only to how much sits where', () => {
   const s = new RuneState();
   applyTx(s, paidEtch({
     txid: 'solo', height: 1, txIndex: 1, inputs: [], outputs: [out()],
-    etching: { ticker: 'SOLO', supply: 10, premine: 10 },
+    etching: { ticker: 'SOLO', supply: 10, premine: 10, divisibility: 2 },
   }));
-  const p = proveBalance(s, 'solo:0', runeRefOf(1, 1));
-  assert.deepStrictEqual(p.path, []);
-  assert.ok(verifyBalance(p.entry, p.path, stateRoot(s)));
+  const root = stateRoot(s);
+
+  // The balance proof alone says "solo:0 holds 10 of 1:1" and nothing about what 1:1 is.
+  const bal = proveBalance(s, 'solo:0', runeRefOf(1, 1));
+  assert.ok(verifyBalance(bal.entry, bal.path, root));
+  assert.strictEqual(bal.entry.ticker, undefined);
+
+  // The rune proof is what turns that number into a name, against the same root.
+  const def = proveRune(s, runeRefOf(1, 1));
+  assert.ok(verifyBalance(def.entry, def.path, root));
+  assert.strictEqual(def.entry.ticker, 'SOLO');
+  assert.strictEqual(def.entry.divisibility, 2);
+
+  // And a lie about the ticker does not survive it.
+  assert.ok(!verifyBalance({ ...def.entry, ticker: 'GRUMPY' }, def.path, root));
+});
+
+test('an unregistered reference has no rune proof', () => {
+  assert.strictEqual(proveRune(new RuneState(), '1:1'), null);
 });
 
 test('odd node counts are carried up, never duplicated (no second-preimage trick)', () => {

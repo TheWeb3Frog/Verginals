@@ -59,6 +59,12 @@ function selectCoins({ utxos, targetValue = 0, fee = 0, requiredRunes = [], dust
   const used = new Set();
   const key = (u) => `${u.txid}:${u.vout}`;
 
+  // The candidate lists below are built once and walked, while `used` fills up as we go, so the same
+  // outpoint appearing twice in `utxos` would be selected twice and the transaction would spend one
+  // input as two. Deduplicate up front rather than re-filtering inside every loop.
+  const seen = new Set();
+  utxos = utxos.filter((u) => { const k = key(u); if (seen.has(k)) return false; seen.add(k); return true; });
+
   // 1) Gather the runes the transaction actually needs, largest holding first so the fewest inputs
   //    are touched. These are the ONLY rune-bearing utxos that may be spent.
   const gathered = {};
@@ -145,7 +151,7 @@ function unassignedRunes(selection, edicts) {
   const assigned = new Set((edicts || []).map((e) => String(e.runeRef)));
   return Object.entries(selection.carriedRunes || {})
     .filter(([ref]) => !assigned.has(String(ref)))
-    .map(([runeRef, amount]) => ({ runeRef: Number(runeRef), amount }));
+    .map(([runeRef, amount]) => ({ runeRef, amount })); // a reference is an identity, never a number
 }
 
 module.exports = {

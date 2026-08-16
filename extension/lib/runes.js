@@ -25,12 +25,18 @@ function readVarint(buf, offset) {
     const byte = buf[i];
     value += (byte & 0x7f) * shift;
     if (value > Number.MAX_SAFE_INTEGER) return null;
-    if ((byte & 0x80) === 0) return { value, next: i + 1 };
+    if ((byte & 0x80) === 0) {
+      if (i > offset && byte === 0x00) return null; // non-minimal: one meaning, one encoding
+      return { value, next: i + 1 };
+    }
     shift *= 128;
     if (shift > Number.MAX_SAFE_INTEGER) return null;
   }
   return null;
 }
+
+/** A rune is named by where it was etched: block height and position in that block, never packed. */
+const refOf = (height, txIndex) => `${height}:${txIndex}`;
 
 /** Decode an OP_RETURN payload, or null for anything this version does not understand. */
 export function decodeMessage(payload) {
@@ -40,8 +46,15 @@ export function decodeMessage(payload) {
   if (body.length === 0) return null;
 
   if (body[0] === OP_MINT) {
-    const a = readVarint(body, 1);
-    return a ? { type: 'mint', runeRef: a.value } : null;
+    const h = readVarint(body, 1); if (!h) return null;
+    const t = readVarint(body, h.next); if (!t) return null;
+    let proofIndex = null;
+    if (t.next < body.length) {
+      const p = readVarint(body, t.next);
+      if (!p || p.next !== body.length) return null;
+      proofIndex = p.value;
+    }
+    return { type: 'mint', runeRef: refOf(h.value, t.value), proofIndex };
   }
   if (body[0] === OP_CHECKPOINT) {
     const h = readVarint(body, 1);
@@ -49,15 +62,18 @@ export function decodeMessage(payload) {
     const root = body.slice(h.next);
     return root.length === 32 ? { type: 'checkpoint', height: h.value, root } : null;
   }
+  // Edicts: the height is delta-encoded against the previous edict, the position in the block is
+  // absolute. Two varints, never one packed number.
   const edicts = [];
-  let off = 0, ref = 0;
+  let off = 0, height = 0;
   while (off < body.length) {
-    const d = readVarint(body, off); if (!d) return null;
-    const amt = readVarint(body, d.next); if (!amt) return null;
+    const dh = readVarint(body, off); if (!dh) return null;
+    const tx = readVarint(body, dh.next); if (!tx) return null;
+    const amt = readVarint(body, tx.next); if (!amt) return null;
     const out = readVarint(body, amt.next); if (!out) return null;
     const flags = readVarint(body, out.next); if (!flags || flags.value > 1) return null;
-    ref += d.value;
-    edicts.push({ runeRef: ref, amount: amt.value, output: out.value });
+    height += dh.value;
+    edicts.push({ runeRef: refOf(height, tx.value), amount: amt.value, output: out.value });
     off = flags.next;
     if (flags.value === 1) return off === body.length ? { type: 'edicts', edicts } : null;
   }
@@ -76,11 +92,21 @@ function cmp(a, b) {
   return a.length - b.length;
 }
 
+// Leaves and interior nodes are hashed under different tags, so no interior node can be replayed as
+// a leaf. Mirrors checkpoint.js: 0x00 balance leaf, 0x01 interior node, 0x02 rune definition.
+const TAG_BALANCE = 0x00, TAG_NODE = 0x01, TAG_RUNE = 0x02;
+
+const tagged = (tag, ...parts) => {
+  const total = parts.reduce((s, p) => s + p.length, 1);
+  const out = new Uint8Array(total);
+  out[0] = tag;
+  let at = 1;
+  for (const p of parts) { out.set(p, at); at += p.length; }
+  return out;
+};
+
 async function parentHash(a, b) {
-  const joined = new Uint8Array(a.length + b.length);
-  if (cmp(a, b) <= 0) { joined.set(a, 0); joined.set(b, a.length); }
-  else { joined.set(b, 0); joined.set(a, b.length); }
-  return verge.sha256(joined);
+  return verge.sha256(cmp(a, b) <= 0 ? tagged(TAG_NODE, a, b) : tagged(TAG_NODE, b, a));
 }
 
 /**
@@ -91,12 +117,27 @@ async function parentHash(a, b) {
  */
 export async function verifyBalance(entry, path, root) {
   if (!entry || !Array.isArray(path) || !root || root.length !== 32) return false;
-  let node = await verge.sha256(enc.encode(`${entry.outpoint}|${entry.runeRef}|${entry.amount}`));
+  const leaf = entry.outpoint !== undefined
+    ? tagged(TAG_BALANCE, enc.encode(`${entry.outpoint}|${entry.runeRef}|${entry.amount}`))
+    : tagged(TAG_RUNE, enc.encode(
+      `${entry.runeRef}|${entry.ticker}|${entry.divisibility}|${entry.supply}|${entry.spacers || 0}`));
+  let node = await verge.sha256(leaf);
   for (const sib of path) {
     if (!sib || sib.length !== 32) return false;
     node = await parentHash(node, sib);
   }
   return eq(node, root);
+}
+
+/**
+ * Proof of what a rune reference MEANS, against the same root. A balance proof on its own says
+ * "outpoint X holds 500 of 9400123:7" and leaves the ticker, the divisibility and the supply coming
+ * from whoever answered, which is the trust the checkpoint is supposed to remove. A wallet that
+ * shows a name has to verify the name.
+ */
+export async function verifyRune(entry, path, root) {
+  if (!entry || entry.outpoint !== undefined || entry.ticker === undefined) return false;
+  return verifyBalance(entry, path, root);
 }
 
 /**
@@ -184,7 +225,7 @@ export function selectForRuneTransfer(utxos, runeRef, amount, { targetValue = 0,
   const alsoCarried = {};
   for (const u of inputs) {
     for (const [ref, amt] of Object.entries(u.runes || {})) {
-      if (Number(ref) === Number(runeRef)) continue;
+      if (ref === String(runeRef)) continue;   // a reference is an identity, never a number
       alsoCarried[ref] = (alsoCarried[ref] || 0) + amt;
     }
   }

@@ -98,21 +98,39 @@ function detectEtching(tx) {
   return etching;
 }
 
-/** Is this output an OP_RETURN, and what does it carry? scriptPubKey.hex starts with 6a (OP_RETURN). */
+/**
+ * Is this output an OP_RETURN, and what does it carry? scriptPubKey.hex starts with 6a (OP_RETURN).
+ *
+ * The script must be EXACTLY `6a <push>` and nothing else. Both halves of that matter:
+ *
+ *   - the declared push length is honoured, rather than taking everything to the end of the script.
+ *     Reading to the end let a trailing byte become part of the payload, which silently changed what
+ *     the message said: one 0x51 appended to a mint turned `proofIndex: null` into `proofIndex: 81`,
+ *     and a parser that respected the push length would have read the first.
+ *   - anything after that push means no message at all. It is stricter than it has to be, and that
+ *     is the point: "the payload is the one data push" is a rule a second implementation cannot read
+ *     two ways, whereas "ignore whatever follows" invites each one to draw the line somewhere else.
+ *
+ * Returns null when the output is not an OP_RETURN, and an empty buffer when it is one this version
+ * cannot read as a message.
+ */
 function readOpReturn(vout) {
   const spk = vout.scriptPubKey || {};
   const hex = spk.hex || '';
   if (!hex.startsWith('6a')) return null;
-  // 6a <pushopcode> <data>. Handle the direct push (<=75 bytes) and OP_PUSHDATA1, which is all an
-  // 83-byte payload can ever need.
   const buf = Buffer.from(hex, 'hex');
+  if (buf.length === 1) return Buffer.alloc(0);   // a bare OP_RETURN carries nothing
+
+  // 6a <pushopcode> <data>. The direct push (<=75 bytes) and OP_PUSHDATA1 are all an 83-byte
+  // payload can ever need.
   let off = 1;
-  if (off >= buf.length) return Buffer.alloc(0);
+  let len;
   const op = buf[off];
-  if (op <= 75) { off += 1; }
-  else if (op === 0x4c) { off += 2; }      // OP_PUSHDATA1
-  else return Buffer.alloc(0);             // anything larger cannot be one of our messages
-  return buf.slice(off);
+  if (op >= 1 && op <= 75) { len = op; off += 1; }
+  else if (op === 0x4c) { if (buf.length < 3) return Buffer.alloc(0); len = buf[2]; off += 2; }
+  else return Buffer.alloc(0);
+  if (off + len !== buf.length) return Buffer.alloc(0); // truncated, or padded with trailing script
+  return buf.slice(off, off + len);
 }
 
 /**
@@ -188,23 +206,33 @@ async function resolveFee(chain, tx, cache = null) {
   return fee >= 0 ? fee : null;
 }
 
-/** Does this transaction carry a mint message? Cheap, and it decides whether a fee lookup is worth it. */
-function mintedRuneRef(tx) {
+/**
+ * The one message a transaction carries: the first OP_RETURN output that decodes.
+ *
+ * This has to be the SAME rule the state machine applies (indexer.readMessage), or the two disagree
+ * about which output speaks for the transaction. They used to: this file looked for the first output
+ * that decoded as a MINT while the indexer took the first that decoded as anything, so a transaction
+ * carrying an edict stream and a mint had a fee resolved for a mint that was never going to run.
+ */
+function messageOf(tx) {
   for (const o of tx.vout || []) {
     const data = readOpReturn(o);
     if (data === null) continue;
     const m = codec.decode(data);
-    if (m && m.type === 'mint') return m.runeRef;
+    if (m) return m;
   }
   return null;
 }
 
+/** Does this transaction carry a mint message? Cheap, and it decides whether a fee lookup is worth it. */
+function mintedRuneRef(tx) {
+  const m = messageOf(tx);
+  return m && m.type === 'mint' ? m.runeRef : null;
+}
+
 /** True when a transaction carries something this protocol should look at (cheap pre-filter). */
 function isRelevant(tx) {
-  return (tx.vout || []).some((o) => {
-    const d = readOpReturn(o);
-    return d !== null && codec.decode(d) !== null;
-  });
+  return messageOf(tx) !== null;
 }
 
 /**
@@ -254,5 +282,5 @@ async function scanRange(chain, state, from, to, applyTx, opts = {}) {
 
 module.exports = {
   ETCH_CONTENT_TYPE, readOpReturn, detectEtching, toIndexerTx, isRelevant, scanRange,
-  resolveFee, mintedRuneRef,
+  resolveFee, messageOf, mintedRuneRef,
 };

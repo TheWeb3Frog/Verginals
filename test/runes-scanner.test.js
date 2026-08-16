@@ -85,7 +85,7 @@ test('an etching supplied by the caller wins over one found in the transaction',
 });
 
 test('OP_RETURN payloads are read back for both push forms', () => {
-  const small = codec.encodeMint(131001);
+  const small = codec.encodeMint('131:1');
   const direct = readOpReturn({ scriptPubKey: { hex: '6a' + small.length.toString(16).padStart(2, '0') + small.toString('hex') } });
   assert.ok(direct.equals(small));
 
@@ -183,8 +183,8 @@ test('resolving a fee asks about each outpoint once, however often it comes back
 
 test('a mint is spotted from its OP_RETURN alone, so the fee lookup can be skipped otherwise', () => {
   const mint = { vout: [{ scriptPubKey: { hex: '6a' + Buffer.concat([
-    Buffer.from([codec.encodeMint(131001).length]), codec.encodeMint(131001)]).toString('hex') } }] };
-  assert.strictEqual(mintedRuneRef(mint), 131001);
+    Buffer.from([codec.encodeMint('131:1').length]), codec.encodeMint('131:1')]).toString('hex') } }] };
+  assert.strictEqual(mintedRuneRef(mint), '131:1');
   assert.strictEqual(mintedRuneRef({ vout: [{ scriptPubKey: { hex: '76a914' } }] }), null);
 });
 

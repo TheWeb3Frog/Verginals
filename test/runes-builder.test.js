@@ -12,9 +12,9 @@ const {
 
 let passed = 0;
 const test = (name, fn) => { fn(); passed += 1; console.log('  ok - ' + name); };
-const REF = 131001;
+const REF = '131:1';
 const KEY = Buffer.from('02' + '11'.repeat(32), 'hex');
-const REF2 = 131002;
+const REF2 = '131:2';
 
 test('the OP_RETURN is always last, so no edict can point at it', () => {
   const plan = buildTransfer([
@@ -67,7 +67,7 @@ test('a transfer with no edict is refused (it would just be an ordinary send)', 
 test('a batch too large for one OP_RETURN is refused at build time, not on chain', () => {
   const many = [];
   for (let i = 0; i < 60; i++) {
-    many.push({ address: 'D' + i, value: DUST_UNITS, runes: [{ runeRef: REF + i * 1000, amount: 1 }] });
+    many.push({ address: 'D' + i, value: DUST_UNITS, runes: [{ runeRef: '13' + i + ':1', amount: 1 }] });
   }
   assert.throws(() => buildTransfer(many), /OP_RETURN limit/);
 });
@@ -177,7 +177,7 @@ test('a mint price rides in the terms and is charged as a fee, not an output', (
   }, { address: 'D1' });
   assert.strictEqual(cbor.decode(p.body).m.f, 20 * 1e6);
 
-  const m = buildMint(100001, { address: 'D2' }, { mintPrice: 20 * 1e6 });
+  const m = buildMint('100:1', { address: 'D2' }, { mintPrice: 20 * 1e6 });
   assert.strictEqual(m.mintPrice, 20 * 1e6);
   // nothing in the plan holds the price: the caller has to leave it behind as fee
   const paid = m.outputs.reduce((sum, o) => sum + (o.value || 0), 0);

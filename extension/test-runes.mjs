@@ -33,13 +33,13 @@ const {
 let passed = 0;
 const test = async (name, fn) => { await fn(); passed += 1; console.log('  ok - ' + name); };
 
-const REF = 131001;
+const REF = '131:1';
 const DUST = 100000;
 
 await test('the browser decoder matches the node encoder for edicts', () => {
   const payload = nodeCodec.encodeEdicts([
     { runeRef: REF, amount: 500, output: 0 },
-    { runeRef: REF + 40, amount: 0, output: 2 },
+    { runeRef: '131:41', amount: 0, output: 2 },
   ]);
   const browser = decodeMessage(Uint8Array.from(payload));
   const node = nodeCodec.decode(payload);
@@ -167,10 +167,10 @@ await test('a transfer refuses when the rune balance is short', () => {
 
 await test('a second rune riding on a chosen coin is reported', () => {
   const utxos = [
-    { txid: 'both', vout: 0, value: 30 * DUST, inscription: null, runes: { [REF]: 100, 222222: 55 } },
+    { txid: 'both', vout: 0, value: 30 * DUST, inscription: null, runes: { [REF]: 100, '222:2': 55 } },
   ];
   const sel = selectForRuneTransfer(utxos, REF, 100, { fee: DUST });
-  assert.strictEqual(sel.alsoCarried['222222'], 55);
+  assert.strictEqual(sel.alsoCarried['222:2'], 55);
 });
 
 console.log('\nextension runes: ' + passed + ' passed');

@@ -24,7 +24,20 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..', '..');
-const OUT = path.join(ROOT, 'web', 'recovery-kit.html');
+
+// Two homes, on purpose.
+//
+//   web/    the site hands it over as a download, for anybody who wants a copy of their own
+//   docs/   GitHub Pages serves it at a URL that outlives this project's server
+//
+// The second is the durable one, and not only because GitHub is bigger than a VPS. The repository
+// is PUBLIC, so the file travels in every clone and every fork: even if the account went away,
+// anybody who ever cloned it still holds a working copy, and can serve it again. A recovery tool
+// that depends on one machine staying up is a recovery tool with an expiry date.
+const OUTPUTS = [
+  path.join(ROOT, 'web', 'recovery-kit.html'),
+  path.join(ROOT, 'docs', 'index.html'),
+];
 
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 
@@ -129,6 +142,14 @@ code { background: #161b22; padding: 1px 5px; border-radius: 4px; font-size: 12p
 <div class="box warn">
   <b>Turn off your internet if you like.</b> Nothing here contacts anything. The transaction is built
   and signed on this machine, and you are handed a piece of text to broadcast however you wish.
+</div>
+
+<div class="box">
+  <b>You cannot lose this page.</b> It lives in a public repository, so it travels in every copy
+  anybody has ever made of it. Save the file, bookmark the address, or fetch it again from the
+  source: <code>github.com/TheWeb3Frog/Verginals</code>, under <code>docs/</code>. If every website
+  in this project disappeared tomorrow, any of those copies still opens your lock, because the maths
+  is in the file and the money is on the chain.
 </div>
 
 <h2>What you saved</h2>
@@ -264,6 +285,9 @@ try {
   process.exit(1);
 }
 
-fs.writeFileSync(OUT, page);
-const kb = (fs.statSync(OUT).size / 1024).toFixed(1);
-console.log(`wrote ${path.relative(ROOT, OUT)}  (${kb} KB, self-contained)`);
+for (const out of OUTPUTS) {
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(out, page);
+  const kb = (fs.statSync(out).size / 1024).toFixed(1);
+  console.log(`wrote ${path.relative(ROOT, out)}  (${kb} KB, self-contained)`);
+}

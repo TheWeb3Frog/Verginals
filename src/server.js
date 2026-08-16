@@ -2889,11 +2889,18 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && /^\/etch\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
     // The etch page needs secp256k1 to make the key that reopens a ticker price in four years, and
     // the browser has no such primitive. This serves the ONE copy the wallet extension already
-    // uses, by an explicit filename rather than through serveStatic, whose root is web/ and should
-    // stay that way. Vendoring a second copy would mean the page and the wallet could one day
-    // derive different keys from the same secret, which is a way to lose money quietly.
-    if (req.method === 'GET' && p === '/verge-crypto.js') {
-      const f = path.join(__dirname, '..', 'extension', 'lib', 'verge.js');
+    // uses, rather than vendoring a second: two copies could one day derive different keys from the
+    // same secret, which is a way to lose money quietly.
+    //
+    // Served under /ext/ with the lib and vendor directories INTACT, because verge.js imports
+    // '../vendor/secp256k1.js' by relative path. Flattening it to a single file was the first
+    // attempt and it failed exactly there: the file arrived, its two imports did not, and the whole
+    // module failed to evaluate.
+    //
+    // The pattern allows one directory, one filename and nothing else, so it cannot walk out of the
+    // extension tree. This is public code either way: it ships in a published browser extension.
+    if (req.method === 'GET' && /^\/ext\/(lib|vendor)\/[a-zA-Z0-9._-]+\.js$/.test(p)) {
+      const f = path.join(__dirname, '..', 'extension', p.slice('/ext/'.length));
       if (!fs.existsSync(f)) return sendJSON(res, 404, { error: 'not found' });
       writeHead(res, 200, { 'content-type': 'text/javascript; charset=utf-8' });
       return fs.createReadStream(f).pipe(res);

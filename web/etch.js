@@ -10,8 +10,15 @@
 // browser, and only its public half is ever sent: that key is the only way to reopen the ticker
 // price in four years.
 
-import { generatePrivateKey, publicKeyFromPrivate, privateKeyToWIF, bytesToHex, NETWORKS }
-  from '/verge-crypto.js';
+// The crypto module is loaded ON DEMAND, when somebody asks for a key, and not at the top of this
+// file. A static import would make the whole page depend on one more file being present: if it were
+// ever missing the module would fail to evaluate and the form would not render at all, which is a
+// blank screen caused by a feature most visitors never touch.
+let cryptoMod = null;
+async function loadCrypto() {
+  if (!cryptoMod) cryptoMod = await import('/ext/lib/verge.js');
+  return cryptoMod;
+}
 
 const $ = (s) => document.querySelector(s);
 const COIN = 1e6;
@@ -62,7 +69,7 @@ const tickerInput = $('#et-ticker');
 let armed = false; // a space arms the next gap; the bullet appears with the character after it
 
 tickerInput.addEventListener('keydown', (e) => {
-  if (e.key === ' ') {
+  if (e.key === ' ' || e.code === 'Space') {
     e.preventDefault();
     if (bare(tickerInput.value).length > 0) armed = true;
   }
@@ -84,12 +91,24 @@ tickerInput.addEventListener('input', () => {
 let lockKey = null; // { wif, pubHex }
 
 $('#et-genkey').addEventListener('click', async () => {
-  const net = NETWORKS.mainnet;
-  const priv = generatePrivateKey();
-  const pub = publicKeyFromPrivate(priv);
-  lockKey = { wif: await privateKeyToWIF(priv, net), pubHex: bytesToHex(pub) };
-
   const host = $('#et-key-out');
+  let mod;
+  try {
+    mod = await loadCrypto();
+  } catch (e) {
+    host.textContent = '';
+    host.append(el('p', 'et-err', 'The key generator could not be loaded, so a key cannot be made '
+      + 'here. Everything else on this page still works, and you can supply a public key from your '
+      + 'own wallet instead.'));
+    return;
+  }
+  const priv = mod.generatePrivateKey();
+  const pub = mod.publicKeyFromPrivate(priv);
+  lockKey = {
+    wif: await mod.privateKeyToWIF(priv, mod.NETWORKS.mainnet),
+    pubHex: mod.bytesToHex(pub),
+  };
+
   host.textContent = '';
   host.append(el('p', '', 'Save this. It is the only way to reopen your locked coins in four years, '
     + 'and nobody can regenerate it for you. It was made in this browser and never sent anywhere.'));

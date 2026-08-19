@@ -22,6 +22,22 @@
     <div id="et-status" class="et-status">Checking what this server reports…</div>
   </header>
 
+  <!-- The coin, as it will be. It is the first thing on the page because it is the only thing
+       anybody is actually here for, and because a form that shows you what you are making is a
+       different experience from a form that asks you questions. -->
+  <aside class="et-card" id="et-card" aria-live="polite">
+    <div class="et-card-face">
+      <span class="et-card-sym" id="card-sym"></span>
+      <span class="et-card-name" id="card-name">YOUR COIN</span>
+    </div>
+    <dl class="et-card-facts">
+      <div><dt>Supply</dt><dd id="card-supply">21,000,000</dd></div>
+      <div><dt>You keep</dt><dd id="card-keep">none</dd></div>
+      <div><dt>Price</dt><dd id="card-price">pick a name</dd></div>
+      <div><dt>Yours again</dt><dd id="card-back">in four years</dd></div>
+    </dl>
+  </aside>
+
   <form id="et-form" class="et-form" autocomplete="off">
 
     <section class="et-step">
@@ -111,20 +127,31 @@
     <section class="et-step">
       <p class="et-num">4</p>
       <div class="et-body">
-        <h2>Where it goes, and the key that gets your money back</h2>
-        <p class="et-say">
-          The ticker price is <b>not spent</b>. It sits in an output only you can reopen, four years
-          from now. That key is generated here, in your browser, and never sent anywhere.
-        </p>
-        <label class="et-label" for="et-recipient">Address that receives your coins</label>
-        <input id="et-recipient" class="et-input" type="text" placeholder="D…" spellcheck="false">
+        <h2>Where it lands</h2>
 
-        <div class="et-keybox">
-          <div class="et-keyhead">
-            <span>Your unlock key</span>
-            <button type="button" id="et-genkey" class="et-mini">Generate</button>
-          </div>
-          <div id="et-key-out" class="et-key-out">Not generated yet.</div>
+        <!-- Connected, this whole step is one sentence. The wallet already knows the address, and
+             the key that reopens the locked price comes from the same recovery phrase, so there is
+             nothing to type and nothing to save. -->
+        <div id="et-wallet-on" hidden>
+          <p class="et-say">
+            Your coins and your locked price both come back to
+            <b id="et-wallet-addr" class="et-addr"></b>, and the key that reopens the lock is derived
+            from your recovery phrase. Nothing to type, nothing to write down.
+          </p>
+        </div>
+
+        <div id="et-wallet-off">
+          <p class="et-say">
+            A coin is etched from a wallet, not from a form. Your coins come back to the address it
+            already holds, and the key that reopens the locked price is derived from your recovery
+            phrase, so there is nothing to type and nothing new to keep safe.
+          </p>
+          <button type="button" id="et-connect" class="et-connect">Connect wallet</button>
+          <p class="et-note" id="et-noext" hidden>
+            No wallet answered. <a href="/#wallet">Install the Verginals wallet</a>, then come back
+            to this page. Etching by hand is not offered on purpose: a pasted address and a key made
+            in a web page are the two ways people lose a locked price, and both are avoidable.
+          </p>
         </div>
       </div>
     </section>

@@ -6,19 +6,12 @@
 // implementation to keep in step, and the first time it drifted somebody would pay for a name they
 // did not get.
 //
-// The one thing that must NOT happen on the server is the unlock key. It is generated here, in the
-// browser, and only its public half is ever sent: that key is the only way to reopen the ticker
-// price in four years.
-
-// The crypto module is loaded ON DEMAND, when somebody asks for a key, and not at the top of this
-// file. A static import would make the whole page depend on one more file being present: if it were
-// ever missing the module would fail to evaluate and the form would not render at all, which is a
-// blank screen caused by a feature most visitors never touch.
-let cryptoMod = null;
-async function loadCrypto() {
-  if (!cryptoMod) cryptoMod = await import('/ext/lib/verge.js');
-  return cryptoMod;
-}
+// A coin can only be etched from a connected wallet. There is no field for an address and no button
+// that makes a key in this page, and both absences are the point: a pasted address is permanent the
+// moment the etch confirms, and a key made in a web page is an orphan with no relation to anything
+// its owner already keeps. Those are the two ways people lose a locked ticker price. The wallet
+// supplies the address it already holds and derives the lock key from the same recovery phrase, so
+// the private half never reaches this page and there is nothing new for anybody to save.
 
 const $ = (s) => document.querySelector(s);
 const COIN = 1e6;
@@ -102,6 +95,42 @@ let lockKey = null;
  *
  * The private half never leaves the extension. This asks for a public key and gets a public key.
  */
+// --- the wallet ---------------------------------------------------------------------------------
+//
+// Connected, step four is one sentence: the coins come back to the address the wallet already has,
+// and the key that reopens the locked price is derived from the same recovery phrase. Asking
+// somebody to paste an address they are already holding is friction and a chance to fatfinger a
+// destination that cannot be changed once it confirms.
+
+let walletAddress = null;
+
+function paintWallet() {
+  const on = $('#et-wallet-on'), off = $('#et-wallet-off');
+  if (walletAddress) {
+    $('#et-wallet-addr').textContent = walletAddress;
+    on.hidden = false; off.hidden = true;
+  } else {
+    on.hidden = true; off.hidden = false;
+  }
+  refresh();
+}
+
+async function connectWallet(ask) {
+  const p = window.verge;
+  if (!p || !p.isVerginals) return null;
+  try {
+    const r = ask ? await p.connect() : await p.request({ method: 'getAddress' }).catch(() => null);
+    const addr = r && (r.address || (Array.isArray(r) ? r[0] : null));
+    if (!addr) return null;
+    walletAddress = addr;
+    // Deriving the key needs a connection, so it happens here rather than behind a second button.
+    const k = await deriveFromWallet();
+    if (k) lockKey = k;
+    paintWallet();
+    return addr;
+  } catch (_) { return null; }
+}
+
 async function deriveFromWallet() {
   const p = window.verge;
   if (!p || !p.isVerginals) return null;
@@ -121,64 +150,7 @@ async function deriveFromWallet() {
   }
 }
 
-$('#et-genkey').addEventListener('click', async () => {
-  const host = $('#et-key-out');
 
-  const fromWallet = await deriveFromWallet();
-  if (fromWallet) {
-    lockKey = fromWallet;
-    host.textContent = '';
-    host.append(el('p', '', 'This key comes from your wallet recovery phrase, so there is nothing '
-      + 'new to save. In four years, restoring your wallet from your twelve words brings it back, '
-      + 'and your wallet will show you the lock with a countdown in the meantime.'));
-    const path = el('div', 'et-key', fromWallet.path);
-    host.append(path);
-    const pk = el('p', '', 'public half sent with the etching: ' + fromWallet.pubHex.slice(0, 24) + '…');
-    pk.style.opacity = '.6';
-    host.append(pk);
-    refresh();
-    return;
-  }
-
-  host.textContent = '';
-  host.append(el('p', 'et-warn', 'No wallet is connected, so this key is being made here instead. '
-    + 'It has no relation to any recovery phrase and NOTHING can regenerate it. Connect the '
-    + 'Verginals wallet before etching and you will have nothing to save at all.'));
-
-  let mod;
-  try {
-    mod = await loadCrypto();
-  } catch (e) {
-    host.textContent = '';
-    host.append(el('p', 'et-err', 'The key generator could not be loaded, so a key cannot be made '
-      + 'here. Everything else on this page still works, and you can supply a public key from your '
-      + 'own wallet instead.'));
-    return;
-  }
-  const priv = mod.generatePrivateKey();
-  const pub = mod.publicKeyFromPrivate(priv);
-  lockKey = {
-    wif: await mod.privateKeyToWIF(priv, mod.NETWORKS.mainnet),
-    pubHex: mod.bytesToHex(pub),
-  };
-
-  host.textContent = '';
-  host.append(el('p', '', 'Save this. It is the only way to reopen your locked coins in four years, '
-    + 'and nobody can regenerate it for you. It was made in this browser and never sent anywhere.'));
-  host.append(el('div', 'et-key', lockKey.wif));
-  const pk = el('p', '', 'public half sent with the etching: ' + lockKey.pubHex.slice(0, 24) + '…');
-  pk.style.opacity = '.6';
-  host.append(pk);
-  // Saying "save the key" is not enough, and the omission is expensive: the coins do not sit at the
-  // ordinary address of this key, so somebody importing it into a wallet in four years sees zero and
-  // concludes it is gone. They need the release date and the transaction too, and they need to be
-  // told where the recovery tool lives before they need it rather than after.
-  const note = el('p', 'et-note', 'You will need two more things when the four years are up, and '
-    + 'they only exist once your coin is etched: the release date and the etch transaction id. '
-    + 'Compose below and this page hands you all three together.');
-  host.append(note);
-  refresh();
-});
 
 // --- open mint toggle ----------------------------------------------------------------------------
 
@@ -226,6 +198,12 @@ function readForm() {
   const priceRaw = open ? $('#et-price').value.replace(/[\s,]/g, '') : '';
   const mintPrice = open && priceRaw !== '' ? Math.round(Number(priceRaw) * COIN) : 0;
 
+  // The wallet's address wins: it is the one the person is already holding, and it cannot be
+  // mistyped. The manual field is the fallback for somebody etching without the extension.
+  // Only ever the wallet's. There is no field to type one into: a pasted address is permanent the
+  // moment the etch confirms, and a typo in it sends a coin somewhere nobody can reach.
+  const recipient = walletAddress;
+
   const problems = [];
   if (!name) problems.push('the ticker is empty');
   else if (!/^[A-Z0-9]{1,26}$/.test(name)) problems.push('a ticker is 1 to 26 characters of A-Z and 0-9');
@@ -241,10 +219,14 @@ function readForm() {
       problems.push('an open mint needs supply left over: keep less than all of it');
     }
   }
-  if (!$('#et-recipient').value.trim()) problems.push('an address to receive your coins is missing');
-  if (!lockKey) problems.push('get your unlock key');
+  // Connecting a wallet fixes the address and the key at once, so listing them as two failures
+  // reads as twice the work. They are one sentence until somebody opens the manual panel.
+  if (!recipient) problems.push('connect your wallet');
+  // No separate line for the key. It is derived when the wallet connects, the person never sees it,
+  // and after the release is inscribed they never need it again. A key nobody handles is not a step.
+  if (!lockKey && recipient) problems.push('the wallet did not return a lock key: reconnect it');
 
-  return { typed, name, supply, premine, divisibility, open, perMint, cap, mintPrice, problems };
+  return { typed, name, symbol, keepPct, recipient, supply, premine, divisibility, open, perMint, cap, mintPrice, problems };
 }
 
 // --- live readouts -------------------------------------------------------------------------------
@@ -277,6 +259,20 @@ function refresh() {
       kv(sOut, 'Others can claim', fmt(claims) + ' times, ' + fmt(f.perMint / unit) + ' each');
     }
   }
+
+  // The card. It is the only thing on the page anybody is here for, so it updates on every
+  // keystroke and never shows a number the form does not actually hold.
+  const unit = 10 ** (Number.isInteger(f.divisibility) ? f.divisibility : 0);
+  $('#card-sym').textContent = f.symbol || '';
+  $('#card-name').textContent = f.typed.trim() ? f.typed.trim() : 'YOUR COIN';
+  $('#card-name').classList.toggle('et-card-empty', !f.typed.trim());
+  $('#card-supply').textContent = Number.isInteger(f.supply) && f.supply > 0 ? fmt(f.supply / unit) : '-';
+  $('#card-keep').textContent = !Number.isInteger(f.supply) || f.supply <= 0 ? '-'
+    : (f.keepPct === 0 ? 'none' : (f.keepPct === 100 ? 'all of it' : f.keepPct + '%'));
+  $('#card-price').textContent = f.name ? xvg(priceOf(f.name.length)) + ' XVG' : 'pick a name';
+  $('#card-back').textContent = f.name
+    ? new Date(Date.now() + 1460 * 86400e3).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+    : 'in four years';
 
   const review = $('#et-review');
   review.textContent = '';
@@ -314,7 +310,7 @@ $('#et-compose').addEventListener('click', async () => {
     divisibility: f.divisibility,
     supply: f.supply,
     premine: f.premine,
-    recipient: $('#et-recipient').value.trim(),
+    recipient: f.recipient,
     lockPubkey: lockKey.pubHex,
   };
   if (f.open) {
@@ -401,7 +397,7 @@ $('#et-compose').addEventListener('click', async () => {
 })();
 
 for (const id of ['#et-symbol', '#et-supply', '#et-div', '#et-keep', '#et-per', '#et-cap',
-  '#et-price', '#et-recipient']) {
+  '#et-price']) {
   $(id).addEventListener('input', refresh);
 }
 refresh();
@@ -483,3 +479,21 @@ async function startEtch(payload, host) {
   }
   state.textContent = 'Still waiting. Your job id is ' + job.jobId + ', nothing is lost.';
 }
+
+// The wallet is detected silently on load: a page that pops a connection prompt before anybody has
+// typed anything is a page people close. The button is there for when they want it.
+$('#et-connect').addEventListener('click', async () => {
+  const btn = $('#et-connect');
+  btn.disabled = true; btn.textContent = 'Connecting…';
+  const addr = await connectWallet(true);
+  btn.disabled = false; btn.textContent = 'Connect wallet';
+  if (!addr) $('#et-noext').hidden = false;
+});
+
+(function bootWallet() {
+  const tryIt = () => { if (window.verge && window.verge.isVerginals) connectWallet(false); };
+  tryIt();
+  window.addEventListener('verge#initialized', tryIt, { once: true });
+  setTimeout(tryIt, 600);
+  paintWallet();
+})();

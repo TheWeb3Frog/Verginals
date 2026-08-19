@@ -1,6 +1,6 @@
 // The derived lock key: same twelve words, same key, four years later.
 // Run: node extension/test-runelock.mjs
-import { mnemonicToSeed } from './lib/bip39.js';
+import { mnemonicToSeed, validateMnemonic, generateMnemonic } from './lib/bip39.js';
 import { derivePrivateKey } from './lib/bip32.js';
 import * as verge from './lib/verge.js';
 import { LOCK_ACCOUNT, lockPath, deriveLockKey, lockPubkeys, matchPublishedLocks, nextLockIndex, timeUntil, buildRelease, lockAddress } from './lib/runelock.js';
@@ -135,6 +135,43 @@ let threw = false;
 try { await buildRelease(privateKey, { locktime: LOCKTIME, txid: FUND, vout: 1, value: 100, to: home, fee: 200, network: verge.NETWORKS.mainnet }); }
 catch (_) { threw = true; }
 ok(threw, 'a fee bigger than the lock is refused rather than signed');
+
+
+// --- 24 words, which is what a new wallet now makes -----------------------------------------------
+//
+// BIP-39 turns any legal phrase into a 512 bit seed through PBKDF2, so 12 and 24 words reach BIP-32
+// the same size and derive identically. That is the reasoning; this is the check, because the whole
+// lock now hangs off it and "it should work" is not a thing to find out in four years.
+
+console.log('\na 24 word wallet');
+const long = await mnemonicToSeed(
+  'legal winner thank year wave sausage worth useful legal winner thank year '
+  + 'wave sausage worth useful legal winner thank year wave sausage worth title');
+ok(long.length === 64, 'a 24 word phrase still gives a 512 bit seed');
+ok(seed.length === long.length, 'the same size a 12 word phrase gives');
+
+const k24 = await deriveLockKey(long, 0);
+ok(/^0[23][0-9a-f]{64}$/.test(k24.pubkey), 'and a valid lock key comes out of it');
+ok(k24.pubkey !== k0.pubkey, 'a different phrase, a different key');
+ok(k24.path === lockPath(0), 'on the same path');
+
+const { privateKey: p24 } = await deriveLockKey(long, 0, { includePrivate: true });
+const addr24 = await lockAddress(LOCKTIME, verge.publicKeyFromPrivate(p24), verge.NETWORKS.mainnet);
+ok(addr24.address.startsWith('E'), 'it locks into a real P2SH address');
+
+const rel24 = await buildRelease(p24, {
+  locktime: LOCKTIME, txid: FUND, vout: 1, value: VALUE, to: home, fee: FEE,
+  network: verge.NETWORKS.mainnet, time: TIME,
+});
+const v24 = releaseMod.verifyRelease({
+  hex: rel24.hex,
+  lockScriptPubKey: bitcoin.address.toOutputScript(addr24.address, bjsNet),
+  lockValue: VALUE, network: bjsNet,
+});
+ok(v24.ok === true, 'and the release it signs verifies' + (v24.ok ? '' : ': ' + v24.reason));
+
+// The whole point of the 24 word default: same machinery, more margin, nothing to change.
+ok(await validateMnemonic(await generateMnemonic(256)), 'a freshly made 24 word phrase is valid');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

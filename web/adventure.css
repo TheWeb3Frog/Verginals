@@ -1,0 +1,188 @@
+/* Second Form. Dark, warm, and quiet: the screen is mostly the creature and the water, and the
+   interface stays out of the way until it has something to say.
+
+   The palette is the collection's own (sprites/verginals-kit.js), pulled up two stops so a large
+   canvas does not read as a black hole: ink for ground, a warm bone for text, and the three House
+   colours doing all the semantic work. Nothing here is decorative colour. */
+
+:root {
+  color-scheme: dark;
+  --ink: #0B0D14;
+  --deep: #12151F;
+  --panel: #191D2A;
+  --line: #262C3C;
+  --bone: #E9E5DA;
+  --fog: #9DA3B4;
+  --dim: #667187;
+  --fire: #E8452C;
+  --water: #3E8FD0;
+  --earth: #7FA83F;
+  --gold: #FFC93C;
+  --sans: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--ink); color: var(--bone);
+  font-family: var(--sans); overflow: hidden;
+  user-select: none;
+}
+
+#stage { position: relative; width: 100%; height: 100%; }
+#scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+.screen {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  padding: env(safe-area-inset-top, 14px) 18px 26px;
+  pointer-events: none;
+}
+.screen > * { pointer-events: auto; }
+.screen[hidden] { display: none; }
+.screen.center { align-items: center; justify-content: center; gap: 18px; }
+
+/* --- type --------------------------------------------------------------------------------- */
+
+.eyebrow {
+  margin: 0 0 10px; font: 600 11px/1 var(--mono); letter-spacing: 4px;
+  text-transform: uppercase; color: var(--dim);
+}
+h1 { margin: 0; font-size: clamp(38px, 11vw, 64px); font-weight: 700; letter-spacing: -1.4px; line-height: .95; }
+h2 { margin: 0; font-size: 26px; font-weight: 650; letter-spacing: -.4px; }
+.sub { margin: 12px 0 0; color: var(--fog); font-size: 15.5px; max-width: 24ch; line-height: 1.5; }
+.hint {
+  margin: auto 0 0; color: var(--dim); font-size: 13px; line-height: 1.55;
+  max-width: 34ch; min-height: 2.6em;
+  transition: opacity .3s;
+}
+.title-block { margin: auto 0 0; }
+
+/* --- buttons ------------------------------------------------------------------------------ */
+
+button {
+  font: 600 15px/1 var(--sans); color: var(--ink); background: var(--bone);
+  border: 0; border-radius: 14px; padding: 15px 26px; cursor: pointer;
+  transition: transform .12s cubic-bezier(.2,.8,.3,1), opacity .2s, filter .2s;
+}
+button:active { transform: scale(.96); }
+button:disabled { opacity: .32; cursor: default; }
+button.ghost {
+  background: transparent; color: var(--fog); border: 1px solid var(--line);
+  padding: 9px 15px; font-size: 12.5px; border-radius: 10px;
+}
+#go-hunt { margin: 26px 0 0; align-self: flex-start; font-size: 17px; padding: 17px 40px; }
+.pulse { animation: pulse 2.2s ease-in-out infinite; }
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(233,229,218,.34); }
+  55%      { box-shadow: 0 0 0 18px rgba(233,229,218,0); }
+}
+@media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+
+/* --- top bar ------------------------------------------------------------------------------ */
+
+.bar { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.chip {
+  font: 12px/1 var(--mono); color: var(--fog); background: #ffffff0c;
+  border: 1px solid var(--line); border-radius: 999px; padding: 8px 13px;
+  font-variant-numeric: tabular-nums;
+}
+.bar .ghost { margin-left: auto; }
+
+/* --- hunt map ----------------------------------------------------------------------------- */
+
+.map {
+  flex: 1; display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 10px; align-content: center; max-width: 460px; width: 100%; margin: 0 auto;
+}
+.node {
+  aspect-ratio: 1; border-radius: 18px; border: 1px solid var(--line);
+  background: #ffffff08; display: grid; place-items: center;
+  font-size: 26px; padding: 0; color: var(--bone);
+}
+.node:disabled { opacity: 1; }
+.node.done { background: transparent; border-style: dashed; opacity: .3; }
+.node.here { border-color: var(--gold); box-shadow: 0 0 0 3px #ffc93c22; }
+.node.wild { border-color: #6b3030; background: #2a141422; }
+
+/* --- combat ------------------------------------------------------------------------------- */
+
+/* Both nameplates on one line at the top, opposite corners. They were stacked with mine pinned to
+   the bottom, which put a health bar and a name straight through the middle of my own cat. The
+   whole band below them is the scene and nothing else is allowed into it. */
+.fight-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.fighter { flex: 1 1 0; max-width: 240px; min-width: 0; }
+.fighter.mine { text-align: right; }
+.nameplate { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.fighter.mine .nameplate { justify-content: flex-end; }
+.nameplate b { font-size: 15px; font-weight: 650; }
+.nameplate span { font: 11px/1 var(--mono); color: var(--dim); }
+.hpbar { height: 7px; border-radius: 4px; background: #ffffff12; overflow: hidden; }
+.hpbar i { display: block; height: 100%; background: var(--earth); transition: width .35s cubic-bezier(.2,.8,.3,1); }
+.hpbar.low i { background: var(--fire); }
+
+.second-frame {
+  position: absolute; right: 18px; top: 42%; transform: translateY(-50%);
+  width: 74px; height: 92px; border: 2px dashed var(--line); border-radius: 14px;
+  display: grid; place-items: center; gap: 2px; color: var(--dim);
+}
+.second-frame .dotted { font-size: 26px; opacity: .5; }
+.second-frame em { font: 9px/1 var(--mono); font-style: normal; letter-spacing: .6px; }
+.second-frame.filled { border-style: solid; border-color: var(--gold); color: var(--gold); }
+
+.buttons { display: flex; gap: 9px; margin-top: auto; }
+#s-fight .hint { margin: 12px 0 0; min-height: 3.2em; max-width: none; text-align: center; }
+.buttons button {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 14px 8px; background: var(--panel); color: var(--bone); border: 1px solid var(--line);
+}
+.buttons button b { font-size: 14.5px; font-weight: 650; }
+.buttons button i { font: 10px/1 var(--mono); font-style: normal; color: var(--dim); letter-spacing: .4px; }
+.buttons button.ready { border-color: var(--gold); color: var(--gold); animation: readyPulse 1.2s ease-in-out infinite; }
+.buttons button.ready i { color: var(--gold); }
+@keyframes readyPulse { 0%,100% { box-shadow: 0 0 0 0 #ffc93c00; } 50% { box-shadow: 0 0 14px 0 #ffc93c44; } }
+.buttons button.locked { opacity: .45; }
+.buttons button.locked b::after { content: " \1F512"; font-size: 11px; }
+@media (prefers-reduced-motion: reduce) { .buttons button.ready { animation: none; } }
+
+/* --- spoils ------------------------------------------------------------------------------- */
+
+.spoils { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; text-align: center; }
+.spoils li { font: 13.5px/1.4 var(--mono); color: var(--fog); }
+.spoils li b { color: var(--bone); }
+.strand-fly {
+  position: absolute; width: 34px; height: 34px; border-radius: 9px;
+  background: linear-gradient(135deg, var(--gold), #c4801a); color: #241a04;
+  display: grid; place-items: center; font: 700 15px/1 var(--mono);
+  transition: transform .9s cubic-bezier(.3,.7,.4,1), opacity .4s;
+}
+
+/* --- vivarium ----------------------------------------------------------------------------- */
+
+.viv-actions { display: flex; gap: 9px; margin-top: 14px; }
+.viv-actions button { flex: 1; background: var(--panel); color: var(--bone); border: 1px solid var(--line); }
+.log {
+  margin-top: auto; max-height: 34vh; overflow-y: auto;
+  font: 12px/1.75 var(--mono); color: var(--dim);
+  mask-image: linear-gradient(180deg, transparent, #000 22px);
+}
+.log div { display: flex; gap: 12px; }
+.log time { color: #46506a; font-variant-numeric: tabular-nums; flex: none; }
+.log .warm { color: var(--gold); }
+.log .bad { color: var(--fire); }
+
+/* --- toast -------------------------------------------------------------------------------- */
+
+#toast {
+  position: absolute; left: 50%; bottom: 26%; transform: translateX(-50%);
+  background: #0b0d14e6; border: 1px solid var(--line); border-radius: 12px;
+  padding: 11px 18px; font-size: 13.5px; color: var(--bone);
+  opacity: 0; transition: opacity .3s, transform .3s; pointer-events: none;
+  max-width: 82vw; text-align: center; line-height: 1.5;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(-8px); }
+
+@media (min-width: 760px) {
+  .screen { padding: 26px 40px 34px; }
+  .hint { font-size: 14px; }
+  .map { max-width: 520px; }
+}

@@ -88,10 +88,63 @@ tickerInput.addEventListener('input', () => {
 
 // --- the unlock key ------------------------------------------------------------------------------
 
-let lockKey = null; // { wif, pubHex }
+// { pubHex, derived, index, path, wif? }. `wif` is present ONLY for the fallback path, where the key
+// was made in this page and the etcher has to keep it themselves.
+let lockKey = null;
+
+/**
+ * Ask the wallet for a lock key derived from its own recovery phrase.
+ *
+ * This is the whole fix. A key made in this page is an orphan: unrelated to anything the etcher
+ * already keeps, needed exactly once, four years later, and useless in any other wallet because the
+ * coins do not sit at its ordinary address. A derived key needs no backup at all, because the backup
+ * happened when they wrote down their twelve words.
+ *
+ * The private half never leaves the extension. This asks for a public key and gets a public key.
+ */
+async function deriveFromWallet() {
+  const p = window.verge;
+  if (!p || !p.isVerginals) return null;
+  try {
+    // Which index to use is decided by what this wallet has already published on chain, so a second
+    // coin never reuses the key of the first.
+    let index = 0;
+    try {
+      const res = await fetch('/api/runes/locks').then((r) => r.json());
+      const mine = await p.request({ method: 'runesMyLocks', params: { locks: res.locks || [] } });
+      index = mine && Number.isInteger(mine.nextIndex) ? mine.nextIndex : 0;
+    } catch (_) { /* an unreachable index service is not a reason to refuse to etch */ }
+    const k = await p.request({ method: 'runesLockPubkey', params: { index } });
+    return k && k.pubkey ? { pubHex: k.pubkey, derived: true, index: k.index, path: k.path } : null;
+  } catch (_) {
+    return null;
+  }
+}
 
 $('#et-genkey').addEventListener('click', async () => {
   const host = $('#et-key-out');
+
+  const fromWallet = await deriveFromWallet();
+  if (fromWallet) {
+    lockKey = fromWallet;
+    host.textContent = '';
+    host.append(el('p', '', 'This key comes from your wallet recovery phrase, so there is nothing '
+      + 'new to save. In four years, restoring your wallet from your twelve words brings it back, '
+      + 'and your wallet will show you the lock with a countdown in the meantime.'));
+    const path = el('div', 'et-key', fromWallet.path);
+    host.append(path);
+    const pk = el('p', '', 'public half sent with the etching: ' + fromWallet.pubHex.slice(0, 24) + '…');
+    pk.style.opacity = '.6';
+    host.append(pk);
+    refresh();
+    return;
+  }
+
+  host.textContent = '';
+  host.append(el('p', 'et-warn', 'No wallet is connected, so this key is being made here instead. '
+    + 'It has no relation to any recovery phrase and NOTHING can regenerate it. Connect the '
+    + 'Verginals wallet before etching and you will have nothing to save at all.'));
+
   let mod;
   try {
     mod = await loadCrypto();

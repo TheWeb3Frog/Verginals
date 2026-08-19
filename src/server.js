@@ -101,6 +101,10 @@ const ARENA_ENABLED = process.env.VERGINALS_ARENA_ENABLED === '1';
 // Arena's own requires are unconditional up there, which is exactly why a VPS missing one of them
 // crash-loops on MODULE_NOT_FOUND with the feature switched off. Set VERGINALS_ADVENTURE_ENABLED=1.
 const ADVENTURE_ENABLED = ARENA_ENABLED && process.env.VERGINALS_ADVENTURE_ENABLED === '1';
+// Second Form (spec/ADVENTURE-MODE-v1.md) is a static page: no endpoint, no server state, no
+// collection needed. It gets its own switch rather than riding on the Arena's, so showing it to
+// somebody does not mean turning on a ladder, a token service and a season clock as well.
+const SECONDFORM_ENABLED = process.env.VERGINALS_SECONDFORM === '1';
 // Fungible runes (RUNES-SPEC-v0) are built and tested but not launched: no /api/runes/* route
 // exists yet. This flag is what /api/info reports, and it must stay false until an indexer is
 // actually serving proofs: a wallet told "runes are live" by a server that cannot prove balances
@@ -1595,6 +1599,76 @@ async function handleAdventureTournamentJoin(req, res, id) {
  * root and discards what does not check out, so serving an empty answer THEN would be a lie a
  * wallet cannot catch, and would let someone burn a token by spending its carrier as change.
  */
+/**
+ * GET /api/runes/locks: every locked ticker price, as public data.
+ *
+ * The same answer for everybody, on purpose. An etching already publishes its lock's release date
+ * and public key, so nothing here is disclosed that was not already on chain, and a wallet finds
+ * its OWN locks by deriving its keys and comparing locally. That is what keeps discovery private:
+ * the server is never told which of these belong to whom, and it could not answer that question
+ * even if it were asked.
+ */
+/**
+ * POST /api/runes/release: check a pre-signed release and put it on the network.
+ *
+ * The point of this endpoint is that it needs no key and holds no state. Somebody in 2030 pastes
+ * the bytes they found in an inscription, or a wallet does it for them with one click, and this
+ * checks the transaction against the locked output the chain actually has before relaying it.
+ * Anybody could do the same with a node; this is a convenience, never a dependency.
+ */
+async function handleRuneRelease(req, res) {
+  const R = require('./runes/release');
+  let body;
+  try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); }
+  catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+
+  const found = R.readInscribedRelease(body.hex || body.payload || body.release);
+  const hex = found ? found.txHex : String(body.hex || '');
+  if (!/^[0-9a-fA-F]+$/.test(hex) || !hex.length) return sendJSON(res, 400, { error: 'no release transaction in that' });
+
+  // Which output it claims to spend has to be read off the chain, not taken from the caller: a
+  // verification against numbers the caller supplied would verify nothing at all.
+  let tx;
+  try { tx = R.parseTx(hex); } catch (e) { return sendJSON(res, 400, { error: 'unreadable transaction: ' + e.message }); }
+  const input = tx.vin[0];
+  if (!input) return sendJSON(res, 400, { error: 'that transaction spends nothing' });
+
+  let prev;
+  try { prev = await client.call('gettxout', [input.txid, input.vout, true]); }
+  catch (e) { return sendJSON(res, 502, { error: 'could not read the locked output: ' + e.message }); }
+  if (!prev) return sendJSON(res, 409, { error: 'that locked output is already spent, or never existed' });
+
+  const check = R.verifyRelease({
+    hex,
+    lockScriptPubKey: Buffer.from(prev.scriptPubKey.hex, 'hex'),
+    lockValue: toUnits(prev.value),
+    network: pickNetwork(NETWORK).network,
+  });
+  if (!check.ok) return sendJSON(res, 400, { error: check.reason, verified: false });
+
+  if (body.dryRun) return sendJSON(res, 200, { verified: true, broadcast: false, ...check });
+
+  try {
+    const txid = await client.call('sendrawtransaction', [hex]);
+    return sendJSON(res, 200, { verified: true, broadcast: true, txid, ...check });
+  } catch (e) {
+    // "non-final" is the lock still holding, and it is the one refusal that is not an error.
+    const early = /non-final/i.test(e.message);
+    return sendJSON(res, early ? 425 : 502, {
+      verified: true, broadcast: false,
+      error: early ? 'the lock has not opened yet' : e.message,
+      opensAt: check.opensAt,
+    });
+  }
+}
+
+function handleRuneLocks(req, res) {
+  const { listLocks, summarise } = require('./runes/locks');
+  if (!RUNES_ENABLED) return sendJSON(res, 200, { locks: [], summary: { count: 0, locked: 0, open: 0, openValue: 0 }, launched: false });
+  const locks = listLocks(service.runes);
+  return sendJSON(res, 200, { locks, summary: summarise(locks), launched: true });
+}
+
 async function handleRuneBalances(req, res) {
   const { stateRoot, proveBalance, proveRune } = require('./runes/checkpoint');
   const state = service.runes;
@@ -1852,6 +1926,7 @@ async function handleRuneEtchCreate(req, res) {
     perInput: quote.perInput,
     price: quote.price,
     priceHolder: quote.priceHolder,
+    releaseHolder: quote.releaseHolder,
     revealFee: quote.revealFee,
     total: quote.total,
     driveAttempts: 0,
@@ -1904,12 +1979,86 @@ async function driveEtch(job, depositUtxos) {
       pay: etchjob.payFor(quote, job.splitTxid, job.depositWif, job.depositAddress, job.lockAddress),
     });
     job.revealTxid = await chain.sendRawTransaction(reveal.hex);
+    // Which output carries the price, read off the transaction we just built rather than assumed:
+    // an etcher signing a release against the wrong index would sign a transaction that can never
+    // be broadcast, and would find that out in four years.
+    try {
+      const lockSpk = bitcoin.address.toOutputScript(job.lockAddress, network);
+      const parsed = require('./runes/release').parseTx(reveal.hex);
+      const at = parsed.vout.findIndex((o) => o.script.equals(lockSpk));
+      if (at >= 0) job.lockVout = at;
+    } catch (_) { /* the status simply will not offer a release until this is known */ }
     saveJob(job);
   }
 
   job.status = 'broadcast';
   saveJob(job);
   return job;
+}
+
+/**
+ * POST /api/runes/etch/release: inscribe a release the etcher signed themselves.
+ *
+ * The server never holds the lock key and never signs this. It checks the transaction against the
+ * lock the chain actually has, then writes the bytes down forever. After this the etcher can lose
+ * the key entirely and still get their money back, because anybody will be able to broadcast it.
+ */
+async function handleRuneEtchRelease(req, res) {
+  const R = require('./runes/release');
+  let body;
+  try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); }
+  catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+
+  const job = loadJob(String(body.job || ''));
+  if (!job || job.kind !== 'etch') return sendJSON(res, 404, { error: 'no such etching' });
+  if (job.releaseTxid) return sendJSON(res, 200, { already: true, releaseTxid: job.releaseTxid });
+  if (!job.revealTxid || job.lockVout == null) return sendJSON(res, 409, { error: 'the coin is not out yet' });
+
+  const found = R.readInscribedRelease(body.hex || body.release);
+  const hex = found ? found.txHex : String(body.hex || '');
+  if (!/^[0-9a-fA-F]+$/.test(hex) || !hex.length) return sendJSON(res, 400, { error: 'no release transaction in that' });
+
+  const { network } = pickNetwork(job.networkName);
+  const check = R.verifyRelease({
+    hex,
+    lockScriptPubKey: bitcoin.address.toOutputScript(job.lockAddress, network),
+    lockValue: job.price,
+    network,
+  });
+  if (!check.ok) return sendJSON(res, 400, { error: check.reason });
+  if (check.spends.txid !== job.revealTxid || check.spends.vout !== job.lockVout) {
+    return sendJSON(res, 400, { error: 'that release opens a different lock' });
+  }
+
+  // Inscribed with the ordinary envelope, funded by the output the quote set aside for it.
+  try {
+    const ins = R.releaseInscription(hex);
+    const funding = etchjob.releaseFunding({ numInputs: job.numInputs, releaseHolder: job.releaseHolder }, job.splitTxid);
+    const plan = buildPlan({
+      body: ins.body, contentType: ins.contentType, networkName: job.networkName,
+      amount: funding.value - etchjob.SPLIT_FEE, file: 'release.bin',
+    });
+    const depositKey = ECPair.fromWIF(job.depositWif, network);
+    const commit = buildFundingTx({
+      network,
+      inputs: [{ txid: funding.txid, vout: funding.vout, value: funding.value }],
+      outputs: plan.inputs.map((inp) => ({ address: inp.address, value: funding.value - etchjob.SPLIT_FEE })),
+      signer: depositKey,
+    });
+    const commitTxid = await chain.sendRawTransaction(commit.hex);
+    const reveal = revealFromPlan({
+      plan,
+      utxos: plan.inputs.map((_, i) => `${commitTxid}:${i}`),
+      values: plan.inputs.map(() => funding.value - etchjob.SPLIT_FEE),
+      to: job.recipient,
+      fee: etchjob.REVEAL_FEE,
+    });
+    job.releaseTxid = await chain.sendRawTransaction(reveal.hex);
+    saveJob(job);
+    return sendJSON(res, 200, { releaseTxid: job.releaseTxid, opensAt: check.opensAt, to: check.to });
+  } catch (e) {
+    return sendJSON(res, 502, { error: 'could not inscribe the release: ' + e.message });
+  }
 }
 
 /** GET /api/runes/etch/status?job=...: poll, and finish the job once the payment lands. */
@@ -1922,6 +2071,12 @@ async function handleRuneEtchStatus(req, res, url) {
     payTo: job.depositAddress, total: job.total,
     lockAddress: job.lockAddress, locktime: job.locktime,
     splitTxid: job.splitTxid || null, revealTxid: job.revealTxid || null,
+    // Everything needed to pre-sign the release, the moment the reveal exists. The server cannot
+    // sign it: the lock key belongs to the etcher and never comes here.
+    lock: job.revealTxid && job.lockVout != null
+      ? { txid: job.revealTxid, vout: job.lockVout, value: job.price, locktime: job.locktime }
+      : null,
+    releaseTxid: job.releaseTxid || null,
     error: job.error || null,
   }, extra || {}));
 
@@ -3154,6 +3309,26 @@ const server = http.createServer(async (req, res) => {
       });
       return fs.createReadStream(f).pipe(res);
     }
+    if (SECONDFORM_ENABLED || ADVENTURE_ENABLED) {
+      // The sprite kit and the 157 trait layers, needed by both games. They were reachable only
+      // inside the Arena gate, so the slice rendered five empty layers and a house aura: the cats
+      // were simply absent and nothing errored, which is the worst way for art to fail.
+      if (req.method === 'GET' && p === '/verginals-kit.js') return serveSpriteKit(res);
+      let sm;
+      if (req.method === 'GET' && (sm = p.match(/^\/sprites\/(Body|Ears|Collar|Face|Rune)\/([A-Za-z0-9%]{1,60})\.webp$/))) {
+        return serveSprite(res, sm[1], sm[2]);
+      }
+    }
+    if (SECONDFORM_ENABLED) {
+      if (req.method === 'GET' && (p === '/adventure' || p === '/adventure.html')) return serveStatic(res, 'adventure.html');
+      // An allowlist, not a directory: adventure-game.js imports the other two by name, so a file
+      // missing here 404s and the page silently does nothing at all rather than degrading.
+      if (req.method === 'GET'
+        && (p === '/adventure-game.js' || p === '/adventure-creature.js'
+          || p === '/adventure-core.js' || p === '/adventure.css')) {
+        return serveStatic(res, p.slice(1));
+      }
+    }
     if (req.method === 'GET' && p === '/unlock') return serveStatic(res, 'unlock.html');
     if (req.method === 'GET' && /^\/unlock\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
     // The etch page needs secp256k1 to make the key that reopens a ticker price in four years, and
@@ -3279,6 +3454,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && p.startsWith('/api/job/')) return await handleJob(res, p.slice('/api/job/'.length));
     if (req.method === 'POST' && p === '/api/runes/balances') return await handleRuneBalances(req, res);
+    if (req.method === 'GET' && p === '/api/runes/locks') return handleRuneLocks(req, res);
+    if (req.method === 'POST' && p === '/api/runes/release') return await handleRuneRelease(req, res);
+    if (req.method === 'POST' && p === '/api/runes/etch/release') return await handleRuneEtchRelease(req, res);
     if (req.method === 'POST' && p === '/api/runes/etch/plan') return await handleRuneEtchPlan(req, res);
     if (req.method === 'GET' && p === '/api/runes/lock') return await handleRuneLock(req, res, url);
     if (req.method === 'POST' && p === '/api/runes/etch') return await handleRuneEtchCreate(req, res);

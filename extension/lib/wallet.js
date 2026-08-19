@@ -24,6 +24,23 @@ const DEFAULT_API = 'https://verginals.com';
 // BIP-44 account path for Verge (SLIP-44 coin type 77): external receiving keys. A seed-phrase wallet
 // can hold many independent addresses; each is the receiving key at index i on this branch. Index 0 is
 // the classic single address, so wallets created before multi-account keep the exact same address.
+// New wallets get 24 words, not 12.
+//
+// 12 words is 128 bits of entropy and no classical computer will ever exhaust that. The reason to
+// move is Grover's algorithm, which gives a quantum search a square root speedup and so halves the
+// effective strength: 128 bits becomes about 64, and 256 becomes about 128. Sixty four bits of
+// quantum work is still far beyond any machine anyone can describe building, but the margin is thin
+// enough to be worth twelve extra words written down once.
+//
+// BE CLEAR ABOUT WHAT THIS DOES NOT DO. It is not quantum protection for the coins. The threat to
+// the coins is Shor's algorithm against secp256k1, which recovers a private key from a PUBLIC key
+// and does not care how long the phrase was. What protects a normal address is that its public key
+// stays hidden behind a hash until it is first spent from. A longer phrase protects the phrase.
+//
+// Existing 12 word wallets are unaffected and stay valid forever: BIP-39 accepts any legal length
+// and the derivation is identical, so nobody has to migrate.
+export const DEFAULT_STRENGTH = 256;
+
 const DERIVATION_PATH = "m/44'/77'/0'/0/0";
 const accountPath = (i) => `m/44'/77'/0'/0/${i}`;
 
@@ -154,7 +171,7 @@ export class Wallet {
 
   // Add a fresh phrase-backed ('seed') account and switch to it. Shared by first-time create() and
   // by addSeedAccount(); pass a mnemonic to import one, or omit to mint a new phrase of `strength`.
-  async _addSeedAccount(label, { mnemonic, strength = 128, requireLocked = false } = {}) {
+  async _addSeedAccount(label, { mnemonic, strength = DEFAULT_STRENGTH, requireLocked = false } = {}) {
     const phrase = mnemonic
       ? String(mnemonic).trim().replace(/\s+/g, ' ')
       : await bip39.generateMnemonic(strength);
@@ -202,9 +219,9 @@ export class Wallet {
    * Create the wallet's FIRST address from a fresh BIP-39 recovery phrase. Returns the address AND the
    * mnemonic so the UI can show it ONCE (recover it later only via revealMnemonic + passphrase).
    * @param {string} passphrase
-   * @param {number} [strength=128]  128 -> 12 words, 256 -> 24 words
+   * @param {number} [strength=DEFAULT_STRENGTH]  128 -> 12 words, 256 -> 24 words
    */
-  async create(passphrase, strength = 128) {
+  async create(passphrase, strength = DEFAULT_STRENGTH) {
     if (await this.exists()) throw new Error('wallet already exists; unlock first');
     if (!passphrase) throw new Error('passphrase required');
     this._pass = passphrase;
@@ -450,6 +467,80 @@ export class Wallet {
   }
 
   /** Sign a text message (Verge magic hash); returns base64 signature. */
+  // --- Verge Runes locks ------------------------------------------------------------------------
+
+  /**
+   * The BIP-39 seed of the active account, for lock derivation only.
+   *
+   * A key-only account (an imported WIF) has no seed and therefore cannot derive a lock key. That is
+   * refused loudly rather than silently falling back to a random key: a random key is exactly the
+   * orphan this whole design exists to remove, and an etcher who thinks their lock is backed by
+   * their twelve words when it is not would find that out four years too late.
+   */
+  async _lockSeed() {
+    const kr = this._keyring;
+    if (!kr) throw new Error('unlock your wallet first');
+    const acct = kr.accounts.find((a) => a.id === kr.activeId) || kr.accounts[0];
+    if (!acct || acct.kind !== 'seed') {
+      throw new Error('this account was imported as a single key, so it has no recovery phrase to '
+        + 'derive a lock key from. Switch to a seed account before etching a coin.');
+    }
+    const mnemonic = this._seeds.get(acct.id);
+    if (mnemonic == null) throw new Error('wallet is locked');
+    return bip39.mnemonicToSeed(mnemonic, '');
+  }
+
+  /**
+   * The public key that will lock a ticker price, derived from this wallet's seed.
+   *
+   * Only the public half is returned, ever. The etching publishes it on chain anyway, so handing it
+   * to a page discloses nothing that the whole world will not read a block later.
+   */
+  async runesLockPubkey(index = 0) {
+    const seed = await this._lockSeed();
+    const { deriveLockKey } = await import('./runelock.js');
+    const k = await deriveLockKey(seed, index);
+    return { index: k.index, path: k.path, pubkey: k.pubkey };
+  }
+
+  /**
+   * Which of the locks published on chain this wallet can open.
+   *
+   * `published` is the public list from /api/runes/locks. Nothing is sent anywhere: the seed derives
+   * candidate keys here and the comparison happens here, so the server that served the list never
+   * learns which entries were a match.
+   */
+  async runesMyLocks(published) {
+    const seed = await this._lockSeed();
+    const { matchPublishedLocks, nextLockIndex, timeUntil } = await import('./runelock.js');
+    const mine = await matchPublishedLocks(seed, published);
+    return {
+      locks: mine.map((l) => ({ ...l, countdown: timeUntil(l.locktime).text, open: timeUntil(l.locktime).open })),
+      nextIndex: nextLockIndex(mine),
+    };
+  }
+
+  /**
+   * Sign the release for a lock this wallet owns, at etch time.
+   *
+   * The private half never leaves here: the page hands over the outpoint and the destination, and
+   * gets back a finished transaction it can inscribe. After this the key is optional, which is the
+   * entire point of the scheme.
+   */
+  async runesSignRelease({ index, locktime, txid, vout, value, to, fee, time }) {
+    const seed = await this._lockSeed();
+    const { deriveLockKey, buildRelease } = await import('./runelock.js');
+    const { privateKey } = await deriveLockKey(seed, Number(index) || 0, { includePrivate: true });
+    try {
+      return await buildRelease(privateKey, {
+        locktime: Number(locktime), txid: String(txid), vout: Number(vout),
+        value: Number(value), to: to || this.address, fee: Number(fee), network: this.network, time,
+      });
+    } finally {
+      privateKey.fill(0);
+    }
+  }
+
   async signMessage(message) {
     this._requireUnlocked();
     return verge.signMessage(message, this._priv);

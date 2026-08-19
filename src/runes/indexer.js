@@ -132,8 +132,17 @@ function applyTx(state, tx, opts = {}) {
     // The price has to be locked in this same transaction (spec §7.2), or the ticker is not taken.
     // Checked here rather than by the caller because it is what makes a ticker allocation valid, and
     // an indexer that skipped it would hand out names for free and then disagree with every other.
-    if (rec && tickers.isLocked(tx, rec.ticker, tx.etching.lock).ok
+    const paid = rec ? tickers.isLocked(tx, rec.ticker, tx.etching.lock) : { ok: false };
+    if (rec && paid.ok
       && !state.tickers.has(rec.ticker) && !state.runes.has(ref)) {
+      // Keep the lock, because it is the etcher's money and they will want it back in four years.
+      // The locktime and the public key were already published in the etching, so none of this is
+      // new information; recording it here is what lets a wallet find the owner's own locks by
+      // comparing derived keys against a public list, with no address index and nothing disclosed.
+      //
+      // Hex, never Buffers: this record is serialised to JSON on every snapshot, and a Buffer comes
+      // back from that as {type:'Buffer',data:[...]}, which would compare equal to nothing.
+      rec.lock = lockRecordFor(tx, tx.etching.lock, paid.locked);
       state.runes.set(ref, rec);
       state.tickers.set(rec.ticker, ref);
       if (rec.premine > 0) pool.set(ref, (pool.get(ref) || 0) + rec.premine);
@@ -234,6 +243,26 @@ function normaliseEtching(e, ref) {
     metadataRef: e.metadataRef || null,
     minted: 0,                       // atomic units issued by open mints
     mintCount: 0,
+  };
+}
+
+/**
+ * Where the ticker price actually sits, as plain data: which outputs of the etching hold it, how
+ * much, until when, and whose key opens it. Everything here is already on the chain.
+ */
+function lockRecordFor(tx, lock, locked) {
+  const script = tickers.lockScriptFor(lock);
+  if (!script) return null;
+  const vouts = [];
+  (tx.outputs || []).forEach((o, i) => {
+    if (o.scriptPubKey && Buffer.isBuffer(o.scriptPubKey) && o.scriptPubKey.equals(script.scriptPubKey)) vouts.push(i);
+  });
+  return {
+    locktime: script.locktime,
+    pubkey: Buffer.isBuffer(lock.k) ? lock.k.toString('hex') : String(lock.k),
+    scriptPubKey: script.scriptPubKey.toString('hex'),
+    vouts,
+    value: locked,
   };
 }
 

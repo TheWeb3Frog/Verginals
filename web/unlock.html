@@ -65,6 +65,26 @@
       It is in the public repository too, so it travels in every clone anybody has made of it.
     </p>
   </footer>
+
+  <!-- Rebroadcasting a release needs no key at all: the signature was made years earlier, and this
+       only relays bytes anybody could relay. It is last on the page because most people arrive here
+       with a key in hand; the ones who do not are the ones this section exists for. -->
+  <section class="uk-sec" id="uk-release-sec">
+    <p class="uk-kicker">NO KEY</p>
+    <h2>Or hand over the release your coin already carries</h2>
+    <p class="uk-say">
+      If your coin was etched with a pre-signed release, the transaction that returns your money is
+      already written on the chain and already signed. It needs no key, and anybody can send it: you,
+      a friend, or this page. Paste it below, or paste the inscription it came in.
+    </p>
+    <textarea id="uk-release" rows="4" placeholder="the release transaction, or the inscription content"></textarea>
+    <div class="uk-row">
+      <button id="uk-release-check" class="ghost">Check it</button>
+      <button id="uk-release-send">Send it</button>
+    </div>
+    <div class="uk-out" id="uk-release-out"></div>
+  </section>
+
 </main>
 <script type="module" src="/unlock.js"></script>
 </body>

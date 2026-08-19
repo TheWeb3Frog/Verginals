@@ -59,6 +59,16 @@ console.log('\nend-to-end (mnemonic -> Verge address):');
   // a fresh random 12-word phrase validates + derives
   const g = await generateMnemonic(128);
   ok((await validateMnemonic(g)) && g.split(' ').length === 12, 'generateMnemonic(128) -> valid 12 words');
+  // A new wallet must default to 24 words. The check lives here, next to the vectors, because a
+  // silent regression to 128 bits would be invisible everywhere else: a 12 word wallet works
+  // perfectly, it just carries half the margin against a quantum search.
+  const { DEFAULT_STRENGTH } = await import('./lib/wallet.js');
+  ok(DEFAULT_STRENGTH === 256, 'a new wallet defaults to 256 bits');
+  const fresh = await generateMnemonic(DEFAULT_STRENGTH);
+  ok(fresh.split(' ').length === 24, 'which is 24 words');
+  ok(await validateMnemonic(fresh), 'and a valid phrase');
+  // 12 words must keep working forever: nobody is being asked to migrate.
+  ok(await validateMnemonic(await generateMnemonic(128)), 'and 12 word phrases stay valid');
   const g24 = await generateMnemonic(256);
   ok((await validateMnemonic(g24)) && g24.split(' ').length === 24, 'generateMnemonic(256) -> valid 24 words');
 }

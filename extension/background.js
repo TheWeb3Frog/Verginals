@@ -169,6 +169,31 @@ async function handleRpc(method, params, origin, sender) {
       const sig = await w.signMessage(params.message);
       return { signature: sig, address: w.address };
     }
+    // --- Verge Runes: the locked ticker price ---------------------------------------------------
+    //
+    // The lock key is derived from this wallet's seed at its own hardened account, so an etcher has
+    // nothing new to write down: the backup happened when they wrote down their twelve words. Only
+    // the PUBLIC half ever leaves the extension, and the page never sees a private key at all.
+    case 'runesLockPubkey': {
+      await requireConnected(origin, w);
+      await requestApproval({ type: 'runesLockPubkey', origin, params }, sender);
+      return w.runesLockPubkey(Number(params && params.index) || 0);
+    }
+    // Finding your own locks is a local comparison, never a query. The page fetches the public list
+    // of every lock on chain and hands it over; the extension answers which ones it can open. It
+    // needs no approval because it discloses nothing and moves nothing.
+    // Signing the release is a money action, so it asks. It is the one moment where a page could
+    // otherwise walk away with a transaction paying somewhere the etcher never chose.
+    case 'runesSignRelease': {
+      await requireConnected(origin, w);
+      await requestApproval({ type: 'runesSignRelease', origin, params }, sender);
+      return w.runesSignRelease(params || {});
+    }
+    case 'runesMyLocks': {
+      await requireConnected(origin, w);
+      return w.runesMyLocks(Array.isArray(params && params.locks) ? params.locks : []);
+    }
+
     case 'listInscription': {
       await requireConnected(origin, w);
       await requestApproval({ type: 'listInscription', origin, params }, sender);
@@ -228,7 +253,7 @@ async function handleUi(action, payload) {
     }
     case 'create': {
       // Returns the mnemonic ONCE so the popup can show the backup screen; never returned again.
-      const r = await w.create(payload.passphrase, payload.strength || 128);
+      const r = await w.create(payload.passphrase, payload.strength || undefined);
       await rememberSession(payload.passphrase);
       return { address: r.address, mnemonic: r.mnemonic, active: w.activeInfo() };
     }

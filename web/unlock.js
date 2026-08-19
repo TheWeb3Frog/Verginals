@@ -221,3 +221,46 @@ $('#un-claim').addEventListener('click', async () => {
     btn.disabled = false;
   }
 });
+
+// --- the pre-signed release ----------------------------------------------------------------------
+//
+// The half of recovery that needs nothing at all. The transaction was signed at etch time and put on
+// the chain; this only relays it. Checking first is not optional politeness: a release that opens a
+// different lock, or pays somewhere unexpected, must be caught before it is broadcast rather than
+// after, and the check reads the locked output off the chain rather than believing the paste.
+
+(function () {
+  const box = document.getElementById('uk-release');
+  const out = document.getElementById('uk-release-out');
+  if (!box || !out) return;
+
+  const say = (text, cls) => { out.textContent = ''; const p = document.createElement('p'); p.className = cls || ''; p.textContent = text; out.append(p); };
+
+  async function post(dryRun) {
+    const hex = box.value.trim();
+    if (!hex) return say('Paste the release first.', 'uk-warn');
+    say(dryRun ? 'Checking it against the chain…' : 'Sending it…');
+    let r;
+    try {
+      r = await fetch('/api/runes/release', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ hex, dryRun }),
+      });
+    } catch (e) { return say('Could not reach this server. The release is still valid: any node or explorer can relay it.', 'uk-warn'); }
+
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 425) {
+      return say(`This release is good, but the lock has not opened yet. It opens ${j.opensAt}. `
+        + 'Nothing is wrong and nothing is lost: come back then, or hand it to anybody after that date.', 'uk-warn');
+    }
+    if (!r.ok) return say(j.error || 'That did not check out.', 'uk-bad');
+    if (dryRun) {
+      return say(`Good. It returns ${(j.value / 1e6).toLocaleString()} XVG to ${j.to}, `
+        + `and it opens ${j.opensAt}.`, 'uk-ok');
+    }
+    say(`Sent. ${(j.value / 1e6).toLocaleString()} XVG is on its way to ${j.to}. Transaction ${j.txid}.`, 'uk-ok');
+  }
+
+  document.getElementById('uk-release-check').addEventListener('click', () => post(true));
+  document.getElementById('uk-release-send').addEventListener('click', () => post(false));
+})();

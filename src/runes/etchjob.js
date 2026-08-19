@@ -28,6 +28,11 @@ const tickers = require('./tickers');
 // version of that mistake and the reason these two constants are written next to each other.
 const PER_INPUT = 4 * runeBuilder.DUST_UNITS;
 
+// What the release inscription costs. The etcher pays, at etch time, for the transaction that gives
+// them their money back in four years, which is the cheapest thing in this whole quote and the only
+// line on it that protects the biggest one. It funds a commit and a reveal for a 209 byte payload.
+const RELEASE_HOLDER = 8 * runeBuilder.DUST_UNITS;
+
 // The miner fee for each of the two transactions. Verge's relay floor is 0.1 XVG absolute, so this
 // is double it: an etching that stalls for want of a hundredth of a coin would strand the whole
 // ticker price in a deposit address.
@@ -69,13 +74,14 @@ function quoteEtch({ rune, recipient, lockPubkey, locktime, buildPlan, networkNa
   const numInputs = plan.inputs.length;
   const priceHolder = etch.price + PRICE_SLACK;
   // The deposit funds: every commit output, the price plus its slack, and both miner fees.
-  const total = numInputs * PER_INPUT + priceHolder + SPLIT_FEE + REVEAL_FEE;
+  const total = numInputs * PER_INPUT + priceHolder + RELEASE_HOLDER + SPLIT_FEE + REVEAL_FEE;
 
   return {
     etch, plan, numInputs,
     perInput: PER_INPUT,
     price: etch.price,
     priceHolder,
+    releaseHolder: RELEASE_HOLDER,
     splitFee: SPLIT_FEE,
     revealFee: REVEAL_FEE,
     total,
@@ -91,7 +97,15 @@ function quoteEtch({ rune, recipient, lockPubkey, locktime, buildPlan, networkNa
 function splitOutputs(quote, depositAddress) {
   const outputs = quote.plan.inputs.map((inp) => ({ address: inp.address, value: quote.perInput }));
   outputs.push({ address: depositAddress, value: quote.priceHolder });
+  // Last, so the price holder keeps the index payFor() already relies on. Adding it anywhere
+  // earlier would silently move the price and the reveal would spend the wrong output.
+  outputs.push({ address: depositAddress, value: quote.releaseHolder });
   return outputs;
+}
+
+/** Where the release inscription's funding sits, once the split has confirmed. */
+function releaseFunding(quote, splitTxid) {
+  return { txid: splitTxid, vout: quote.numInputs + 1, value: quote.releaseHolder };
 }
 
 /** What to hand revealFromPlan so the reveal pays the ticker price into the lock. */
@@ -116,6 +130,7 @@ function payFor(quote, splitTxid, depositWif, depositAddress, lockAddress) {
 const REF_IS_KNOWN_ONLY_AFTER_CONFIRMATION = true;
 
 module.exports = {
+  RELEASE_HOLDER, releaseFunding,
   PER_INPUT, SPLIT_FEE, REVEAL_FEE, PRICE_SLACK, CARRIER_VALUE,
   quoteEtch, splitOutputs, payFor,
   REF_IS_KNOWN_ONLY_AFTER_CONFIRMATION,

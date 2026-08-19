@@ -57,7 +57,7 @@ function lockAddress({ locktime, pubkey, wif, network }) {
  * @param {number} p.fee       miner fee in atomic units
  * @returns {{ hex, txid, value, address }}
  */
-function buildUnlock({ wif, locktime, utxos, to, fee, network, nLockTime = null }) {
+function buildUnlock({ wif, locktime, utxos, to, fee, network, nLockTime = null, time = null }) {
   if (!Array.isArray(utxos) || utxos.length === 0) throw new Error('no locked outputs to spend');
   const signer = ECPair.fromWIF(wif, network);
   const { address, redeemScript } = lockAddress({ locktime, wif, network });
@@ -74,7 +74,11 @@ function buildUnlock({ wif, locktime, utxos, to, fee, network, nLockTime = null 
 
   const tx = {
     version: 1,
-    time: Math.floor(Date.now() / 1000),
+    // Verge puts nTime inside the signed serialization, so stamping the wall clock here makes the
+    // whole transaction unreproducible: build it twice and you get two different signatures. That
+    // is fine for a spend made once, and wrong for a release that has to be rebuilt and compared
+    // against the copy written to the chain. Callers that care pass the time in.
+    time: time == null ? Math.floor(Date.now() / 1000) : Number(time),
     vin: utxos.map((u) => ({ txid: u.txid, vout: u.vout, sequence: NON_FINAL, script: Buffer.alloc(0) })),
     vout: [{ value, script: bitcoin.address.toOutputScript(to, network) }],
     locktime: lock >>> 0,

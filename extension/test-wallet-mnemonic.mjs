@@ -12,7 +12,10 @@ globalThis.chrome = {
   } },
 };
 
-const { Wallet, verge } = await import('./lib/wallet.js');
+const { Wallet, verge, DEFAULT_STRENGTH } = await import('./lib/wallet.js');
+// 24 words since 0.11.0. Read off the wallet's own constant rather than written here again, so this
+// test states the intent and cannot quietly drift from it.
+const WORDS = DEFAULT_STRENGTH === 256 ? 24 : 12;
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log('  ok  ', m); } else { fail++; console.log('  FAIL', m); } };
@@ -21,7 +24,8 @@ console.log('mnemonic wallet lifecycle:');
 const w = new Wallet();
 const created = await w.create('correct horse battery staple');
 ok(/^D[1-9A-HJ-NP-Za-km-z]{25,34}$/.test(created.address), `create -> Verge address ${created.address}`);
-ok(typeof created.mnemonic === 'string' && created.mnemonic.split(' ').length === 12, 'create returns a 12-word phrase once');
+ok(typeof created.mnemonic === 'string' && created.mnemonic.split(' ').length === WORDS,
+  `create returns a ${WORDS}-word phrase once`);
 const addr0 = created.address, phrase = created.mnemonic;
 
 w.lock();

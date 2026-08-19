@@ -16,7 +16,8 @@ globalThis.chrome = {
   } },
 };
 
-const { Wallet } = await import('./lib/wallet.js');
+const { Wallet, DEFAULT_STRENGTH } = await import('./lib/wallet.js');
+const WORDS = DEFAULT_STRENGTH === 256 ? 24 : 12;
 const V = await import('./lib/vault.js');
 
 let pass = 0, fail = 0;
@@ -46,7 +47,7 @@ const w = new Wallet();
 // Create establishes the passphrase and the first (own-phrase) account.
 const c1 = await w.create(PW);
 ok(isAddr(c1.address), `account 1 -> ${c1.address}`);
-ok(typeof c1.mnemonic === 'string' && c1.mnemonic.split(' ').length === 12, 'create returns the phrase once');
+ok(typeof c1.mnemonic === 'string' && c1.mnemonic.split(' ').length === WORDS, `create returns a ${WORDS}-word phrase once`);
 ok(c1.id === 'a1', 'first account id is a1');
 const a0 = c1.address;
 

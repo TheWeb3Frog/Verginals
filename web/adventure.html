@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Second Form</title>
+<meta name="description" content="A breeding game on the Verginals collection. Hunt for water, fight for a strand of someone else's genome, and keep an ecosystem alive well enough to afford your own inbreeding.">
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="/adventure.css">
+</head>
+<body>
+
+<div id="stage">
+  <canvas id="scene"></canvas>
+
+  <!-- title -->
+  <section class="screen" id="s-title">
+    <div class="title-block">
+      <p class="eyebrow">Verginals</p>
+      <h1>Second Form</h1>
+      <p class="sub">A founder has one form. A hybrid has two.</p>
+    </div>
+    <button class="pulse" id="go-hunt">Hunt</button>
+    <p class="hint" id="title-hint">Your vivarium is empty dirt. There is only one thing to do.</p>
+  </section>
+
+  <!-- hunt -->
+  <section class="screen" id="s-hunt" hidden>
+    <header class="bar">
+      <span class="chip" id="stamina">Stamina 8</span>
+      <span class="chip" id="bag">Water 0</span>
+      <button class="ghost" id="go-home" hidden>Return</button>
+    </header>
+    <div class="map" id="map"></div>
+    <p class="hint" id="hunt-hint">Pick a route. Every step costs one stamina, and you have to get home.</p>
+  </section>
+
+  <!-- combat -->
+  <section class="screen" id="s-fight" hidden>
+    <div class="fight-top">
+      <div class="fighter" id="f-them">
+        <div class="nameplate"><b></b><span></span></div>
+        <div class="hpbar"><i></i></div>
+      </div>
+      <div class="fighter mine" id="f-me">
+        <div class="nameplate"><b></b><span></span></div>
+        <div class="hpbar"><i></i></div>
+      </div>
+    </div>
+    <div class="second-frame" id="second-frame" title="Second Form">
+      <span class="dotted">?</span>
+      <em>Second Form</em>
+    </div>
+    <div class="buttons">
+      <button id="b-claw"><b>Claw</b></button>
+      <button id="b-rune"><b>Rune</b><i id="rune-charge"></i></button>
+      <button id="b-flip" class="locked"><b>Flip</b><i id="flip-note">locked</i></button>
+    </div>
+    <p class="hint" id="fight-hint"></p>
+  </section>
+
+  <!-- spoils -->
+  <section class="screen center" id="s-spoils" hidden>
+    <h2 id="spoils-title">You win</h2>
+    <ul class="spoils" id="spoils-list"></ul>
+    <div class="strand-fly" id="strand-fly" hidden></div>
+    <button id="go-viv">Take it home</button>
+  </section>
+
+  <!-- vivarium -->
+  <section class="screen" id="s-viv" hidden>
+    <header class="bar">
+      <span class="chip" id="viv-water">Water 0</span>
+      <span class="chip" id="viv-life">0 plants · 0 nubbins · 0 glims</span>
+      <button class="ghost" id="go-hunt2">Hunt</button>
+    </header>
+    <div class="viv-actions">
+      <button id="b-plant">Plant a seed</button>
+      <button id="b-pour">Pour water</button>
+    </div>
+    <div class="log" id="log"></div>
+    <p class="hint" id="viv-hint">Seeds first. Then water, and watch what the water carries.</p>
+  </section>
+
+  <div id="toast"></div>
+</div>
+
+<script type="module" src="/adventure-game.js"></script>
+</body>
+</html>

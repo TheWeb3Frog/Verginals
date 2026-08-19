@@ -53,8 +53,8 @@
         <div id="et-ticker-out" class="et-readout"></div>
 
         <label class="et-label" for="et-symbol">Symbol <span class="et-opt">optional, one character</span></label>
-        <input id="et-symbol" class="et-input et-symbol-input" type="text" placeholder="G" maxlength="4" spellcheck="false">
-        <p class="et-note">What a wallet shows next to an amount, the way $ sits next to a price.
+        <input id="et-symbol" class="et-input et-symbol-input" type="text" placeholder="¤" maxlength="4" spellcheck="false">
+        <p class="et-note">What a wallet shows next to an amount, the way $ sits next to a price. Left empty it is ¤, the generic currency sign.
           One character, so it cannot be used to pretend to be somebody else. There is no free text
           name: your ticker is the name.</p>
       </div>
@@ -70,11 +70,11 @@
         </p>
         <div class="et-row">
           <div>
-            <label class="et-label" for="et-supply">Total supply <span class="et-perm">PERMANENT</span></label>
+            <label class="et-label" for="et-supply">Total supply <span class="et-opt">whole coins</span> <span class="et-perm">PERMANENT</span></label>
             <input id="et-supply" class="et-input" type="text" inputmode="numeric" value="21000000">
           </div>
           <div>
-            <label class="et-label" for="et-div">Decimals <span class="et-perm">PERMANENT</span></label>
+            <label class="et-label" for="et-div">Decimals <span class="et-opt">how far it splits</span> <span class="et-perm">PERMANENT</span></label>
             <input id="et-div" class="et-input" type="text" inputmode="numeric" value="2">
           </div>
         </div>

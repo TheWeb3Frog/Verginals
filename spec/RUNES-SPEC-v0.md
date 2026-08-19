@@ -85,7 +85,7 @@ supply = N, divisibility = d   -> a fungible token
 | Field | Key | Type | Notes |
 |---|---|---|---|
 | ticker | `t` | text, 1..26 | uppercase `A-Z` only, unique, see §7 |
-| symbol | `y` | text, exactly 1 character | what a wallet shows beside an amount, see §7.3 |
+| symbol | `y` | text, exactly 1 character, optional | what a wallet shows beside an amount. Absent renders as `¤`, see §7.3 |
 | divisibility | `d` | uint 0..6 | capped by COIN = 1e6 |
 | supply cap | `s` | uint | total that may ever exist, in atomic units |
 | premine | `p` | uint | credited to the etcher's output, may be 0 |
@@ -100,6 +100,11 @@ labelling their coin "Official Bitcoin" or the name of somebody else's project. 
 have shown it and nobody could have taken it back. Bitcoin Runes has no such field for the same
 reason, and this follows it. `n` is reserved and MUST NOT be written; an implementation that finds
 one in an old payload MUST ignore it and use the ticker.
+
+A rune has two names, exactly as Bitcoin Runes does. The **ticker** is the human one, unique, and
+claimed first come. The **rune ID** is `<height>:<txIndex>`, the block the etching landed in and its
+position inside that block, which is the same `BLOCK:TX` shape Runes writes as `840000:1`. The ID is
+what a wallet or an explorer refers to; the ticker is what a person says out loud.
 
 The only other identity is `y`, a symbol of **exactly one character**, counted in code points so a
 single emoji is legal and a two character string is not. One character is too short to impersonate

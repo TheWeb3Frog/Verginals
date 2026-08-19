@@ -274,11 +274,11 @@ function nameSection() {
 
   function draw() {
     // A space becomes a separator, which is how somebody would expect to type one. Everything else
-    // outside A-Z0-9 is dropped, and leading and doubled separators cannot survive because they
+    // outside A-Z is dropped, and leading and doubled separators cannot survive because they
     // have no gap to sit in.
-    // One separator per gap, none at the start, nothing outside A-Z0-9 and the separator itself.
+    // One separator per gap, none at the start, nothing outside A-Z and the separator itself.
     const tidy = (s) => s.replace(/•+/g, SEP).replace(/^•+/, '');
-    let raw = tidy(input.value.toUpperCase().replace(/ /g, SEP).replace(/[^A-Z0-9•]/g, ''));
+    let raw = tidy(input.value.toUpperCase().replace(/ /g, SEP).replace(/[^A-Z•]/g, ''));
 
     if (raw.endsWith(SEP)) {
       armed = true;                       // the gap is asked for, the character to fill it is not

@@ -58,6 +58,15 @@ const ABSURD_FEE_UNITS = 50 * COIN;
 // an order of magnitude more than it needs, and an etcher gains nothing by going closer to the wall.
 const MAX_MINT_PRICE = 49 * COIN;
 
+// What a wallet shows beside an amount when an etching gave no symbol. Bitcoin Runes uses the
+// generic currency sign for the same reason: an amount with nothing next to it reads as a bare
+// number, and every coin deserves a mark even when its etcher did not pick one. Display only, never
+// written to the chain, never part of an identity, and two coins may share it.
+const DEFAULT_SYMBOL = '\u00a4';   // the currency sign
+
+/** The symbol to render for a rune: what it chose, or the generic mark. */
+const symbolOf = (rune) => (rune && typeof rune.symbol === 'string' && rune.symbol) || DEFAULT_SYMBOL;
+
 // --- the lock (spec §7.2) ------------------------------------------------------------------------
 
 /** 1460 days. The whole deterrent is capital multiplied by time, so this number is the deterrent. */
@@ -278,6 +287,7 @@ function costOfHoarding(length, count) {
 }
 
 module.exports = {
+  DEFAULT_SYMBOL, symbolOf,
   PRICE_XVG, PRICE_LONG_XVG, MAX_TICKER_LENGTH, SPACER_CHAR,
   LOCK_SECONDS, LOCK_GRACE_SECONDS, LOCKTIME_THRESHOLD,
   ABSURD_FEE_UNITS, MAX_MINT_PRICE,

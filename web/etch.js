@@ -201,14 +201,22 @@ function readForm() {
   const typed = clampTicker(tickerInput.value);
   const symbol = Array.from($('#et-symbol').value.trim()).slice(0, 1).join('');
   const name = bare(typed);
-  const supply = int('#et-supply');
+  // WHOLE COINS in the field, atomic units on the wire.
+  //
+  // The field used to be atomic units and the readout showed whole coins, so somebody typing
+  // 21000000 with 2 decimals was told they had made 210,000 coins. Both numbers were correct and the
+  // pair was nonsense: nobody means "twenty one million hundredths" when they type twenty one
+  // million. The protocol still counts in atomic units, which is where the multiplication happens.
+  const whole = int('#et-supply');
+  const divisibility = int('#et-div');
+  const scale = Number.isInteger(divisibility) && divisibility >= 0 && divisibility <= 6 ? 10 ** divisibility : 1;
+  const supply = Number.isInteger(whole) && whole > 0 ? whole * scale : whole;
   // Kept as a SHARE of the supply, never as a free number. It used to be a plain input, and a
   // person could type more than the supply, get a valid looking form, pay, and have the etching
   // silently ignored by every indexer. A share cannot express that mistake at all.
   const keepPct = Math.max(0, Math.min(100, Number($('#et-keep').value) || 0));
   const supplyOk = Number.isInteger(supply) && supply > 0;
   const premine = supplyOk ? Math.round(supply * keepPct / 100) : 0;
-  const divisibility = int('#et-div');
   const open = $('#et-openmint').checked;
   const perMint = open ? int('#et-per') : null;
   const cap = open ? int('#et-cap') : null;
@@ -224,7 +232,8 @@ function readForm() {
   const problems = [];
   if (!name) problems.push('the ticker is empty');
   else if (!/^[A-Z]{1,26}$/.test(name)) problems.push('a ticker is 1 to 26 letters, A to Z');
-  if (!Number.isInteger(supply) || supply <= 0) problems.push('the supply must be a whole number above zero');
+  if (!Number.isInteger(whole) || whole <= 0) problems.push('the supply must be a whole number above zero');
+  else if (supply > 16555000000000000) problems.push('that many coins at that many decimals is past what the protocol can count');
   if (!Number.isInteger(divisibility) || divisibility < 0 || divisibility > 6) problems.push('decimals must be 0 to 6');
 
   if (open) {
@@ -243,7 +252,7 @@ function readForm() {
   // and after the release is inscribed they never need it again. A key nobody handles is not a step.
   if (!lockKey && recipient) problems.push('the wallet did not return a lock key: reconnect it');
 
-  return { typed, name, symbol, keepPct, recipient, supply, premine, divisibility, open, perMint, cap, mintPrice, problems };
+  return { typed, name, symbol, keepPct, recipient, whole, supply, premine, divisibility, open, perMint, cap, mintPrice, problems };
 }
 
 // --- live readouts -------------------------------------------------------------------------------
@@ -266,24 +275,24 @@ function refresh() {
   sOut.textContent = '';
   if (Number.isInteger(f.supply) && f.supply > 0 && Number.isInteger(f.divisibility)
     && f.divisibility >= 0 && f.divisibility <= 6 && Number.isInteger(f.premine) && f.premine >= 0) {
-    const unit = 10 ** f.divisibility;
-    kv(sOut, 'Whole coins', fmt(f.supply / unit));
-    kv(sOut, 'You keep', fmt(f.premine / unit) + ' of them');
-    kv(sOut, 'Everyone else can have', fmt((f.supply - f.premine) / unit));
+    kv(sOut, 'Whole coins', fmt(f.whole));
+    kv(sOut, 'You keep', fmt(f.premine / (10 ** f.divisibility)) + ' of them');
+    kv(sOut, 'Everyone else can have', fmt((f.supply - f.premine) / (10 ** f.divisibility)));
     if (f.open && Number.isInteger(f.perMint) && f.perMint > 0) {
       const claimable = f.supply - f.premine;
       const claims = f.cap !== null ? Math.min(f.cap, Math.floor(claimable / f.perMint)) : Math.floor(claimable / f.perMint);
-      kv(sOut, 'Others can claim', fmt(claims) + ' times, ' + fmt(f.perMint / unit) + ' each');
+      kv(sOut, 'Others can claim', fmt(claims) + ' times, ' + fmt(f.perMint / (10 ** f.divisibility)) + ' each');
     }
   }
 
   // The card. It is the only thing on the page anybody is here for, so it updates on every
   // keystroke and never shows a number the form does not actually hold.
-  const unit = 10 ** (Number.isInteger(f.divisibility) ? f.divisibility : 0);
-  $('#card-sym').textContent = f.symbol || '';
+  // The generic currency sign when none was picked, the way a Runes wallet does it.
+  $('#card-sym').textContent = f.symbol || '\u00a4';
+  $('#card-sym').classList.toggle('et-card-sym-default', !f.symbol);
   $('#card-name').textContent = f.typed.trim() ? f.typed.trim() : 'YOUR COIN';
   $('#card-name').classList.toggle('et-card-empty', !f.typed.trim());
-  $('#card-supply').textContent = Number.isInteger(f.supply) && f.supply > 0 ? fmt(f.supply / unit) : '-';
+  $('#card-supply').textContent = Number.isInteger(f.whole) && f.whole > 0 ? fmt(f.whole) : '-';
   $('#card-keep').textContent = !Number.isInteger(f.supply) || f.supply <= 0 ? '-'
     : (f.keepPct === 0 ? 'none' : (f.keepPct === 100 ? 'all of it' : f.keepPct + '%'));
   $('#card-price').textContent = f.name ? xvg(priceOf(f.name.length)) + ' XVG' : 'pick a name';
@@ -464,7 +473,7 @@ async function startEtch(payload, host) {
       host.append(el('h3', '', 'Your coin exists'));
       const done = el('div');
       kv(done, 'Coin', s.display || s.ticker, 'lead');
-      kv(done, 'Reference', s.runeRef, 'lead');
+      kv(done, 'Rune ID', s.runeRef, 'lead');
       kv(done, 'Etch transaction', s.revealTxid);
       kv(done, 'Locked', xvg(job.breakdown.ticker) + ' XVG at ' + s.lockAddress);
       kv(done, 'Yours again on', new Date(s.locktime * 1000)

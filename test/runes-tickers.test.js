@@ -5,7 +5,7 @@ const assert = require('assert');
 const {
   priceOf, costOfHoarding, PRICE_LONG_XVG, LOCK_SECONDS, LOCK_GRACE_SECONDS,
   lockRedeemScript, p2shScriptPubKey, isLocked,
-  normalizeSpacers, displayTicker, bareTicker, SPACER_CHAR,
+  normalizeSpacers, displayTicker, bareTicker, SPACER_CHAR, DEFAULT_SYMBOL, symbolOf,
 } = require('../src/runes/tickers');
 
 const COIN = 1e6;
@@ -220,6 +220,17 @@ test('isLocked never throws, whatever it is handed', () => {
   for (const bad of ['', '   ', 'lowercase', 'B1TCOIN', 'X'.repeat(99), null, undefined, 123, {}]) {
     assert.doesNotThrow(() => isLocked({ outputs: [], time: 1 }, bad, { t: 2_000_000_000, k: KEY }), String(bad));
   }
+});
+
+
+test('a coin with no symbol still gets a mark to stand beside its amount', () => {
+  // Bitcoin Runes renders the generic currency sign when an etching picked none, so an amount is
+  // never a bare number. Display only: it is not written to the chain and two coins may share it.
+  assert.strictEqual(symbolOf({}), DEFAULT_SYMBOL);
+  assert.strictEqual(symbolOf({ symbol: null }), DEFAULT_SYMBOL);
+  assert.strictEqual(symbolOf({ symbol: '' }), DEFAULT_SYMBOL);
+  assert.strictEqual(symbolOf(null), DEFAULT_SYMBOL);
+  assert.strictEqual(symbolOf({ symbol: '\u{1F415}' }), '\u{1F415}', 'and a chosen one wins');
 });
 
 console.log('\nrunes tickers: ' + passed + ' passed');

@@ -3276,12 +3276,14 @@ const server = http.createServer(async (req, res) => {
       return serveStatic(res, 'index.html');
     }
     if (req.method === 'GET' && (p === '/app.js' || p === '/wallet.js' || p === '/style.css')) return serveStatic(res, p.slice(1));
-    // Unlisted design preview for the rune protocol, which is NOT enabled. Served unconditionally
-    // because it is a static page that spends nothing and calls no wallet: it reads /api/info to
-    // report the server's real state and computes the rest in the browser. The page carries a
-    // noindex, and it says on its face that every figure on it is a worked example.
+    // The old design preview is RETIRED. It demonstrated a merkle tree the protocol no longer
+    // builds and a ticker rule that no longer allows what it accepted, so anybody who still had the
+    // link would have been shown two things that are now wrong. Its URL redirects to the page that
+    // replaced it rather than 404ing, because a link somebody kept should land somewhere useful.
     if (req.method === 'GET' && (p === '/verge-runes-test' || p === '/verge-runes-test.html')) {
-      return serveStatic(res, 'verge-runes.html');
+      writeHead(res, 302, { location: '/runes' });
+      res.end();
+      return;
     }
     // The public Verge Runes page. Unlinked from the nav on purpose while the protocol is off, and
     // it carries a noindex: the URL is handed out by hand. Static, spends nothing, calls no wallet.

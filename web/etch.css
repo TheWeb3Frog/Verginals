@@ -359,3 +359,7 @@
    which is wrong for the one link somebody without the wallet actually needs. */
 .et-note a, .et-say a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
 .et-note a:hover, .et-say a:hover { color: var(--txt); }
+
+/* The default currency sign is dimmed: it is a placeholder standing in for a choice nobody made,
+   and showing it at full strength would read as a symbol that was picked. */
+.et-card-sym-default { opacity: .38; }

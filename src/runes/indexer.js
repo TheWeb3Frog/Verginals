@@ -233,7 +233,12 @@ function normaliseEtching(e, ref) {
   const allowlistRoot = e.allowlistRoot || null;
   if (allowlistRoot !== null && (!Buffer.isBuffer(allowlistRoot) || allowlistRoot.length !== 32)) return null;
   return {
-    ref, ticker, name: e.name || ticker, divisibility, supply, premine,
+    ref, ticker,
+    // The ticker IS the name. Anything an etching still carries under an old free text field is
+    // ignored rather than trusted: a name nobody can verify is a name somebody will abuse.
+    name: ticker,
+    symbol: typeof e.symbol === 'string' && Array.from(e.symbol).length === 1 ? e.symbol : null,
+    divisibility, supply, premine,
     // Normalised at indexing time, so every indexer renders the same name from the same etching
     // and a mask with bits past the end of the ticker is ignored rather than fatal (§7.1).
     spacers: tickers.normalizeSpacers(ticker, Number(e.spacers) || 0),

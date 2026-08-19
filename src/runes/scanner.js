@@ -60,7 +60,11 @@ function detectEtching(tx) {
 
   // Short CBOR keys back to readable fields (spec §2.1).
   const etching = {
-    ticker: body.t, name: body.n, divisibility: body.d, supply: body.s, premine: body.p,
+    ticker: body.t,
+    // `n` was a free text name and is no longer written. Old payloads may still carry one; it is
+    // read and then ignored by the indexer, which uses the ticker. `y` is the one character symbol.
+    symbol: typeof body.y === 'string' ? body.y : null,
+    divisibility: body.d, supply: body.s, premine: body.p,
   };
   if (body.m) {
     etching.terms = { amount: body.m.a };

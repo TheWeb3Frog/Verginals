@@ -327,8 +327,11 @@ function nameSection() {
     kv(out, 'Length that is priced', `${n} character${n === 1 ? '' : 's'}`
       + (seps ? ', separators not counted' : ''));
     kv(out, 'One name', fmt(one) + ' XVG locked');
-    kv(out, 'Fifty of them, for a squatter', fmt(one * 50) + ' XVG locked at once');
-    kv(out, 'Cost if you never come back for it', '0 XVG, the money is yours');
+    // Two lines used to sit here: a squatter buying fifty names, and "cost if you never come back:
+    // 0 XVG, the money is yours". The first repeats an argument the prose above already makes
+    // better. The second is now plainly wrong: a coin etched with a pre-signed release returns its
+    // price on its own, and one without it returns nothing at all if the key is lost. Neither
+    // sentence was worth the space it took from the number that matters.
     if (seps) {
       kv(out, 'Re-spacing it', 'buys nothing, it is the same coin', 'quiet');
     }

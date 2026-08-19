@@ -195,11 +195,30 @@ const int = (sel) => {
   return /^\d+$/.test(raw) ? Number(raw) : NaN;
 };
 
+// The share control. Presets and the slider write the same value, and the readout follows both, so
+// there is never a number on screen that the form does not actually hold.
+(function () {
+  const range = document.getElementById('et-keep');
+  const out = document.getElementById('et-keep-out');
+  const paint = () => { out.textContent = range.value + '%'; };
+  range.addEventListener('input', () => { paint(); refresh(); });
+  for (const b of document.querySelectorAll('[data-keep]')) {
+    b.addEventListener('click', () => { range.value = b.dataset.keep; paint(); refresh(); });
+  }
+  paint();
+})();
+
 function readForm() {
   const typed = tickerInput.value;
+  const symbol = Array.from($('#et-symbol').value.trim()).slice(0, 1).join('');
   const name = bare(typed);
   const supply = int('#et-supply');
-  const premine = int('#et-premine');
+  // Kept as a SHARE of the supply, never as a free number. It used to be a plain input, and a
+  // person could type more than the supply, get a valid looking form, pay, and have the etching
+  // silently ignored by every indexer. A share cannot express that mistake at all.
+  const keepPct = Math.max(0, Math.min(100, Number($('#et-keep').value) || 0));
+  const supplyOk = Number.isInteger(supply) && supply > 0;
+  const premine = supplyOk ? Math.round(supply * keepPct / 100) : 0;
   const divisibility = int('#et-div');
   const open = $('#et-openmint').checked;
   const perMint = open ? int('#et-per') : null;
@@ -212,19 +231,18 @@ function readForm() {
   else if (!/^[A-Z0-9]{1,26}$/.test(name)) problems.push('a ticker is 1 to 26 characters of A-Z and 0-9');
   if (!Number.isInteger(supply) || supply <= 0) problems.push('the supply must be a whole number above zero');
   if (!Number.isInteger(divisibility) || divisibility < 0 || divisibility > 6) problems.push('decimals must be 0 to 6');
-  if (!Number.isInteger(premine) || premine < 0) problems.push('the amount kept must be a whole number');
-  else if (Number.isInteger(supply) && premine > supply) problems.push('you cannot keep more than the supply');
+
   if (open) {
     if (!Number.isInteger(perMint) || perMint <= 0) problems.push('units per claim must be a whole number above zero');
     if (cap !== null && (!Number.isInteger(cap) || cap <= 0)) problems.push('the maximum number of claims must be a whole number');
     if (!Number.isFinite(mintPrice) || mintPrice < 0) problems.push('the fee per claim is not a number');
     else if (mintPrice > 49 * COIN) problems.push('the fee per claim cannot exceed 49 XVG');
     if (Number.isInteger(supply) && Number.isInteger(premine) && premine >= supply) {
-      problems.push('an open mint needs supply left over: lower what you keep');
+      problems.push('an open mint needs supply left over: keep less than all of it');
     }
   }
   if (!$('#et-recipient').value.trim()) problems.push('an address to receive your coins is missing');
-  if (!lockKey) problems.push('generate your unlock key');
+  if (!lockKey) problems.push('get your unlock key');
 
   return { typed, name, supply, premine, divisibility, open, perMint, cap, mintPrice, problems };
 }
@@ -240,7 +258,6 @@ function refresh() {
     const price = priceOf(f.name.length);
     kv(tOut, 'The coin is', f.name, 'lead');
     if (f.typed !== f.name) kv(tOut, 'Shown as', f.typed);
-    kv(tOut, 'Characters', String(f.name.length) + ' (separators are free)');
     kv(tOut, 'Price to claim it', xvg(price) + ' XVG', 'warn');
     const releases = new Date(Date.now() + 1460 * 86400e3);
     kv(tOut, 'Yours again on', releases.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }));
@@ -252,12 +269,12 @@ function refresh() {
     && f.divisibility >= 0 && f.divisibility <= 6 && Number.isInteger(f.premine) && f.premine >= 0) {
     const unit = 10 ** f.divisibility;
     kv(sOut, 'Whole coins', fmt(f.supply / unit));
-    kv(sOut, 'You keep', fmt(f.premine / unit) + (f.supply ? `  (${(f.premine / f.supply * 100).toFixed(1)}%)` : ''));
+    kv(sOut, 'You keep', fmt(f.premine / unit) + ' of them');
+    kv(sOut, 'Everyone else can have', fmt((f.supply - f.premine) / unit));
     if (f.open && Number.isInteger(f.perMint) && f.perMint > 0) {
       const claimable = f.supply - f.premine;
       const claims = f.cap !== null ? Math.min(f.cap, Math.floor(claimable / f.perMint)) : Math.floor(claimable / f.perMint);
       kv(sOut, 'Others can claim', fmt(claims) + ' times, ' + fmt(f.perMint / unit) + ' each');
-      if (f.mintPrice > 0) kv(sOut, 'Taking all of it costs', xvg(claims * f.mintPrice) + ' XVG in fees');
     }
   }
 
@@ -272,7 +289,7 @@ function refresh() {
   } else {
     const price = priceOf(f.name.length);
     kv(review, 'Ticker price, locked four years', xvg(price) + ' XVG');
-    kv(review, 'To fund the inscription', 'about ' + xvg(4 * 100000) + ' XVG');
+    kv(review, 'Miner fees and the inscription', 'about ' + xvg(4 * 100000) + ' XVG');
     kv(review, 'Total you need', xvg(price + 4 * 100000) + ' XVG', 'lead');
     review.append(el('p', 'et-note', 'The ticker price is not spent and not burnt. It returns to the '
       + 'key you generated, four years from the block that confirms this.'));
@@ -293,7 +310,7 @@ $('#et-compose').addEventListener('click', async () => {
 
   const payload = {
     ticker: f.typed,
-    name: $('#et-name').value.trim() || undefined,
+    symbol: f.symbol || undefined,
     divisibility: f.divisibility,
     supply: f.supply,
     premine: f.premine,
@@ -383,7 +400,7 @@ $('#et-compose').addEventListener('click', async () => {
   }
 })();
 
-for (const id of ['#et-name', '#et-supply', '#et-div', '#et-premine', '#et-per', '#et-cap',
+for (const id of ['#et-symbol', '#et-supply', '#et-div', '#et-keep', '#et-per', '#et-cap',
   '#et-price', '#et-recipient']) {
   $(id).addEventListener('input', refresh);
 }

@@ -312,3 +312,27 @@
   border-radius: 8px;
   color: #ffd97a;
 }
+
+/* The share control. A slider and four presets writing one value, because the number this replaced
+   could be typed larger than the supply, which produced a form that looked complete, took payment,
+   and then got ignored by every indexer. */
+.et-keep { display: flex; align-items: center; gap: 14px; }
+.et-range { flex: 1; accent-color: var(--accent); height: 24px; }
+.et-keep-out {
+  font: 600 17px/1 ui-monospace, Menlo, monospace; color: var(--txt);
+  min-width: 4.5ch; text-align: right; font-variant-numeric: tabular-nums;
+}
+.et-presets { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.et-symbol-input { width: 5ch; text-align: center; font-size: 22px; }
+.et-note { margin: 8px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--muted); max-width: 56ch; }
+
+/* The link out to the protocol page. It was inheriting a dim colour and reading as disabled text on
+   this ground, which is the wrong signal for the one link that answers every question this page
+   deliberately does not. */
+.et-lede a, .et-foot a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+.et-lede a:hover, .et-foot a:hover { color: var(--txt); }

@@ -162,8 +162,24 @@ function buildEtch(rune, recipient, opts = {}) {
   }
   if (!recipient || !recipient.address) throw new Error('an etch needs a recipient for the premine');
 
-  // Short CBOR keys, exactly as the spec tabulates them, so the payload stays small.
-  const body = { t: ticker, n: rune.name || ticker, d: divisibility, s: supply, p: premine };
+  // A coin's name is its ticker and nothing else.
+  //
+  // There used to be a free text "full name" here, written to the chain forever. That is an
+  // impersonation field: nothing stops an etcher naming their coin "Official Bitcoin" or "Verge
+  // Team Token", and every wallet would display it, permanently, with no way to take it back.
+  // Bitcoin Runes does not have such a field, deliberately, and this now follows it: the ticker
+  // (uppercase letters, with free separators for display) is the name, and the only other identity
+  // is a SYMBOL of exactly one character, which is too short to impersonate anything.
+  const body = { t: ticker, d: divisibility, s: supply, p: premine };
+  if (rune.symbol != null && String(rune.symbol) !== '') {
+    const sym = String(rune.symbol);
+    // One CODE POINT, not one UTF-16 unit: an emoji is a single character to a person and two units
+    // to JavaScript, and refusing it on a length check would be wrong for the same reason accepting
+    // a whole sentence would be.
+    const points = Array.from(sym);
+    if (points.length !== 1) throw new Error('the symbol must be exactly one character');
+    body.y = points[0];
+  }
   if (spacers) body.x = spacers;   // omitted entirely when there is nothing to render
   if (rune.terms) {
     const m = { a: Number(rune.terms.amount || 0) };

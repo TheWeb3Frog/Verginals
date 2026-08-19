@@ -85,7 +85,7 @@ supply = N, divisibility = d   -> a fungible token
 | Field | Key | Type | Notes |
 |---|---|---|---|
 | ticker | `t` | text, 1..26 | uppercase `A-Z0-9`, unique, see §7 |
-| name | `n` | text | display name |
+| symbol | `y` | text, exactly 1 character | what a wallet shows beside an amount, see §7.3 |
 | divisibility | `d` | uint 0..6 | capped by COIN = 1e6 |
 | supply cap | `s` | uint | total that may ever exist, in atomic units |
 | premine | `p` | uint | credited to the etcher's output, may be 0 |
@@ -93,6 +93,17 @@ supply = N, divisibility = d   -> a fungible token
 | allowlist root | `a` | bytes 32, optional | merkle root, see §5 |
 | display spacers | `x` | uint, optional | bitfield, see §7.1. Display only, never part of the identity |
 | price lock | `l` | map | `{ t: unix locktime, k: 33-byte pubkey }`, see §7.2 |
+
+**There is no free text name, deliberately.** A ticker is the name. An earlier draft carried a
+display name under `n`, written to the chain and permanent, and nothing in it stopped an etcher
+labelling their coin "Official Bitcoin" or the name of somebody else's project. Every wallet would
+have shown it and nobody could have taken it back. Bitcoin Runes has no such field for the same
+reason, and this follows it. `n` is reserved and MUST NOT be written; an implementation that finds
+one in an old payload MUST ignore it and use the ticker.
+
+The only other identity is `y`, a symbol of **exactly one character**, counted in code points so a
+single emoji is legal and a two character string is not. One character is too short to impersonate
+anything.
 | metadata ref | `i` | text, optional | inscription id used as logo/metadata |
 | parent | `k` | text, optional | inscription id of the collection this belongs to |
 

@@ -267,4 +267,40 @@ test('a fractional or negative price is refused before it can be etched forever'
   }
 });
 
+/** A minimal valid etching, for the identity checks below. */
+function etchWith(over) {
+  return buildEtch(
+    Object.assign({
+      ticker: 'GRUMPYCAT', supply: 1000, divisibility: 0, premine: 0, spacers: 0,
+      lock: { locktime: Math.floor(Date.now() / 1000) + 126144000, pubkey: '02' + '11'.repeat(32) },
+    }, over),
+    { address: 'DSVcVR2CuLFcu5uT83pLVBhcLXCTRgEkfr', value: 100000 },
+  );
+}
+
+// --- identity: the ticker is the name -------------------------------------------------------------
+
+test('an etching carries no free text name, so nothing can impersonate anything', () => {
+  // There used to be a `n` field written to the chain forever. Nothing stopped an etcher naming
+  // their coin "Official Bitcoin", every wallet would have shown it, and it could never be undone.
+  const e = etchWith({ name: 'Official Bitcoin', symbol: undefined });
+  assert.ok(!e.body.toString('binary').includes('Official'), 'the name never reaches the chain');
+  assert.ok(!e.body.toString('binary').includes('Bitcoin'));
+});
+
+test('the symbol is exactly one character, counted the way a person counts', () => {
+  assert.doesNotThrow(() => etchWith({ symbol: 'G' }));
+  assert.doesNotThrow(() => etchWith({ symbol: '¤' }));
+  // An emoji is one character to a person and two UTF-16 units to JavaScript. Refusing it on a
+  // length check would be wrong for the same reason accepting a sentence would be.
+  assert.doesNotThrow(() => etchWith({ symbol: '🐱' }));
+  assert.throws(() => etchWith({ symbol: 'ABC' }), /exactly one character/);
+  assert.throws(() => etchWith({ symbol: 'Official Bitcoin' }), /exactly one character/);
+});
+
+test('keeping more than the supply is refused, not silently ignored', () => {
+  assert.throws(() => etchWith({ supply: 1000, premine: 1001 }), /premine cannot exceed supply/);
+});
+
 console.log('\nrunes builder: ' + passed + ' passed');
+

@@ -15,9 +15,9 @@
     <p class="et-eyebrow">VERGE RUNES</p>
     <h1>Etch a coin</h1>
     <p class="et-lede">
-      A rune is created once and moved for ever after. Everything on this page is permanent from the
-      moment it confirms, so the form shows you the whole cost and the exact bytes before anything
-      is signed. <a href="/runes">How the protocol works</a>.
+      Three things to decide, one price to pay, and none of it can be changed afterwards.
+      Nothing is broadcast until you say so, and the total is shown before anything is signed.
+      <a href="/runes">How the protocol works</a>.
     </p>
     <div id="et-status" class="et-status">Checking what this server reports…</div>
   </header>
@@ -36,8 +36,11 @@
         <input id="et-ticker" class="et-input et-ticker-input" type="text" placeholder="GRUMPY" spellcheck="false">
         <div id="et-ticker-out" class="et-readout"></div>
 
-        <label class="et-label" for="et-name">Full name <span class="et-opt">optional</span></label>
-        <input id="et-name" class="et-input" type="text" placeholder="Grumpy Cat Coin" maxlength="64">
+        <label class="et-label" for="et-symbol">Symbol <span class="et-opt">optional, one character</span></label>
+        <input id="et-symbol" class="et-input et-symbol-input" type="text" placeholder="G" maxlength="4" spellcheck="false">
+        <p class="et-note">What a wallet shows next to an amount, the way $ sits next to a price.
+          One character, so it cannot be used to pretend to be somebody else. There is no free text
+          name: your ticker is the name.</p>
       </div>
     </section>
 
@@ -59,8 +62,17 @@
             <input id="et-div" class="et-input" type="text" inputmode="numeric" value="2">
           </div>
         </div>
-        <label class="et-label" for="et-premine">Kept for you at creation <span class="et-perm">PERMANENT</span></label>
-        <input id="et-premine" class="et-input" type="text" inputmode="numeric" value="0">
+        <label class="et-label" for="et-keep">Kept for you <span class="et-perm">PERMANENT</span></label>
+        <div class="et-keep">
+          <input id="et-keep" class="et-range" type="range" min="0" max="100" step="1" value="0">
+          <output id="et-keep-out" class="et-keep-out">0%</output>
+        </div>
+        <div class="et-presets">
+          <button type="button" class="et-mini" data-keep="0">Keep none</button>
+          <button type="button" class="et-mini" data-keep="10">10%</button>
+          <button type="button" class="et-mini" data-keep="50">Half</button>
+          <button type="button" class="et-mini" data-keep="100">All of it</button>
+        </div>
         <div id="et-supply-out" class="et-readout"></div>
       </div>
     </section>
@@ -129,9 +141,7 @@
   </form>
 
   <footer class="et-foot">
-    <p>
-      Nothing on this page signs or broadcasts a transaction. It composes the etching and shows you
-      the exact bytes, the exact outputs and the exact cost.
+    <p>Nothing has been signed or sent. The next screen shows the total and the address to pay it to.
     </p>
     <p>
       Already made a coin and want your locked price back? <a href="/unlock">Recover your coins</a>,

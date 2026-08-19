@@ -14,7 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const bitcoin = require('bitcoinjs-lib');
 const {
-  verifyListingVariant, verifyBid, pickVariant, feeFor,
+  verifyListingVariant, verifyBid, pickVariant, feeFor, SELLER_INDEX,
 } = require('./swap');
 
 const OUTPOINT_RE = /^[0-9a-fA-F]{64}:\d+$/;
@@ -87,13 +87,17 @@ class OrderBook {
     if (!info || info.spent) throw new Error('carrier is spent or unknown');
     if (!info.inscription) throw new Error('this UTXO does not carry a Verginal');
 
+    // Every variant, at the slot it says it signed for. Checking them all against slot 2 would have
+    // rejected every listing a wallet makes now, and checking none of them would let a seller
+    // publish a signature that only fails when a buyer pays a fee to broadcast it.
     for (const v of listing.variants) {
+      const at = v.at == null ? SELLER_INDEX : v.at;
       const r = verifyListingVariant({
         network: this.network, carrier, priceUnits: listing.priceUnits,
         sellerAddress: listing.sellerAddress, time: v.time, scriptSig: v.scriptSig,
-        feeUnits: listing.feeUnits || 0,
+        feeUnits: listing.feeUnits || 0, at,
       });
-      if (!r.ok) throw new Error(`a variant signature is invalid (nTime ${v.time})`);
+      if (!r.ok) throw new Error(`a variant signature is invalid (nTime ${v.time}, slot ${at})`);
       if (r.address !== info.address) throw new Error('a variant was not signed by the carrier owner');
     }
 

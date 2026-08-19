@@ -9,6 +9,7 @@ const ecpair = require('ecpair');
 const ecc = require('tiny-secp256k1');
 const { pickNetwork } = require('../src/cli');
 const { buildListingSchedule, buildBid } = require('../src/swap');
+const swap = require('../src/swap');
 const { OrderBook } = require('../src/orderbook');
 
 const ECPair = (ecpair.ECPairFactory || ecpair.default)(ecc);
@@ -69,7 +70,9 @@ async function main() {
   await test('a valid listing is accepted and served', async () => {
     const book = freshBook(fakeChain());
     const r = await book.addListing(mkListing());
-    assert.strictEqual(r.variants, 3);
+    // Three timestamps across every sweep slot. Both axes are in the sighash, so a listing that
+    // signed one slot could only ever be bought alone.
+    assert.strictEqual(r.variants, 3 * swap.MAX_SWEEP);
     const list = await book.listings();
     assert.strictEqual(list.length, 1);
     assert.strictEqual(list[0].priceUnits, 150_000_000);

@@ -12,6 +12,13 @@
 import * as V from './verge.js';
 
 export const SELLER_INDEX = 2;
+
+// How many listings one transaction may sweep. SIGHASH_SINGLE pairs the input at index N with the
+// OUTPUT at index N, so a signature is only good at the slot it was made for. Signing one slot meant
+// one listing per transaction, whatever the buyer wanted. Kept in step with src/swap.js by
+// extension/test-swap.mjs, which compares the two byte for byte.
+export const MAX_SWEEP = 4;
+export const SWEEP_INDICES = [2, 3, 4, 5];
 export const LISTING_SIGHASH = V.SIGHASH_SINGLE | V.SIGHASH_ANYONECANPAY;
 export const POSTAGE_UNITS = 100000; // 0.1 XVG: the constant value a Verginal-bearing carrier holds
 export const DEFAULT_SCHEDULE = [0, 900, 3600, 14400, 43200, 86400, 172800, 345600, 604800, 1209600, 2592000];
@@ -36,37 +43,40 @@ function scriptSig(sig, pubkey) {
  * (priceUnits - feeUnits); the buyer adds the fee output later, after the seller output, so it
  * stays outside the SIGHASH_SINGLE commitment. Returns { time, scriptSig(hex) }.
  */
-export async function signListingVariant({ carrier, priceUnits, sellerAddress, priv, time, feeUnits }) {
+export async function signListingVariant({ carrier, priceUnits, sellerAddress, priv, time, feeUnits, at = SELLER_INDEX }) {
   const sellerReceive = priceUnits - (feeUnits || 0);
   const pub = V.publicKeyFromPrivate(priv);
   const carrierScript = await V.p2pkhScript(await V.addressFromPubkey(pub));
+  const pad = (n, make) => Array.from({ length: n }, (_, i) => make(i));
   const tx = {
     version: 1, time, locktime: 0,
     vin: [
-      { txid: ZERO_TXID, vout: 0 },
-      { txid: ZERO_TXID, vout: 1 },
+      ...pad(at, (i) => ({ txid: ZERO_TXID, vout: i })),
       { txid: carrier.txid, vout: carrier.vout },
     ],
     vout: [
-      { value: 0, script: new Uint8Array(0) },
-      { value: 0, script: new Uint8Array(0) },
+      ...pad(at, () => ({ value: 0, script: new Uint8Array(0) })),
       { value: sellerReceive, script: await V.outputScript(sellerAddress) },
     ],
   };
-  const sighash = await V.legacySighash(tx, SELLER_INDEX, carrierScript, LISTING_SIGHASH);
+  const sighash = await V.legacySighash(tx, at, carrierScript, LISTING_SIGHASH);
   const sig = await V.signHashWith(sighash, priv, LISTING_SIGHASH);
-  return { time, scriptSig: bytesToHex(scriptSig(sig, pub)) };
+  return { time, at, scriptSig: bytesToHex(scriptSig(sig, pub)) };
 }
 
 /** Build a full listing (all scheduled variants) ready to POST to the order book. */
-export async function buildListing({ carrier, priceUnits, sellerAddress, priv, startTime, offsets, feeUnits, feeAddress }) {
+export async function buildListing({ carrier, priceUnits, sellerAddress, priv, startTime, offsets, feeUnits, feeAddress, slots = SWEEP_INDICES }) {
   const t0 = startTime == null ? Math.floor(Date.now() / 1000) : startTime;
   const sched = offsets || DEFAULT_SCHEDULE;
   const fee = feeUnits || 0;
   if (fee > 0 && !feeAddress) throw new Error('a fee needs a fee address');
   if (fee >= priceUnits) throw new Error('fee cannot exceed the price');
   const variants = [];
-  for (const off of sched) variants.push(await signListingVariant({ carrier, priceUnits, sellerAddress, priv, time: t0 + off, feeUnits: fee }));
+  for (const off of sched) {
+    for (const at of slots) {
+      variants.push(await signListingVariant({ carrier, priceUnits, sellerAddress, priv, time: t0 + off, feeUnits: fee, at }));
+    }
+  }
   return {
     kind: 'verginals-listing-v2',
     carrier: { txid: carrier.txid, vout: carrier.vout, value: carrier.value },

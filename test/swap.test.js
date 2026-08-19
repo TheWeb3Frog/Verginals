@@ -9,6 +9,7 @@ const { pickNetwork } = require('../src/cli');
 const { legacySighash, SIGHASH_ALL, SIGHASH_NONE, SIGHASH_SINGLE, SIGHASH_ANYONECANPAY } = require('../src/vergetx');
 const { buildListing, completeListing, buildListingSchedule, pickVariant, buildBid, acceptBid, verifyListingVariant, feeFor, SELLER_INDEX, LISTING_SIGHASH, POSTAGE_UNITS } = require('../src/swap');
 const { Indexer } = require('../src/indexer');
+const swap = require('../src/swap');
 
 const ECPair = (ecpair.ECPairFactory || ecpair.default)(ecc);
 const { network } = pickNetwork('mainnet');
@@ -195,14 +196,16 @@ test('completion refuses a carrier too small to reset onto a fresh postage', () 
 });
 
 // --- listing variant schedule ----------------------------------------------------------------
-test('a listing schedule signs one working variant per timestamp', () => {
+test('a listing schedule signs one working variant per timestamp, per slot', () => {
   const sched = buildListingSchedule({
     network, carrier, priceUnits: 150_000_000, sellerAddress: addr(seller), sellerKey: seller,
     startTime: 1_783_000_000, offsets: [0, 3600, 86400],
   });
-  assert.strictEqual(sched.variants.length, 3);
+  // Three timestamps across four slots. Both axes are in the sighash: nTime because Verge puts it
+  // there, and the slot because SIGHASH_SINGLE counts the placeholders before the carrier.
+  assert.strictEqual(sched.variants.length, 3 * swap.MAX_SWEEP);
   assert.strictEqual(sched.expiresAt, 1_783_000_000 + 86400);
-  for (const v of sched.variants) {
+  for (const v of sched.variants.filter((x) => x.at === SELLER_INDEX)) {
     const one = pickVariant(sched, { now: v.time, maxCoinTime: 0 });
     assert.strictEqual(one.time, v.time);
     mkComplete(one);
@@ -319,6 +322,111 @@ test('SIGHASH_ALL behaviour is unchanged by the extension', () => {
   const b = baseTx();
   b.vout[1].value = 2001;
   assert.notDeepStrictEqual(h1, legacySighash(b, 0, code, SIGHASH_ALL));
+});
+
+
+// --- sweeping several listings at once ------------------------------------------------------------
+//
+// SIGHASH_SINGLE pairs the input at index N with the OUTPUT at index N, so a seller's signature is
+// only good at the exact slot they signed for. With one hardcoded slot a buyer could take exactly
+// one listing per transaction: two sellers both signed for slot 2, only one can have it, and the
+// second signature validated against nothing. Buying five meant five transactions and five fees.
+
+function listingAt(n, at, t = 1_700_000_000) {
+  const key = ECPair.makeRandom({ network });
+  const addr = bitcoin.payments.p2pkh({ pubkey: key.publicKey, network }).address;
+  const carrier = { txid: String(n).repeat(64).slice(0, 64), vout: 0, value: 200000 };
+  const full = swap.buildListingSchedule({
+    network, carrier, priceUnits: 1_000_000 * n, sellerAddress: addr, sellerKey: key,
+    startTime: t, offsets: [0], feeUnits: 0,
+  });
+  return swap.pickVariant(full, { now: t, maxCoinTime: 0, at });
+}
+
+/** Verify one seller's half-signature against an assembled transaction, at a given slot. */
+function sellerSignatureHolds(tx, listing, at, t = 1_700_000_000) {
+  const parts = bitcoin.script.decompile(Buffer.from(listing.scriptSig, 'hex'));
+  const pubkey = parts[1];
+  const sig = bitcoin.script.signature.decode(parts[0]).signature;
+  const carrierScript = bitcoin.payments.p2pkh({ pubkey, network }).output;
+  const sighash = legacySighash({ version: 1, time: t, locktime: 0, vin: tx.vin, vout: tx.vout },
+    at, carrierScript, SIGHASH_SINGLE | SIGHASH_ANYONECANPAY);
+  return ecc.verify(sighash, pubkey, sig);
+}
+
+test('a listing is signed for every slot it might land in', () => {
+  const key = ECPair.makeRandom({ network });
+  const addr = bitcoin.payments.p2pkh({ pubkey: key.publicKey, network }).address;
+  const full = swap.buildListingSchedule({
+    network, carrier: { txid: 'ab'.repeat(32), vout: 0, value: 200000 },
+    priceUnits: 5_000_000, sellerAddress: addr, sellerKey: key, startTime: 1_700_000_000,
+    offsets: [0, 900], feeUnits: 0,
+  });
+  assert.strictEqual(full.variants.length, 2 * swap.MAX_SWEEP, 'one per time per slot');
+  assert.deepStrictEqual([...new Set(full.variants.map((v) => v.at))].sort(), swap.SWEEP_INDICES);
+});
+
+test('two listings settle in one transaction, and both signatures hold', () => {
+  const a = listingAt(1, 2), b = listingAt(2, 3);
+  const buyer = ECPair.makeRandom({ network });
+  const buyerAddr = bitcoin.payments.p2pkh({ pubkey: buyer.publicKey, network }).address;
+  const tx = swap.completeSweep({
+    network, listings: [a, b],
+    pads: [{ txid: 'aa'.repeat(32), vout: 0, value: 50000 }, { txid: 'bb'.repeat(32), vout: 0, value: 50000 }],
+    funds: [{ txid: 'cc'.repeat(32), vout: 0, value: 10_000_000 }],
+    buyerAddress: buyerAddr, buyerKey: buyer, feeUnits: 200000, carrierOffsets: [0, 0],
+  });
+  assert.deepStrictEqual(tx.sellerSlots, [2, 3]);
+  assert.ok(sellerSignatureHolds(tx, a, 2), 'first seller');
+  assert.ok(sellerSignatureHolds(tx, b, 3), 'second seller');
+});
+
+test('a signature made for one slot is worthless in another', () => {
+  // The control. Without this the test above would pass even if the slot never entered the sighash,
+  // which is exactly the bug it exists to prove is gone.
+  const a = listingAt(1, 2), b = listingAt(2, 3);
+  const buyer = ECPair.makeRandom({ network });
+  const buyerAddr = bitcoin.payments.p2pkh({ pubkey: buyer.publicKey, network }).address;
+  const tx = swap.completeSweep({
+    network, listings: [a, b],
+    pads: [{ txid: 'aa'.repeat(32), vout: 0, value: 50000 }, { txid: 'bb'.repeat(32), vout: 0, value: 50000 }],
+    funds: [{ txid: 'cc'.repeat(32), vout: 0, value: 10_000_000 }],
+    buyerAddress: buyerAddr, buyerKey: buyer, feeUnits: 200000, carrierOffsets: [0, 0],
+  });
+  const wrongSlot = listingAt(3, 2);
+  assert.strictEqual(sellerSignatureHolds(tx, wrongSlot, 3), false);
+});
+
+test('a sweep refuses listings that were not picked for their own slot', () => {
+  const a = listingAt(1, 2), bWrong = listingAt(2, 2);   // both signed for slot 2
+  const buyer = ECPair.makeRandom({ network });
+  const buyerAddr = bitcoin.payments.p2pkh({ pubkey: buyer.publicKey, network }).address;
+  assert.throws(() => swap.completeSweep({
+    network, listings: [a, bWrong],
+    pads: [{ txid: 'aa'.repeat(32), vout: 0, value: 50000 }, { txid: 'bb'.repeat(32), vout: 0, value: 50000 }],
+    funds: [{ txid: 'cc'.repeat(32), vout: 0, value: 10_000_000 }],
+    buyerAddress: buyerAddr, buyerKey: buyer, feeUnits: 200000,
+  }), /signed for slot 2, not 3/);
+});
+
+test('pickVariant will not hand back a signature for the wrong slot', () => {
+  const key = ECPair.makeRandom({ network });
+  const addr = bitcoin.payments.p2pkh({ pubkey: key.publicKey, network }).address;
+  const full = swap.buildListingSchedule({
+    network, carrier: { txid: 'cd'.repeat(32), vout: 0, value: 200000 },
+    priceUnits: 5_000_000, sellerAddress: addr, sellerKey: key, startTime: 1_700_000_000,
+    offsets: [0], feeUnits: 0, slots: [2],
+  });
+  assert.ok(swap.pickVariant(full, { now: 1_700_000_000, maxCoinTime: 0, at: 2 }));
+  assert.strictEqual(swap.pickVariant(full, { now: 1_700_000_000, maxCoinTime: 0, at: 3 }), null);
+});
+
+test('an old listing with no slot on its variants still reads as slot 2', () => {
+  // Listings signed before slots existed must keep working, and must NOT be treated as valid
+  // anywhere: a buyer handed one for slot 3 would pay a fee to broadcast a refusal.
+  const legacy = { variants: [{ time: 100, scriptSig: 'ff' }], carrier: {}, priceUnits: 1, sellerAddress: 'D', version: 1, locktime: 0 };
+  assert.ok(swap.pickVariant(legacy, { now: 200, maxCoinTime: 0, at: 2 }));
+  assert.strictEqual(swap.pickVariant(legacy, { now: 200, maxCoinTime: 0, at: 3 }), null);
 });
 
 console.log(`\n${passed} swap tests passed`);

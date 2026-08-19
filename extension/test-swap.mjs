@@ -94,4 +94,40 @@ const TIME = 1_783_000_000;
   ok('a plain P2PKH transfer still builds and is non-empty', /^[0-9a-f]+$/.test(brw.hex) && brw.hex.length > 100);
 }
 
+// --- the slot axis, checked against the server -----------------------------------------------------
+//
+// A wallet that signed only slot 2 would make listings no buyer could ever sweep, and the mismatch
+// would surface as a broadcast failure after the buyer paid a fee. These two implementations must
+// agree about which slots exist and what each one signs.
+
+{
+  const { buildListing: buildBrowser, SWEEP_INDICES: browserSlots, MAX_SWEEP: browserMax } = B;
+  const serverSwap = S;
+
+  ok('both agree which slots a listing signs', String(browserSlots) === String(serverSwap.SWEEP_INDICES));
+  ok('and how many listings a sweep takes', browserMax === serverSwap.MAX_SWEEP);
+
+  const listing = await buildBrowser({
+    carrier: { txid: 'ab'.repeat(32), vout: 0, value: 200000 },
+    priceUnits: 5_000_000, sellerAddress: sellerAddr, priv: sellerPriv,
+    startTime: 1_700_000_000, offsets: [0], feeUnits: 0,
+  });
+  ok('one variant per slot', listing.variants.length === browserSlots.length);
+  ok('each carries the slot it signed', listing.variants.every((v) => browserSlots.includes(v.at)));
+
+  // Byte for byte against the server, slot by slot. A signature that matched at slot 2 and drifted
+  // at slot 3 would be invisible to a test that only checked the first one.
+  let identical = true;
+  for (const v of listing.variants) {
+    const mine = serverSwap.buildListing({
+      network, carrier: { txid: 'ab'.repeat(32), vout: 0, value: 200000 },
+      priceUnits: 5_000_000, sellerAddress: sellerAddr, sellerKey: sellerEC,
+      time: v.time, feeUnits: 0, at: v.at,
+    });
+    if (mine.scriptSig !== v.scriptSig) identical = false;
+  }
+  ok('every slot signs the same bytes on both sides', identical);
+}
+
 console.log(`\n${passed} browser/server swap-parity checks passed`);
+

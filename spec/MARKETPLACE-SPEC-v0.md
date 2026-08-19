@@ -48,6 +48,22 @@ vin[3+] buyer funding coins       vout[3]  change -> buyer    (optional)
   leftover carrier value flows to the buyer's change. The postage itself travels out of the
   seller's carrier into the buyer's new one, so it stays constant across every resale.
 - ANYONECANPAY means only vin[2] is signed; the buyer freely chooses the pads, funding coins and
+
+### 2.2 Sweeping several listings
+
+SIGHASH_SINGLE pairs the input at index N with the OUTPUT at index N, so a seller's signature is
+only valid at the exact slot they signed for. A listing that signed one slot can only ever be bought
+alone: two sellers both signed for slot 2, only one can have it, and the second signature validates
+against nothing. Five purchases meant five transactions, five fees, and five independent failures.
+
+A listing therefore signs a variant for every slot it might land in, currently 2 to 5, on top of the
+nTime variants section 2.1 already requires. Seller k takes input index 2+k AND output index 2+k,
+which is the single-purchase layout repeated. Everything after the last seller slot (extra carriers,
+market fees, change) is invisible to every SINGLE signature, so the tail is safe to grow.
+
+A variant with no `at` field was signed before slots existed and MUST be read as slot 2 only. Reading
+it as "any slot" hands a buyer a signature that fails at broadcast, after they have paid the fee.
+
   every output except vout[2]. The seller's signature is invariant to all of it (proven by tests,
   including a FIFO simulation across repeated trades and a bloated-carrier heal).
 - The buyer needs at least three spendable coins: two small pads plus funds for the price + fee.

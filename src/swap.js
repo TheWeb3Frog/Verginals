@@ -31,7 +31,22 @@ const {
   SIGHASH_ALL, SIGHASH_SINGLE, SIGHASH_ANYONECANPAY,
 } = require('./vergetx');
 
-const SELLER_INDEX = 2; // the seller's input/output index in the final transaction
+const SELLER_INDEX = 2; // where a lone seller sits: two buyer pads come first
+
+// How many listings one transaction may sweep.
+//
+// SIGHASH_SINGLE pairs the input at index N with the OUTPUT at index N, so a seller's signature is
+// only valid at the exact position they signed for. With one hardcoded position a buyer could take
+// exactly one listing per transaction: two makers both signed for slot 2, only one can have it, and
+// the second signature validates against nothing. Buying five listings meant five transactions,
+// five fees, and five independent ways to fail.
+//
+// So a seller signs for several slots at once, and the buyer uses the one matching where that seller
+// landed. Sellers k sit at 2, 3, 4, 5 in both vin and vout, which is the same layout repeated. Four
+// is a judgement: every extra slot is another signature to make and store in the order book, and a
+// buyer sweeping more than four at a time is rarer than the bytes are cheap.
+const MAX_SWEEP = 4;
+const SWEEP_INDICES = Array.from({ length: MAX_SWEEP }, (_, i) => SELLER_INDEX + i);
 const LISTING_SIGHASH = SIGHASH_SINGLE | SIGHASH_ANYONECANPAY;
 const POSTAGE_UNITS = 100000; // 0.1 XVG: the constant value a Verginal-bearing carrier holds
 
@@ -52,22 +67,22 @@ function p2pkhScript(address, network) {
 }
 
 /** The listing template the seller signs: carrier at SELLER_INDEX, price at the paired output. */
-function listingTemplate(carrier, priceUnits, sellerScript, nTime) {
-  // Two placeholder inputs sit before the carrier so it lands at input index SELLER_INDEX.
-  // Under ANYONECANPAY only vin[SELLER_INDEX] is serialized; under SINGLE the lower outputs
-  // serialize as null and higher ones are dropped, so the placeholders never reach the hash.
+function listingTemplate(carrier, priceUnits, sellerScript, nTime, at = SELLER_INDEX) {
+  // Placeholders sit before the carrier so it lands at input index `at`. Under ANYONECANPAY only
+  // vin[at] is serialized; under SINGLE the lower outputs serialize as null and higher ones are
+  // dropped, so the placeholders never reach the hash and their contents are irrelevant. What DOES
+  // reach the hash is how many of them there are, which is why one signature cannot serve two slots.
+  const pad = (n, make) => Array.from({ length: n }, (_, i) => make(i));
   return {
     version: 1,
     time: nTime,
     locktime: 0,
     vin: [
-      { txid: '00'.repeat(32), vout: 0 },
-      { txid: '00'.repeat(32), vout: 1 },
+      ...pad(at, (i) => ({ txid: '00'.repeat(32), vout: i })),
       { txid: carrier.txid, vout: carrier.vout },
     ],
     vout: [
-      { value: 0, script: Buffer.alloc(0) },
-      { value: 0, script: Buffer.alloc(0) },
+      ...pad(at, () => ({ value: 0, script: Buffer.alloc(0) })),
       { value: priceUnits, script: sellerScript },
     ],
   };
@@ -84,7 +99,7 @@ function listingTemplate(carrier, priceUnits, sellerScript, nTime) {
  * @param {number} [p.time]       transaction nTime (pinned by the signature; defaults to now)
  * @returns a JSON-safe listing object: everything a buyer needs, no private material
  */
-function buildListing({ network, carrier, priceUnits, sellerAddress, sellerKey, time, feeUnits, feeAddress }) {
+function buildListing({ network, carrier, priceUnits, sellerAddress, sellerKey, time, feeUnits, feeAddress, at = SELLER_INDEX }) {
   if (!(priceUnits > 0)) throw new Error('price must be positive');
   const fee = feeUnits || 0;
   const sellerReceive = priceUnits - fee; // the seller signs (and receives) the net of the fee
@@ -92,10 +107,10 @@ function buildListing({ network, carrier, priceUnits, sellerAddress, sellerKey, 
   if (fee > 0 && !feeAddress) throw new Error('a fee needs a fee address');
   const nTime = time == null ? Math.floor(Date.now() / 1000) : time;
   const sellerScript = p2pkhScript(sellerAddress, network);
-  const tx = listingTemplate(carrier, sellerReceive, sellerScript, nTime);
+  const tx = listingTemplate(carrier, sellerReceive, sellerScript, nTime, at);
 
   const carrierScript = bitcoin.payments.p2pkh({ pubkey: Buffer.from(sellerKey.publicKey), network }).output;
-  const sighash = legacySighash(tx, SELLER_INDEX, carrierScript, LISTING_SIGHASH);
+  const sighash = legacySighash(tx, at, carrierScript, LISTING_SIGHASH);
   const priv = Buffer.from(sellerKey.privateKey);
   const sig = Buffer.from(ecc.sign(sighash, priv));
   if (!ecc.verify(sighash, Buffer.from(sellerKey.publicKey), sig)) throw new Error('listing signature self-check failed');
@@ -217,19 +232,90 @@ function addressOfScriptSig(scriptSigHex, network) {
  * and check the SINGLE|ANYONECANPAY signature. Returns { ok, address } where address is the
  * signer's P2PKH address; the caller must confirm it owns the carrier on-chain.
  */
-function verifyListingVariant({ network, carrier, priceUnits, sellerAddress, time, scriptSig, feeUnits }) {
+function verifyListingVariant({ network, carrier, priceUnits, sellerAddress, time, scriptSig, feeUnits, at = SELLER_INDEX }) {
   const parts = bitcoin.script.decompile(Buffer.from(scriptSig, 'hex'));
   if (!parts || parts.length !== 2 || !Buffer.isBuffer(parts[0]) || !Buffer.isBuffer(parts[1])) return { ok: false };
   const pubkey = parts[1];
   const address = (() => { try { return bitcoin.payments.p2pkh({ pubkey, network }).address; } catch { return null; } })();
   if (!address) return { ok: false };
   const sellerReceive = priceUnits - (feeUnits || 0); // the seller signed the net, not the gross price
-  const tx = listingTemplate(carrier, sellerReceive, p2pkhScript(sellerAddress, network), time);
+  const tx = listingTemplate(carrier, sellerReceive, p2pkhScript(sellerAddress, network), time, at);
   const carrierScript = bitcoin.payments.p2pkh({ pubkey, network }).output;
-  const sighash = legacySighash(tx, SELLER_INDEX, carrierScript, LISTING_SIGHASH);
+  const sighash = legacySighash(tx, at, carrierScript, LISTING_SIGHASH);
   let sig;
   try { sig = bitcoin.script.signature.decode(parts[0]).signature; } catch { return { ok: false }; }
   return { ok: ecc.verify(sighash, pubkey, sig), address };
+}
+
+/**
+ * Settle SEVERAL listings in one transaction.
+ *
+ * This is the whole reason slots exist. Seller k takes input index 2+k and output index 2+k, which
+ * is the single-purchase layout repeated, so every seller's SIGHASH_SINGLE signature pairs with the
+ * output that pays them and nobody else's. The buyer pays two pads, funds the lot, and receives one
+ * carrier per purchase after the sellers.
+ *
+ * Each listing must have been picked at its own slot (pickVariant with `at`), because a signature
+ * made for slot 2 is worthless at slot 3 and would only be discovered at broadcast, after fees.
+ *
+ * @param {Array} listings  single-variant listings, in the order they will be settled
+ */
+function completeSweep({ network, listings, pads, funds, buyerAddress, buyerKey, feeUnits, carrierOffsets, postage }) {
+  if (!Array.isArray(listings) || !listings.length) throw new Error('nothing to sweep');
+  if (listings.length > MAX_SWEEP) throw new Error(`a sweep takes at most ${MAX_SWEEP} listings`);
+  if (!Array.isArray(pads) || pads.length !== SELLER_INDEX) {
+    throw new Error(`a swap needs exactly ${SELLER_INDEX} small pad coins`);
+  }
+  listings.forEach((l, k) => {
+    const want = SELLER_INDEX + k;
+    const at = l.at == null ? SELLER_INDEX : l.at;
+    if (at !== want) throw new Error(`listing ${k} was signed for slot ${at}, not ${want}`);
+  });
+
+  const post = postage == null ? POSTAGE_UNITS : postage;
+  const buyerScript = p2pkhScript(buyerAddress, network);
+  const offsets = carrierOffsets || listings.map(() => 0);
+
+  const padTotal = pads.reduce((s, u) => s + u.value, 0);
+  const fundsTotal = funds.reduce((s, u) => s + u.value, 0);
+  const carriersIn = listings.reduce((s, l) => s + l.carrier.value, 0);
+  const priceTotal = listings.reduce((s, l) => s + l.priceUnits, 0);
+  const gTotal = offsets.reduce((s, g) => s + (g || 0), 0);
+
+  listings.forEach((l, k) => {
+    if (l.carrier.value - (offsets[k] || 0) < post) {
+      throw new Error(`carrier ${k} is too small to reset the inscription onto a fresh postage`);
+    }
+  });
+
+  // vout[0] pads out, vout[1] is the buyer's first carrier, then one payment per seller in slot
+  // order, then the remaining carriers, the market fees and the change. Everything after the last
+  // seller slot is invisible to every SINGLE signature, which is what makes the tail safe to grow.
+  const vout = [
+    { value: padTotal + gTotal, script: buyerScript },
+    { value: post, script: buyerScript },
+  ];
+  for (const l of listings) {
+    vout.push({ value: l.priceUnits - (l.feeUnits || 0), script: p2pkhScript(l.sellerAddress, network) });
+  }
+  for (let k = 1; k < listings.length; k++) vout.push({ value: post, script: buyerScript });
+  for (const l of listings) {
+    if (l.feeUnits > 0) vout.push({ value: l.feeUnits, script: p2pkhScript(l.feeAddress, network) });
+  }
+
+  const totalIn = padTotal + carriersIn + fundsTotal;
+  const spent = vout.reduce((s, o) => s + o.value, 0) + feeUnits;
+  const change = totalIn - spent;
+  if (change < 0) throw new Error('buyer funds do not cover the sweep');
+  if (change > 0) vout.push({ value: change, script: buyerScript });
+
+  const vin = [
+    ...pads.map((u) => ({ txid: u.txid, vout: u.vout })),
+    ...listings.map((l) => ({ txid: l.carrier.txid, vout: l.carrier.vout, script: Buffer.from(l.scriptSig, 'hex') })),
+    ...funds.map((u) => ({ txid: u.txid, vout: u.vout })),
+  ];
+
+  return { vin, vout, sellerSlots: listings.map((_, k) => SELLER_INDEX + k) };
 }
 
 /**
@@ -268,18 +354,27 @@ function verifyBid({ network, bid }) {
 const DEFAULT_SCHEDULE = [0, 900, 3600, 14400, 43200, 86400, 172800, 345600, 604800, 1209600, 2592000];
 
 /**
- * Sign a full listing: the same sale re-signed at each scheduled nTime, so a buyer can later
- * pick a variant valid for the age of their coins (spec 2.1). Returns one listing object whose
- * `variants` array holds { time, scriptSig }; everything else (carrier, price) is shared.
+ * Sign a full listing: the same sale re-signed at each scheduled nTime AND at each slot a seller
+ * might occupy, so a buyer can pick a variant valid for the age of their coins (spec 2.1) and for
+ * where this seller landed in a sweep. Returns one listing whose `variants` array holds
+ * { time, at, scriptSig }; everything else (carrier, price) is shared.
+ *
+ * Two axes, and both are forced. nTime is in Verge's sighash, so a listing that signed one timestamp
+ * would expire the moment it was made. The slot is in the sighash too, through the number of
+ * placeholders before the carrier, so a listing that signed one slot could only ever be bought
+ * alone. Neither is a choice anybody made; they are what SIGHASH_SINGLE commits to.
  */
-function buildListingSchedule({ network, carrier, priceUnits, sellerAddress, sellerKey, startTime, offsets, feeUnits, feeAddress }) {
+function buildListingSchedule({ network, carrier, priceUnits, sellerAddress, sellerKey, startTime, offsets, feeUnits, feeAddress, slots = SWEEP_INDICES }) {
   const t0 = startTime == null ? Math.floor(Date.now() / 1000) : startTime;
   const sched = offsets || DEFAULT_SCHEDULE;
   const fee = feeUnits || 0;
-  const variants = sched.map((off) => {
-    const l = buildListing({ network, carrier, priceUnits, sellerAddress, sellerKey, time: t0 + off, feeUnits: fee, feeAddress });
-    return { time: l.time, scriptSig: l.scriptSig };
-  });
+  const variants = [];
+  for (const off of sched) {
+    for (const at of slots) {
+      const l = buildListing({ network, carrier, priceUnits, sellerAddress, sellerKey, time: t0 + off, feeUnits: fee, feeAddress, at });
+      variants.push({ time: l.time, at, scriptSig: l.scriptSig });
+    }
+  }
   return {
     kind: 'verginals-listing-v2',
     carrier: { txid: carrier.txid, vout: carrier.vout, value: carrier.value },
@@ -300,9 +395,11 @@ function buildListingSchedule({ network, carrier, priceUnits, sellerAddress, sel
  * minable (time <= now) and not older than the buyer's newest coin (time >= maxCoinTime, so R1
  * holds). Returns a single-variant listing ready for completeListing, or null if none fits yet.
  */
-function pickVariant(listing, { now, maxCoinTime }) {
+function pickVariant(listing, { now, maxCoinTime, at = SELLER_INDEX }) {
+  // A variant with no `at` was signed before slots existed and can only ever be slot 2. Reading it
+  // as "any slot" would hand a buyer a signature that fails at broadcast, after they paid the fee.
   const usable = listing.variants
-    .filter((v) => v.time <= now && v.time >= maxCoinTime)
+    .filter((v) => v.time <= now && v.time >= maxCoinTime && (v.at == null ? SELLER_INDEX : v.at) === at)
     .sort((a, b) => b.time - a.time);
   if (!usable.length) return null;
   const v = usable[0];
@@ -316,6 +413,7 @@ function pickVariant(listing, { now, maxCoinTime }) {
     time: v.time,
     version: listing.version,
     locktime: listing.locktime,
+    at: v.at == null ? SELLER_INDEX : v.at,
     scriptSig: v.scriptSig,
   };
 }
@@ -420,7 +518,8 @@ function acceptBid({ network, bid, sellerKey }) {
 }
 
 module.exports = {
-  buildListing, completeListing, buildListingSchedule, pickVariant, buildBid, acceptBid,
+  MAX_SWEEP, SWEEP_INDICES,
+  buildListing, completeListing, completeSweep, buildListingSchedule, pickVariant, buildBid, acceptBid,
   verifyListingVariant, verifyBid, addressOfScriptSig, feeFor,
   SELLER_INDEX, LISTING_SIGHASH, POSTAGE_UNITS, DEFAULT_SCHEDULE,
 };

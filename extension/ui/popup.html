@@ -89,6 +89,7 @@
       <nav class="tabnav">
         <button class="tabbtn active" data-view="xvg">XVG</button>
         <button class="tabbtn" data-view="verginals">Verginals <span id="inscCount" class="count"></span></button>
+        <button class="tabbtn" data-view="runes">Runes <span id="runeCount" class="count"></span></button>
         <button class="tabbtn" data-view="history">Activity</button>
       </nav>
 
@@ -116,6 +117,13 @@
         <ul id="inscList" class="insc-list"><li class="muted">Loading...</li></ul>
       </div>
 
+      <!-- Runes view. Every balance here was checked against the root published on chain, which is
+           the one thing no other token wallet can say, so the badge is not decoration. -->
+      <div id="view-runes" class="view" hidden>
+        <ul id="runeList" class="rune-list"><li class="muted">Loading...</li></ul>
+        <p id="runeUnverified" class="warn" hidden></p>
+      </div>
+
       <!-- Activity view -->
       <div id="view-history" class="view" hidden>
         <ul id="histList" class="hist-list"><li class="muted">Loading...</li></ul>
@@ -124,6 +132,23 @@
       <button id="refreshBtn" class="ghost block">Refresh</button>
     </section>
   </main>
+
+  <!-- ===== Send a rune ===== -->
+  <div id="runeSend" class="overlay" hidden>
+    <div class="sheet">
+      <h3 id="runeSendTitle">Send</h3>
+      <p id="runeSendHave" class="muted"></p>
+      <label class="lbl" for="runeTo">To</label>
+      <input id="runeTo" type="text" placeholder="D..." spellcheck="false" autocomplete="off">
+      <label class="lbl" for="runeAmount">Amount</label>
+      <input id="runeAmount" type="text" inputmode="decimal" placeholder="0">
+      <p id="runeSendErr" class="err" hidden></p>
+      <div class="row">
+        <button id="runeSendCancel" class="ghost">Cancel</button>
+        <button id="runeSendGo">Send</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ===== Settings sheet ===== -->
   <div id="settings" class="overlay" hidden>

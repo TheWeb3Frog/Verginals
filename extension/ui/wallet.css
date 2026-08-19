@@ -261,3 +261,38 @@ button.danger:disabled { opacity: .4; cursor: default; }
 .danger-solid { background: var(--danger); color: #fff; }
 .danger-solid:hover { filter: brightness(1.05); }
 .danger-solid:disabled { opacity: .5; cursor: default; filter: none; }
+
+/* --- Verge Runes ------------------------------------------------------------------------------
+   One row per rune: what it is on the left, how much on the right, and the word that matters
+   underneath the number. "verified" is not decoration: this balance was checked against the merkle
+   root published on chain rather than taken from an indexer on trust, and no other token wallet can
+   say it. */
+
+.rune-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.rune-row {
+  display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 12px;
+  padding: 12px 13px; border: 1px solid var(--line, #2a2a36); border-radius: 11px;
+  background: var(--panel, #1e1e28);
+}
+.rune-id { display: grid; grid-template-columns: auto 1fr; column-gap: 9px; align-items: baseline; min-width: 0; }
+.rune-sym { grid-row: 1 / span 2; font-size: 21px; line-height: 1; }
+.rune-id b { font-size: 13.5px; font-weight: 650; overflow-wrap: anywhere; }
+.rune-ref {
+  font: 10.5px/1.3 ui-monospace, Menlo, monospace; color: var(--muted, #8ea0b2);
+  font-variant-numeric: tabular-nums;
+}
+.rune-amt { text-align: right; display: grid; gap: 2px; }
+.rune-amt b { font: 600 14px/1.2 ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+.rune-proof {
+  font: 9.5px/1 ui-monospace, Menlo, monospace; letter-spacing: .7px; text-transform: uppercase;
+  color: #38d39f;
+}
+.rune-row .small { padding: 7px 12px; font-size: 12px; }
+
+/* Coins the wallet could not verify are REPORTED, never rounded to zero. Telling somebody they own
+   nothing when the indexer was merely unreachable is the worst lie a wallet can tell. */
+#runeUnverified {
+  margin: 12px 0 0; padding: 10px 12px; border-radius: 9px;
+  border-left: 3px solid #ffc93c; background: #241d0d; color: #ffd97a;
+  font-size: 11.5px; line-height: 1.55;
+}

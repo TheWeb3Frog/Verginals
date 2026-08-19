@@ -231,3 +231,77 @@ export function selectForRuneTransfer(utxos, runeRef, amount, { targetValue = 0,
   }
   return { inputs, inputValue: value, gathered: got, alsoCarried };
 }
+
+// --- writing an edict ------------------------------------------------------------------------------
+//
+// Ported from src/runes/codec.js, which is the reference. extension/test-runes.mjs compares the two
+// byte for byte: a wallet that encoded an edict slightly differently would move somebody's coins to
+// an output no indexer agrees with, and the loss would be silent.
+
+// MAGIC_0/MAGIC_1, VERSION and MAX_PAYLOAD are already declared at the top of this file by the
+// decoder. Redeclaring them here would be two sources for one constant, which is how a decoder and
+// an encoder start disagreeing about the same bytes.
+const MIN_RUNE_HEIGHT = 3;   // below this an edict would decode as a control message
+
+function encodeVarint(n) {
+  if (!Number.isInteger(n) || n < 0) throw new Error('varint must be a non-negative integer');
+  if (n > Number.MAX_SAFE_INTEGER) throw new Error('varint exceeds the safe integer range');
+  const out = [];
+  let v = n;
+  do {
+    let byte = v % 128;
+    v = Math.floor(v / 128);
+    if (v > 0) byte |= 0x80;
+    out.push(byte);
+  } while (v > 0);
+  return Uint8Array.from(out);
+}
+
+function cat(...arrs) {
+  const total = arrs.reduce((s, a) => s + a.length, 0);
+  const out = new Uint8Array(total);
+  let o = 0;
+  for (const a of arrs) { out.set(a, o); o += a.length; }
+  return out;
+}
+
+/** `<height>:<txIndex>` back into its two numbers. Never arithmetic on the pair. */
+export function parseRef(ref) {
+  const m = /^(0|[1-9][0-9]*):(0|[1-9][0-9]*)$/.exec(String(ref || ''));
+  if (!m) return null;
+  return { height: Number(m[1]), txIndex: Number(m[2]) };
+}
+
+/** The OP_RETURN body for a set of transfers. Throws rather than truncating past 83 bytes. */
+export function encodeEdicts(edicts) {
+  if (!Array.isArray(edicts) || edicts.length === 0) throw new Error('at least one edict is required');
+  const withRef = edicts.map((e) => {
+    const ref = parseRef(e.runeRef);
+    if (!ref) throw new Error(`runeRef must be "<height>:<txIndex>", got ${JSON.stringify(e.runeRef)}`);
+    if (!Number.isInteger(e.output) || e.output < 0) throw new Error('output must be a non-negative integer');
+    return { ...ref, amount: e.amount, output: e.output };
+  });
+  withRef.sort((a, b) => a.height - b.height || a.txIndex - b.txIndex);
+  if (withRef[0].height < MIN_RUNE_HEIGHT) {
+    throw new Error(`rune heights below ${MIN_RUNE_HEIGHT} are reserved`);
+  }
+  const parts = [];
+  let prevHeight = 0;
+  withRef.forEach((e, i) => {
+    const last = i === withRef.length - 1 ? 1 : 0;
+    parts.push(encodeVarint(e.height - prevHeight), encodeVarint(e.txIndex),
+      encodeVarint(e.amount), encodeVarint(e.output), encodeVarint(last));
+    prevHeight = e.height;
+  });
+  const payload = cat(Uint8Array.from([MAGIC_0, MAGIC_1, VERSION]), cat(...parts));
+  if (payload.length > MAX_PAYLOAD) {
+    throw new Error(`payload is ${payload.length} bytes, over the ${MAX_PAYLOAD}-byte OP_RETURN limit`);
+  }
+  return payload;
+}
+
+/** `OP_RETURN <push payload>`, the script an edict travels in. */
+export function edictScript(payload) {
+  if (payload.length > 75) throw new Error('payload needs a longer push than an edict should ever be');
+  return cat(Uint8Array.from([0x6a, payload.length]), payload);
+}

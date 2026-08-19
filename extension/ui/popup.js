@@ -157,8 +157,10 @@ document.querySelectorAll('.tabbtn').forEach((b) => {
     document.querySelectorAll('.tabbtn').forEach((x) => x.classList.toggle('active', x === b));
     $('view-xvg').hidden = b.dataset.view !== 'xvg';
     $('view-verginals').hidden = b.dataset.view !== 'verginals';
+    $('view-runes').hidden = b.dataset.view !== 'runes';
     $('view-history').hidden = b.dataset.view !== 'history';
     if (b.dataset.view === 'history') renderHistory(); // lazy: only hit ElectrumX when opened
+    if (b.dataset.view === 'runes') renderRunes();
   });
 });
 // send/receive segmented control
@@ -234,6 +236,124 @@ async function renderHistory() {
     list.innerHTML = `<li class="muted">${e.message}</li>`;
   }
 }
+
+// --- Verge Runes -----------------------------------------------------------------------------------
+//
+// Every balance shown here was checked against the merkle root published on chain, which is the one
+// thing no other token wallet can say, so "verified" is a fact and not a badge. What matters just as
+// much is the line underneath: coins this wallet could NOT verify are reported, never rounded to
+// zero. Telling somebody they own nothing when the indexer was merely unreachable is the worst
+// possible lie for a wallet to tell.
+
+let runeState = { runes: [], undetermined: 0 };
+
+async function renderRunes() {
+  const list = $('runeList');
+  const warn = $('runeUnverified');
+  list.innerHTML = '<li class="muted">Checking against the published root...</li>';
+  warn.hidden = true;
+
+  let res;
+  try { res = await ui('getRunes'); }
+  catch (e) {
+    list.innerHTML = '<li class="muted">Could not reach the index. Your coins are untouched.</li>';
+    return;
+  }
+  runeState = res || { runes: [], undetermined: 0 };
+  $('runeCount').textContent = runeState.runes.length ? String(runeState.runes.length) : '';
+
+  if (runeState.undetermined > 0) {
+    warn.hidden = false;
+    warn.textContent = `${runeState.undetermined} coin(s) could not be verified against the published `
+      + 'root, so anything they carry is not counted here. Nothing is lost: this is the wallet '
+      + 'refusing to show a number it cannot prove.';
+  }
+
+  if (!runeState.runes.length) {
+    list.innerHTML = '<li class="muted">No runes in this wallet yet.</li>';
+    return;
+  }
+
+  list.innerHTML = '';
+  for (const r of runeState.runes) {
+    const li = document.createElement('li');
+    li.className = 'rune-row';
+
+    const left = document.createElement('div');
+    left.className = 'rune-id';
+    const sym = document.createElement('span');
+    sym.className = 'rune-sym';
+    sym.textContent = r.symbol;
+    const name = document.createElement('b');
+    name.textContent = r.display;
+    const ref = document.createElement('span');
+    ref.className = 'rune-ref';
+    ref.textContent = r.ref;
+    left.append(sym, name, ref);
+
+    const right = document.createElement('div');
+    right.className = 'rune-amt';
+    const amt = document.createElement('b');
+    amt.textContent = r.amount.toLocaleString(undefined, { maximumFractionDigits: r.divisibility });
+    const proof = document.createElement('span');
+    proof.className = 'rune-proof';
+    proof.textContent = 'verified';
+    proof.title = 'This balance was checked against the merkle root published on chain, not taken '
+      + 'from an indexer on trust.';
+    right.append(amt, proof);
+
+    const send = document.createElement('button');
+    send.className = 'ghost small';
+    send.textContent = 'Send';
+    send.addEventListener('click', () => openRuneSend(r));
+
+    li.append(left, right, send);
+    list.append(li);
+  }
+}
+
+let sendingRune = null;
+
+function openRuneSend(r) {
+  sendingRune = r;
+  $('runeSendTitle').textContent = `Send ${r.display}`;
+  $('runeSendHave').textContent = `You hold ${r.amount.toLocaleString(undefined, { maximumFractionDigits: r.divisibility })}`;
+  $('runeTo').value = '';
+  $('runeAmount').value = '';
+  $('runeSendErr').hidden = true;
+  $('runeSend').hidden = false;
+}
+
+$('runeSendCancel').addEventListener('click', () => { $('runeSend').hidden = true; });
+
+$('runeSendGo').addEventListener('click', async () => {
+  const err = $('runeSendErr');
+  const go = $('runeSendGo');
+  err.hidden = true;
+  if (!sendingRune) return;
+
+  const to = $('runeTo').value.trim();
+  const typed = Number($('runeAmount').value.replace(/[\s,]/g, ''));
+  // Whole units on the wire, whole coins on screen. The same mismatch that made the etch form say
+  // 210,000 when somebody typed 21,000,000 lives here too, and it moves real balances.
+  const units = Math.round(typed * (10 ** sendingRune.divisibility));
+
+  if (!to) { err.textContent = 'Where should it go?'; err.hidden = false; return; }
+  if (!Number.isFinite(typed) || typed <= 0) { err.textContent = 'How much?'; err.hidden = false; return; }
+  if (units > sendingRune.units) { err.textContent = 'That is more than you hold.'; err.hidden = false; return; }
+
+  go.disabled = true; go.textContent = 'Sending...';
+  try {
+    await ui('sendRune', { runeRef: sendingRune.ref, amount: units, to });
+    $('runeSend').hidden = true;
+    await renderRunes();
+  } catch (e) {
+    err.textContent = e.message || 'That did not go through.';
+    err.hidden = false;
+  } finally {
+    go.disabled = false; go.textContent = 'Send';
+  }
+});
 
 function renderInscriptions(inscriptions) {
   const list = $('inscList');

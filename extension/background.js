@@ -169,6 +169,17 @@ async function handleRpc(method, params, origin, sender) {
       const sig = await w.signMessage(params.message);
       return { signature: sig, address: w.address };
     }
+    // --- Verge Runes: balances and transfers ------------------------------------------------------
+    case 'getRunes': {
+      await requireConnected(origin, w);
+      return w.getRunesForDisplay();
+    }
+    case 'sendRune': {
+      await requireConnected(origin, w);
+      await requestApproval({ type: 'sendRune', origin, params }, sender);
+      return w.sendRune(params || {});
+    }
+
     // --- Verge Runes: the locked ticker price ---------------------------------------------------
     //
     // The lock key is derived from this wallet's seed at its own hardened account, so an etcher has
@@ -312,6 +323,12 @@ async function handleUi(action, payload) {
     case 'getHistory': { return { history: await w.getHistory() }; }
     case 'transfer': { return w.transferInscription({ carrierOutpoint: payload.carrierOutpoint, toAddress: payload.to }); }
     case 'send': { return w.send({ toAddress: payload.to, amount: payload.amount }); }
+    // The popup's own calls, separate from the provider's. A page asking through window.verge goes
+    // through requireConnected and an approval prompt; the popup IS the wallet and needs neither.
+    case 'getRunes': { return w.getRunesForDisplay(); }
+    case 'sendRune': {
+      return w.sendRune({ runeRef: payload.runeRef, amount: payload.amount, to: payload.to });
+    }
     default: throw new Error('unknown ui action: ' + action);
   }
 }

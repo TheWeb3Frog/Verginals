@@ -17,7 +17,7 @@ import * as bip32 from './bip32.js';
 import { ElectrumClient } from './electrum.js';
 import { InscriptionDetector } from './inscriptions.js';
 import * as swap from './swap.js';
-import { verifiedBalances, spendableForPayment } from './runes.js';
+import { verifiedBalances, spendableForPayment, selectForRuneTransfer, encodeEdicts, edictScript, DUST_UNITS } from './runes.js';
 
 const DEFAULT_API = 'https://verginals.com';
 
@@ -902,6 +902,93 @@ export class Wallet {
       for (const [ref, amt] of Object.entries(u.runes)) totals[ref] = (totals[ref] || 0) + amt;
     }
     return { totals, undetermined };
+  }
+
+  /**
+   * The same balances, ready to render: ticker, symbol, decimals and whether the amount was PROVEN.
+   *
+   * `undetermined` is not a rounding error and must reach the screen. It counts coins whose rune
+   * content this wallet could not verify against the published root, because the indexer was
+   * unreachable or served something it could not prove. A wallet that quietly showed those as zero
+   * would be telling somebody they own nothing when they may own a great deal.
+   */
+  async getRunesForDisplay() {
+    const { totals, undetermined } = await this.getRuneBalances();
+    const refs = Object.keys(totals);
+    if (!refs.length) return { runes: [], undetermined };
+
+    // The definitions travel with the proofs, so one call answers both.
+    let defs = new Map();
+    try {
+      const utxos = await this.getUtxos();
+      const answer = await this._post('/api/runes/balances', { outpoints: utxos.map((u) => `${u.txid}:${u.vout}`) });
+      for (const d of (answer && answer.runes) || []) defs.set(d.ref || d.runeRef, d);
+    } catch { /* names are cosmetic; a balance without one is still a balance */ }
+
+    const runes = refs.map((ref) => {
+      const d = defs.get(ref) || {};
+      const div = Number.isInteger(d.divisibility) ? d.divisibility : 0;
+      return {
+        ref,
+        ticker: d.ticker || null,
+        display: d.display || d.ticker || ref,
+        symbol: d.symbol || '\u00a4',
+        divisibility: div,
+        units: totals[ref],
+        amount: totals[ref] / (10 ** div),
+        verified: true,
+      };
+    });
+    runes.sort((a, b) => String(a.display).localeCompare(String(b.display)));
+    return { runes, undetermined };
+  }
+
+  /**
+   * Move a rune to somebody else.
+   *
+   * The layout is the one the indexer reads: output 0 is the OP_RETURN carrying the edict, output 1
+   * is the recipient's carrier, output 2 is the change carrier that keeps whatever was not sent.
+   * Coins are chosen by selectForRuneTransfer, which never picks a coin carrying a DIFFERENT rune:
+   * an unnamed rune on an input goes to the first non-OP_RETURN output by protocol default, so a
+   * careless selection would hand somebody else's coin away with the one being sent.
+   */
+  async sendRune({ runeRef, amount, to, feeUnits }) {
+    if (!to) throw new Error('a destination address is required');
+    const units = Number(amount);
+    if (!Number.isInteger(units) || units <= 0) throw new Error('the amount must be a whole number of units above zero');
+
+    const utxos = await this.getUtxos();
+    if (utxos.some((u) => u.runes === undefined)) {
+      throw new Error('some coins could not be verified against the published root, so nothing was moved');
+    }
+    const fee = feeUnits || DUST_UNITS * 2;
+    // selectForRuneTransfer THROWS on a short balance rather than returning empty, which is the
+    // right shape: a caller that forgot to check a return value would otherwise build and broadcast
+    // a transaction that moves nothing. Its message already says need and hold, so it is passed on.
+    let sel;
+    try {
+      sel = selectForRuneTransfer(utxos, runeRef, units, { targetValue: DUST_UNITS, fee });
+    } catch (e) {
+      throw new Error(e && e.message ? e.message : 'not enough of that rune to send');
+    }
+    if (!sel.inputs || !sel.inputs.length) throw new Error('no coins could be selected for this transfer');
+
+    const payload = encodeEdicts([{ runeRef, amount: units, output: 1 }]);
+    const outputs = [
+      { script: edictScript(payload), value: 0 },
+      { address: to, value: DUST_UNITS },
+    ];
+    const change = sel.inputs.reduce((s, u) => s + u.value, 0) - DUST_UNITS - fee;
+    if (change < DUST_UNITS) throw new Error('not enough XVG left to keep a carrier for the change');
+    outputs.push({ address: this.address, value: change });
+
+    const tx = await verge.buildAndSignP2PKH({
+      inputs: sel.inputs.map((u) => ({ ...u, privateKey: this._priv })),
+      outputs,
+      time: Math.floor(Date.now() / 1000),
+    });
+    const txid = await this._post('/api/broadcast', { hex: tx.hex });
+    return { txid: (txid && txid.txid) || txid, hex: tx.hex, sent: units, runeRef };
   }
 
   /**

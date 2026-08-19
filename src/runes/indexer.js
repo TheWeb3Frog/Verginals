@@ -221,7 +221,7 @@ function normaliseTerms(t) {
 
 function normaliseEtching(e, ref) {
   const ticker = String(e.ticker || '').toUpperCase();
-  if (!/^[A-Z0-9]{1,26}$/.test(ticker)) return null;
+  if (!/^[A-Z]{1,26}$/.test(ticker)) return null;
   const divisibility = Number(e.divisibility || 0);
   if (!Number.isInteger(divisibility) || divisibility < 0 || divisibility > 6) return null;
   const supply = Number(e.supply || 0);

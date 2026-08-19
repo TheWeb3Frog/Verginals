@@ -35,7 +35,11 @@ const MAX_TICKER_LENGTH = 26;
 /** Cost of a ticker in atomic units. Throws on a length the protocol does not allow. */
 function priceOf(ticker) {
   const t = String(ticker || '').toUpperCase();
-  if (!/^[A-Z0-9]{1,26}$/.test(t)) throw new Error('ticker must be 1..26 characters of A-Z0-9');
+  // Letters only, as Bitcoin Runes does. Digits were allowed and they open a homoglyph gap: B1TCOIN
+  // and BITCOIN are two different names that look alike enough to fool somebody scanning a list, and
+  // 0/O and 1/I are the classic pair. A ticker is short and permanent, so the cheap fix is to not
+  // have the characters at all.
+  if (!/^[A-Z]{1,26}$/.test(t)) throw new Error('ticker must be 1..26 letters, A-Z');
   const xvg = t.length >= 12 ? PRICE_LONG_XVG : PRICE_XVG[t.length];
   return Math.round(xvg * COIN);
 }
@@ -135,7 +139,12 @@ function lockScriptFor(lock) {
  * @returns {{ ok, owed, locked, reason? }}
  */
 function isLocked(tx, ticker, lock) {
-  const owed = priceOf(ticker);
+  // Fail closed, never throw. This runs inside the block scanner on every etching anybody
+  // broadcasts, so an exception here is not a rejected coin, it is indexing stopped for everyone
+  // until somebody notices. A malformed ticker is simply an etching that did not pay.
+  let owed;
+  try { owed = priceOf(ticker); }
+  catch (e) { return { ok: false, owed: 0, locked: 0, reason: 'the ticker is not a legal name: ' + e.message }; }
   const script = lockScriptFor(lock);
   if (!script) return { ok: false, owed, locked: 0, reason: 'no readable price lock in the etching' };
 
@@ -179,7 +188,7 @@ const SPACER_CHAR = '\u2022'; // BULLET
  * Spacers are DISPLAY ONLY, and that is the whole design.
  *
  * `x` is a bitfield in the etching: bit i set means "render a separator after character i". The
- * ticker itself stays A-Z0-9, so DOGGOTOTHEMOON, DOG(bullet)GO(bullet)TO(bullet)THE(bullet)MOON and
+ * ticker itself stays A-Z, so DOGGOTOTHEMOON, DOG(bullet)GO(bullet)TO(bullet)THE(bullet)MOON and
  * DOGGO(bullet)TOTHEMOON are one rune, not three.
  *
  * That collision is the point rather than a limitation. If spacing made a new name, every desirable

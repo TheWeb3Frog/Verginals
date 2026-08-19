@@ -84,7 +84,7 @@ supply = N, divisibility = d   -> a fungible token
 
 | Field | Key | Type | Notes |
 |---|---|---|---|
-| ticker | `t` | text, 1..26 | uppercase `A-Z0-9`, unique, see §7 |
+| ticker | `t` | text, 1..26 | uppercase `A-Z` only, unique, see §7 |
 | symbol | `y` | text, exactly 1 character | what a wallet shows beside an amount, see §7.3 |
 | divisibility | `d` | uint 0..6 | capped by COIN = 1e6 |
 | supply cap | `s` | uint | total that may ever exist, in atomic units |
@@ -353,7 +353,7 @@ unique, case-folded to uppercase, and permanent.
 
 ### 7.1 Display spacers
 
-A ticker is `A-Z0-9`, and that alone makes for flat names. Runes solved this with spacers, and the
+A ticker is `A-Z`, and that alone makes for flat names. Runes solved this with spacers, and the
 same trick works here for a few bytes.
 
 The etching may carry `x`, a bitfield: **bit `i` set means render a separator after character `i`**.

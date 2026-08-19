@@ -108,7 +108,7 @@ function validTerms(t) {
 /** Spec §2.1 validity. Anything failing this is not a rune. */
 function validDefinition(e) {
   const ticker = String(e.ticker || '').toUpperCase();
-  if (!/^[A-Z0-9]{1,26}$/.test(ticker)) return null;
+  if (!/^[A-Z]{1,26}$/.test(ticker)) return null;
   const d = Number(e.divisibility || 0);
   const s = Number(e.supply || 0);
   const p = Number(e.premine || 0);

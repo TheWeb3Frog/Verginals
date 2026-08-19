@@ -145,7 +145,7 @@ function buildEtch(rune, recipient, opts = {}) {
   // PRICE are the bare name, so both are computed from it and the mask rides along as `x`.
   const typed = String(rune.ticker || '');
   const ticker = tickers.bareTicker(typed);
-  if (!/^[A-Z0-9]{1,26}$/.test(ticker)) throw new Error('ticker must be 1..26 characters of A-Z0-9');
+  if (!/^[A-Z]{1,26}$/.test(ticker)) throw new Error('ticker must be 1..26 letters, A-Z');
   const spacers = tickers.normalizeSpacers(ticker, rune.spacers != null
     ? Number(rune.spacers)
     : tickers.spacersFromDisplay(typed));

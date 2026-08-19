@@ -202,4 +202,24 @@ test('no mask means no separator, and the bare name round-trips', () => {
   assert.ok(!displayTicker('WRAITH', 0).includes(SPACER_CHAR));
 });
 
+
+test('a ticker is letters only, and a digit one is ignored rather than fatal', () => {
+  // Digits used to be legal and the rule lived in FOUR files. Three were updated and the suite
+  // stayed green, because the harness only ever generated legal names. The stale one was in the
+  // indexer, and the result was worse than a divergence: priceOf threw inside the block scanner,
+  // so anybody could have broadcast one etching and stopped indexing for everyone.
+  assert.throws(() => priceOf('B1TCOIN'), /letters/);
+  const r = isLocked({ outputs: [], time: 1 }, 'B1TCOIN', { t: 2_000_000_000, k: KEY });
+  assert.strictEqual(r.ok, false, 'it does not pay');
+  assert.match(r.reason, /not a legal name/);
+});
+
+test('isLocked never throws, whatever it is handed', () => {
+  // It is the payment check and it runs on every etching in every block. An exception here is not a
+  // rejected coin, it is indexing stopped until somebody notices.
+  for (const bad of ['', '   ', 'lowercase', 'B1TCOIN', 'X'.repeat(99), null, undefined, 123, {}]) {
+    assert.doesNotThrow(() => isLocked({ outputs: [], time: 1 }, bad, { t: 2_000_000_000, k: KEY }), String(bad));
+  }
+});
+
 console.log('\nrunes tickers: ' + passed + ' passed');

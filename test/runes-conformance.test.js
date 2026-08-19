@@ -123,7 +123,10 @@ function randomHistory(seed, length = 40) {
       // pair (height, txIndex), and a history that only ever etched at index 1 could never have
       // caught the packing that made block N transaction 1000 collide with block N+1 transaction 0.
       const txIndex = pick([0, 1, 2, 7, 999, 1000, 1001, 40000]);
-      const ticker = 'T' + n;
+      // Letters only since tickers dropped digits. The counter is spelled out in letters so each
+      // history still gets a unique name, and so this harness keeps exercising a legal ticker
+      // rather than one the builder would now refuse before either implementation saw it.
+      const ticker = 'T' + String(n).split('').map((d) => 'ABCDEFGHIJ'[Number(d)]).join('');
       const supply = 1000 + Math.floor(rnd() * 100000);
       const premine = Math.floor(rnd() * supply);
       const etching = { ticker, name: ticker, divisibility: Math.floor(rnd() * 7), supply, premine };

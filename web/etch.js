@@ -58,24 +58,41 @@ function clampTicker(typed) {
   return out.replace(new RegExp(SEP + '+$'), '');
 }
 
-const tickerInput = $('#et-ticker');
-let armed = false; // a space arms the next gap; the bullet appears with the character after it
+/**
+ * The same trim, but keeping a trailing separator, because somebody is still typing and has just
+ * asked to see one. Nothing downstream reads this: the card, the price and the etching all go
+ * through clampTicker, which drops it.
+ */
+function clampTyping(typed) {
+  const trailing = typed.endsWith(SEP);
+  const body = clampTicker(trailing ? typed.slice(0, -1) : typed);
+  return trailing && bare(body).length > 0 && bare(body).length < MAX_NAME ? body + SEP : body;
+}
 
+const tickerInput = $('#et-ticker');
+
+// Space puts the separator in AT ONCE, rather than arming it and waiting for the next letter. The
+// old behaviour was correct and felt broken: you pressed space and the field did not move, so you
+// pressed it again. A separator is display only and costs nothing, so showing it the instant it is
+// asked for is free.
+//
+// It cannot open a name and it cannot double. It CAN sit at the end while somebody is still typing,
+// because that is the moment they need to see it; every reader below strips a trailing one, so it
+// never reaches the card, the price, or the chain.
 tickerInput.addEventListener('keydown', (e) => {
-  if (e.key === ' ' || e.code === 'Space') {
-    e.preventDefault();
-    if (bare(tickerInput.value).length > 0) armed = true;
-  }
+  if (e.key !== ' ' && e.code !== 'Space') return;
+  e.preventDefault();
+  const v = tickerInput.value;
+  if (!v.length || v.endsWith(SEP)) return;      // never leading, never doubled
+  if (bare(v).length >= MAX_NAME) return;        // a full name has no room for another gap
+  tickerInput.value = (v + SEP).slice(0, MAX_TYPED);
+  refresh();
 });
 
 tickerInput.addEventListener('input', () => {
-  let v = tickerInput.value.toUpperCase().replace(/[^A-Z0-9•]/g, '');
+  let v = tickerInput.value.toUpperCase().replace(/[^A-Z\u2022]/g, '');
   v = v.replace(new RegExp(SEP + '+', 'g'), SEP).replace(new RegExp('^' + SEP + '+'), '');
-  if (armed && v.length && v[v.length - 1] !== SEP) {
-    v = v.slice(0, -1) + SEP + v.slice(-1);
-    armed = false;
-  }
-  tickerInput.value = clampTicker(v).slice(0, MAX_TYPED);
+  tickerInput.value = clampTyping(v).slice(0, MAX_TYPED);
   refresh();
 });
 
@@ -181,7 +198,7 @@ const int = (sel) => {
 })();
 
 function readForm() {
-  const typed = tickerInput.value;
+  const typed = clampTicker(tickerInput.value);
   const symbol = Array.from($('#et-symbol').value.trim()).slice(0, 1).join('');
   const name = bare(typed);
   const supply = int('#et-supply');
@@ -206,7 +223,7 @@ function readForm() {
 
   const problems = [];
   if (!name) problems.push('the ticker is empty');
-  else if (!/^[A-Z0-9]{1,26}$/.test(name)) problems.push('a ticker is 1 to 26 characters of A-Z and 0-9');
+  else if (!/^[A-Z]{1,26}$/.test(name)) problems.push('a ticker is 1 to 26 letters, A to Z');
   if (!Number.isInteger(supply) || supply <= 0) problems.push('the supply must be a whole number above zero');
   if (!Number.isInteger(divisibility) || divisibility < 0 || divisibility > 6) problems.push('decimals must be 0 to 6');
 

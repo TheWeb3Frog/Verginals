@@ -271,7 +271,7 @@ function refresh() {
     // number on the page as money leaving for ever, which is the opposite of what happens.
     kv(tOut, 'You lock', xvg(price) + ' XVG', 'warn');
     const releases = new Date(Date.now() + 1460 * 86400e3);
-    kv(tOut, 'You get all of it back on', releases.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }));
+    kv(tOut, 'You get your locked XVG back on', releases.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }));
   }
 
   const sOut = $('#et-supply-out');

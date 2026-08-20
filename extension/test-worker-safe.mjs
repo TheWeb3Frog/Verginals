@@ -52,15 +52,28 @@ console.log(`following static imports from background.js: ${files.length} files`
 ok('wallet.js is in there, so the walk is finding things', files.some((f) => f.endsWith('wallet.js')));
 ok('runelock.js is in there, statically', files.some((f) => f.endsWith('runelock.js')));
 
-const offenders = [];
-for (const f of files) {
-  let src;
-  try { src = readFileSync(join(HERE, f), 'utf8'); } catch { continue; }
-  const bare = code(src);
-  if (/\bimport\s*\(/.test(bare)) offenders.push(f);
+// Everything an MV3 service worker refuses. The dynamic import is the one that bit, and the others
+// are here because they fail the same way: fine in Node, fine in the popup, dead in the worker, and
+// only at the moment a user reaches the feature.
+const FORBIDDEN = [
+  ['a dynamic import', /\bimport\s*\(/],
+  ['eval', /\beval\s*\(/],
+  ['new Function', /new\s+Function\s*\(/],
+  ['the DOM through document', /\bdocument\s*\./],
+  ['the DOM through window', /\bwindow\s*\./],
+  ['XMLHttpRequest', /\bXMLHttpRequest\b/],
+  ['localStorage', /\blocalStorage\b/],
+  ['a blob URL', /URL\.createObjectURL/],
+];
+for (const [what, re] of FORBIDDEN) {
+  const offenders = files.filter((f) => {
+    let src;
+    try { src = readFileSync(join(HERE, f), 'utf8'); } catch { return false; }
+    return re.test(code(src));
+  });
+  ok('the worker can reach no ' + what
+    + (offenders.length ? ' (found in: ' + offenders.join(', ') + ')' : ''), offenders.length === 0);
 }
-ok('no dynamic import anywhere the service worker can reach'
-  + (offenders.length ? ' (found in: ' + offenders.join(', ') + ')' : ''), offenders.length === 0);
 
 // CONTROL: the detector must actually be able to see one, or the check above proves nothing.
 const planted = code("async function f() { const m = await import('./x.js'); return m; }");

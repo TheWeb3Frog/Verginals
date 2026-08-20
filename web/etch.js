@@ -138,17 +138,32 @@ function paintWallet() {
 async function connectWallet(ask) {
   const p = window.verge;
   if (!p || !p.isVerginals) return null;
+
+  // TWO STEPS, TWO TRIES, AND A PAINT BETWEEN THEM. They used to share one try block, so anything
+  // that went wrong while deriving the lock key skipped the repaint entirely: the wallet was
+  // connected, walletAddress held the address, and the screen still said "connect your wallet"
+  // because nothing had told it otherwise. Connecting is a fact as soon as it happens, and a
+  // secondary step failing must never be able to hide it.
+  let addr = null;
   try {
     const r = ask ? await p.connect() : await p.getAddress().catch(() => null);
-    const addr = r && (r.address || (Array.isArray(r) ? r[0] : null));
-    if (!addr) return null;
-    walletAddress = addr;
-    // Deriving the key needs a connection, so it happens here rather than behind a second button.
+    addr = r && (r.address || (Array.isArray(r) ? r[0] : null));
+  } catch (_) { return null; }
+  if (!addr) return null;
+
+  walletAddress = addr;
+  lockError = null;
+  paintWallet();
+
+  // Deriving the key needs a connection, so it happens here rather than behind a second button.
+  try {
     const k = await deriveFromWallet();
     if (k) lockKey = k;
-    paintWallet();
-    return addr;
-  } catch (_) { return null; }
+  } catch (e) {
+    lockError = e && e.message ? 'the wallet refused to derive a lock key: ' + e.message : null;
+  }
+  paintWallet();
+  return addr;
 }
 
 async function deriveFromWallet() {

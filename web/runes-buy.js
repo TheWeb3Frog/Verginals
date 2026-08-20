@@ -6,6 +6,52 @@
 // coins hold against the root published on chain rather than believing this page.
 
 const $ = (id) => document.getElementById(id);
+
+/**
+ * Is this wallet able to do this, and if not, say exactly what to do.
+ *
+ * Method presence is NOT enough and that was learned the hard way. mintRune existed in 0.19 and
+ * could not build an OP_RETURN until 0.23, because the fault was one level down in the transaction
+ * builder. A page that only asked "does the method exist" waved that through and let a raw
+ * TypeError reach somebody who had done nothing wrong.
+ *
+ * So each action names the build it needs. Presence still gets checked first, because a wallet old
+ * enough to lack the method cannot answer walletVersion either.
+ */
+const NEEDS = {
+  mintRune: '0.23.0',      // the OP_RETURN fix in buildAndSignP2PKH
+  sendRune: '0.23.0',      // same fault, same fix
+  placeRuneBid: '0.14.0',
+  fundEtch: '0.21.0',
+  runesSignRelease: '0.22.0',
+};
+
+function olderThan(have, want) {
+  const a = String(have || '0').split('.').map(Number);
+  const b = String(want).split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((a[i] || 0) < (b[i] || 0)) return true;
+    if ((a[i] || 0) > (b[i] || 0)) return false;
+  }
+  return false;
+}
+
+async function needs(method) {
+  if (!window.verge) return 'Install the Verginals wallet to do this.';
+  if (typeof window.verge[method] !== 'function') {
+    return 'Your Verginals wallet is too old for this: update it, then reload this page.';
+  }
+  const want = NEEDS[method];
+  if (!want) return null;
+  let have = null;
+  try { const r = await window.verge.walletVersion(); have = r && r.version; } catch (_) { have = null; }
+  if (!have) return `This needs Verginals wallet ${want} or newer, and this wallet is too old to say which build it is.`;
+  if (olderThan(have, want)) {
+    return `This needs Verginals wallet ${want} or newer. You have ${have}.`;
+  }
+  return null;
+}
+
 const COIN = 1_000_000;
 const fmtXvg = (u) => (u / COIN).toLocaleString(undefined, { maximumFractionDigits: 6 });
 const fmtN = (n) => Number(n).toLocaleString();
@@ -143,14 +189,8 @@ async function place() {
     note.classList.add('bad');
     return;
   }
-  if (typeof window.verge.placeRuneBid !== 'function') {
-    let v = '';
-    try { const r = await window.verge.walletVersion(); if (r && r.version) v = ' You have ' + r.version + '.'; }
-    catch (_) { v = ''; }
-    note.textContent = 'Your Verginals wallet is too old to place an offer: update it, then reload this page.' + v;
-    note.classList.add('bad');
-    return;
-  }
+  const tooOld = await needs('placeRuneBid');
+  if (tooOld) { note.textContent = tooOld; note.classList.add('bad'); return; }
 
   btn.disabled = true;
   const was = btn.textContent;

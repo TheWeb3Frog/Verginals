@@ -127,19 +127,48 @@ function render(ul, rows, canMint) {
 }
 
 /**
- * Is the wallet able to do this at all, and if not, say which wallet it is.
+ * Is this wallet able to do this, and if not, say exactly what to do.
  *
- * A page that calls a method an older wallet does not have throws a raw TypeError at the user:
- * "window.verge.mintRune is not a function". That is a true sentence and a useless one. It names no
- * remedy and it looks like the site is broken rather than the extension being behind.
+ * Method presence is NOT enough and that was learned the hard way. mintRune existed in 0.19 and
+ * could not build an OP_RETURN until 0.23, because the fault was one level down in the transaction
+ * builder. A page that only asked "does the method exist" waved that through and let a raw
+ * TypeError reach somebody who had done nothing wrong.
+ *
+ * So each action names the build it needs. Presence still gets checked first, because a wallet old
+ * enough to lack the method cannot answer walletVersion either.
  */
+const NEEDS = {
+  mintRune: '0.23.0',      // the OP_RETURN fix in buildAndSignP2PKH
+  sendRune: '0.23.0',      // same fault, same fix
+  placeRuneBid: '0.14.0',
+  fundEtch: '0.21.0',
+  runesSignRelease: '0.22.0',
+};
+
+function olderThan(have, want) {
+  const a = String(have || '0').split('.').map(Number);
+  const b = String(want).split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((a[i] || 0) < (b[i] || 0)) return true;
+    if ((a[i] || 0) > (b[i] || 0)) return false;
+  }
+  return false;
+}
+
 async function needs(method) {
   if (!window.verge) return 'Install the Verginals wallet to do this.';
-  if (typeof window.verge[method] === 'function') return null;
-  let v = '';
-  try { const r = await window.verge.walletVersion(); if (r && r.version) v = ' You have ' + r.version + '.'; }
-  catch (_) { v = ''; }
-  return 'Your Verginals wallet is too old for this: update it, then reload this page.' + v;
+  if (typeof window.verge[method] !== 'function') {
+    return 'Your Verginals wallet is too old for this: update it, then reload this page.';
+  }
+  const want = NEEDS[method];
+  if (!want) return null;
+  let have = null;
+  try { const r = await window.verge.walletVersion(); have = r && r.version; } catch (_) { have = null; }
+  if (!have) return `This needs Verginals wallet ${want} or newer, and this wallet is too old to say which build it is.`;
+  if (olderThan(have, want)) {
+    return `This needs Verginals wallet ${want} or newer. You have ${have}.`;
+  }
+  return null;
 }
 
 async function mint(m, btn, times) {

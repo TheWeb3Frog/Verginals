@@ -104,6 +104,15 @@
     runesLockPubkey: (opts) => call('runesLockPubkey', opts),
     /** Which published locks this wallet can open, matched locally. Discloses nothing, moves nothing. */
     runesMyLocks: (opts) => call('runesMyLocks', opts),
+    /**
+     * Sign the transaction that reopens a name deposit, at etch time.
+     *
+     * Handled by the background and used by nothing for weeks, because it was never named here. The
+     * whole point of the scheme is that after this signature the key becomes optional: the bytes get
+     * inscribed, and in four years anybody can broadcast them and the money comes back to the etcher
+     * even if they lost the wallet entirely. Unnamed on the provider, that promise was unreachable.
+     */
+    runesSignRelease: (opts) => call('runesSignRelease', opts),
     /** Pay for an etching from this wallet. { jobId, outputs }. Prompts to approve. */
     fundEtch: (opts) => call('fundEtch', opts),
     /** Mint from a coin whose creator left the door open. { runeRef, priceUnits }. Prompts. */

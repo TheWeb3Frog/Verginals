@@ -556,6 +556,56 @@ async function startEtch(payload, host) {
       kv(done, 'Yours again on', new Date(s.locktime * 1000)
         .toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }));
       host.append(done);
+
+      // The release: sign the transaction that reopens this deposit, and write it down for ever.
+      //
+      // After this the key becomes OPTIONAL, which is the whole point of the scheme. The bytes go on
+      // chain, and in four years anybody can broadcast them and the money returns to the address
+      // below, even if this wallet and its words are long gone. Without it the deposit still comes
+      // back, but only to somebody holding the recovery phrase on the day.
+      //
+      // Done here rather than offered as a button somebody will skip: the funding for it was already
+      // paid as part of the etching, and a person who has just spent five thousand XVG should not
+      // have to understand a timelock to keep the way back.
+      const rel = el('p', 'et-note', 'Writing down the way back to your deposit...');
+      host.append(rel);
+      (async () => {
+        try {
+          const p = window.verge;
+          if (!p || typeof p.runesSignRelease !== 'function') {
+            rel.textContent = 'Your wallet is too old to write down the way back. Update it and etch'
+              + ' again, or keep the card below safe: it is enough on its own.';
+            return;
+          }
+          // Which key opens this lock is something only this wallet can work out, by deriving its
+          // own keys and comparing against the public list. The server is never told.
+          const pub = await fetch('/api/runes/locks').then((r) => r.json()).catch(() => ({ locks: [] }));
+          const mine = await p.runesMyLocks({ locks: pub.locks || [] });
+          const found = (mine && mine.locks || []).find((l) => l.ref === s.runeRef);
+          if (!found) { rel.textContent = 'Could not match this lock to your wallet, so nothing was written.'; return; }
+
+          const signed = await p.runesSignRelease({
+            index: found.index,
+            locktime: s.locktime,
+            txid: s.lock.txid, vout: s.lock.vout, value: s.lock.value,
+            // walletAddress, not f.recipient: f belongs to readForm's caller and is not in scope
+            // here. The manual address path is gone, so the connected wallet IS the recipient.
+            to: walletAddress,
+          });
+          const posted = await (await fetch('/api/runes/etch/release', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ job: job.jobId, hex: signed.hex || signed }),
+          })).json();
+          rel.textContent = posted.releaseTxid || posted.already
+            ? 'The way back is on chain. In four years anybody can broadcast it and your ' + xvg(job.breakdown.ticker)
+              + ' XVG returns to you, with or without this wallet.'
+            : 'The way back could not be written: ' + (posted.error || 'unknown');
+        } catch (e) {
+          rel.textContent = 'The way back could not be written: ' + ((e && e.message) || 'unknown')
+            + '. Your recovery card below still works.';
+        }
+      })();
+
       // The etch txid only exists now, and it is the piece that makes recovery one lookup instead
       // of a full rescan, so the card is reprinted complete rather than left half filled.
       host.append(el('h3', '', 'Your recovery card, complete'));

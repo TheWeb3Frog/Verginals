@@ -95,6 +95,14 @@ function quoteEtch({ rune, recipient, lockPubkey, locktime, buildPlan, networkNa
  * assumes, then the price holder last. The remainder of the deposit is the miner fee.
  */
 function splitOutputs(quote, depositAddress) {
+  // Named, not assumed. A caller rebuilding this shape by hand can drop a field, and an output with
+  // an undefined value travels all the way to the serializer before failing, as "Cannot convert
+  // undefined to a BigInt", which names neither the field nor the transaction. That happened.
+  for (const k of ['perInput', 'priceHolder', 'releaseHolder']) {
+    if (!Number.isInteger(quote[k])) {
+      throw new Error(`the etch quote is missing ${k}, so the split cannot be built`);
+    }
+  }
   const outputs = quote.plan.inputs.map((inp) => ({ address: inp.address, value: quote.perInput }));
   outputs.push({ address: depositAddress, value: quote.priceHolder });
   // Last, so the price holder keeps the index payFor() already relies on. Adding it anywhere

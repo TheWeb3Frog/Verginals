@@ -2059,8 +2059,13 @@ async function handleRuneEtchCreate(req, res) {
 async function driveEtch(job, depositUtxos) {
   const { network } = pickNetwork(job.networkName);
   const depositKey = ECPair.fromWIF(job.depositWif, network);
+  // Every field etchjob needs, rebuilt from the job. releaseHolder was missing here and nowhere
+  // else, so splitOutputs pushed an output with value undefined and the whole etch died inside the
+  // serializer with "Cannot convert undefined to a BigInt": a message that names neither the field
+  // nor the transaction. Rebuilding a shape by hand is exactly where a field goes missing, so the
+  // guard in splitOutputs now refuses the output rather than letting it reach the serializer.
   const quote = { plan: job.plan, numInputs: job.numInputs, perInput: job.perInput,
-    price: job.price, priceHolder: job.priceHolder };
+    price: job.price, priceHolder: job.priceHolder, releaseHolder: job.releaseHolder };
 
   if (!job.splitTxid) {
     const funding = buildFundingTx({

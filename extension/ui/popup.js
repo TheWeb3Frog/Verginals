@@ -393,20 +393,30 @@ async function renderRunes() {
     sym.textContent = r.symbol;
     const name = document.createElement('b');
     name.textContent = r.display;
-    const ref = document.createElement('span');
-    ref.className = 'rune-ref';
-    ref.textContent = r.ref;
-    left.append(sym, name, ref);
+    left.append(sym, name);
+    // An unnamed rune already shows its reference as its name, and printing it twice is how a row
+    // came to read 9420444:29420444:2.
+    if (r.named) {
+      const ref = document.createElement('span');
+      ref.className = 'rune-ref';
+      ref.textContent = r.ref;
+      left.append(ref);
+    }
 
     const right = document.createElement('div');
     right.className = 'rune-amt';
     const amt = document.createElement('b');
-    amt.textContent = r.amount.toLocaleString(undefined, { maximumFractionDigits: r.divisibility });
+    amt.textContent = r.named
+      ? r.amount.toLocaleString(undefined, { maximumFractionDigits: r.divisibility })
+      : r.units.toLocaleString();
     const proof = document.createElement('span');
     proof.className = 'rune-proof';
-    proof.textContent = 'verified';
-    proof.title = 'This balance was checked against the merkle root published on chain, not taken '
-      + 'from an indexer on trust.';
+    proof.textContent = r.named ? 'verified' : 'base units';
+    proof.title = r.named
+      ? 'This balance was checked against the merkle root published on chain, not taken '
+        + 'from an indexer on trust.'
+      : 'The balance is proven, but this coin\'s name and decimals are not, so the figure is shown '
+        + 'in the smallest unit rather than scaled by a guess.';
     right.append(amt, proof);
 
     const send = document.createElement('button');
@@ -424,7 +434,10 @@ let sendingRune = null;
 function openRuneSend(r) {
   sendingRune = r;
   $('runeSendTitle').textContent = `Send ${r.display}`;
-  $('runeSendHave').textContent = `You hold ${r.amount.toLocaleString(undefined, { maximumFractionDigits: r.divisibility })}`;
+  $('runeSendHave').textContent = r.named
+    ? `You hold ${r.amount.toLocaleString(undefined, { maximumFractionDigits: r.divisibility })}`
+    : `You hold ${r.units.toLocaleString()} base units. This coin's decimals could not be verified, `
+      + 'so type the amount you are sending in base units too.';
   $('runeTo').value = '';
   $('runeAmount').value = '';
   $('runeSendErr').hidden = true;
@@ -443,7 +456,9 @@ $('runeSendGo').addEventListener('click', async () => {
   const typed = Number($('runeAmount').value.replace(/[\s,]/g, ''));
   // Whole units on the wire, whole coins on screen. The same mismatch that made the etch form say
   // 210,000 when somebody typed 21,000,000 lives here too, and it moves real balances.
-  const units = Math.round(typed * (10 ** sendingRune.divisibility));
+  // null divisibility means no proven decimals, and the dialog said so: what was typed is
+  // already the base unit, so it is multiplied by one rather than by a guess.
+  const units = Math.round(typed * (10 ** (sendingRune.divisibility || 0)));
 
   if (!to) { err.textContent = 'Where should it go?'; err.hidden = false; return; }
   if (!Number.isFinite(typed) || typed <= 0) { err.textContent = 'How much?'; err.hidden = false; return; }

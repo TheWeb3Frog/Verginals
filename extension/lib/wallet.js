@@ -17,7 +17,8 @@ import * as bip32 from './bip32.js';
 import { ElectrumClient } from './electrum.js';
 import { InscriptionDetector } from './inscriptions.js';
 import * as swap from './swap.js';
-import { verifiedBalances, spendableForPayment, selectForRuneTransfer, encodeEdicts, edictScript, mintScript, DUST_UNITS } from './runes.js';
+import { verifiedBalances, verifiedDefinitions, runeRows, spendableForPayment,
+  selectForRuneTransfer, encodeEdicts, edictScript, mintScript, DUST_UNITS } from './runes.js';
 import * as runebid from './runebid.js';
 // STATIC, never a dynamic import. An MV3 service worker forbids `await import(...)` outright,
 // and the three lazy loads that used to sit in the lock methods below failed at the only moment
@@ -926,30 +927,23 @@ export class Wallet {
     const refs = Object.keys(totals);
     if (!refs.length) return { runes: [], undetermined };
 
-    // The definitions travel with the proofs, so one call answers both.
+    // The definitions travel with the proofs, so one call answers both, and every one of them is
+    // checked against the same root as the balances before a character of it reaches a screen.
+    //
+    // None of this is decoration. `divisibility` is what turns 11000 into 110.00, and a definition
+    // that fails to arrive is not a missing label but a hundredfold misstatement waiting to happen,
+    // so a rune without a proven one is reported in base units and says so.
     let defs = new Map();
     try {
       const utxos = await this.getUtxos();
       const answer = await this._post('/api/runes/balances', { outpoints: utxos.map((u) => `${u.txid}:${u.vout}`) });
-      for (const d of (answer && answer.runes) || []) defs.set(d.ref || d.runeRef, d);
-    } catch { /* names are cosmetic; a balance without one is still a balance */ }
+      const root = answer && Array.isArray(answer.root) ? Uint8Array.from(answer.root) : null;
+      const got = await verifiedDefinitions(answer, root);
+      if (got.rejected > 0) console.warn(`runes: ${got.rejected} unproven definition(s) rejected`);
+      defs = got.defs;
+    } catch { /* offline: the balance still stands, it just does not get to wear a name */ }
 
-    const runes = refs.map((ref) => {
-      const d = defs.get(ref) || {};
-      const div = Number.isInteger(d.divisibility) ? d.divisibility : 0;
-      return {
-        ref,
-        ticker: d.ticker || null,
-        display: d.display || d.ticker || ref,
-        symbol: d.symbol || '\u00a4',
-        divisibility: div,
-        units: totals[ref],
-        amount: totals[ref] / (10 ** div),
-        verified: true,
-      };
-    });
-    runes.sort((a, b) => String(a.display).localeCompare(String(b.display)));
-    return { runes, undetermined };
+    return { runes: runeRows(totals, defs), undetermined };
   }
 
   /** The scriptPubKey this account's coins sit on, as hex. Every carrier of ours has this script. */

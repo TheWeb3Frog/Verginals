@@ -161,6 +161,99 @@ export async function verifiedBalances(answer, root) {
   return { balances, rejected };
 }
 
+// --- what the screen is allowed to say ----------------------------------------------------------
+
+const SPACER = '\u2022';   // BULLET, fixed by the spec so two spacings never look like two runes
+
+/**
+ * A generic currency mark, and never one the etcher chose.
+ *
+ * The checkpoint leaf commits to the reference, the ticker, the divisibility, the supply and the
+ * spacers, and to nothing else. A symbol is therefore something an indexer can say freely, so a
+ * wallet that drew it next to a verified balance would be lending proven weight to an unproven
+ * glyph, which is all a lookalike needs.
+ */
+const SYMBOL = '\u00a4';
+
+/**
+ * Render a verified ticker with its verified spacers. Ported from src/runes/tickers.js, the
+ * reference. Spacers are display only: the bare ticker stays the identity, so this is never a key.
+ *
+ * Arithmetic rather than bitwise, because JavaScript's bitwise operators are 32-bit and `1 << 32` is
+ * 1, so a mask read straight off the chain would be folded instead of truncated.
+ */
+export function displayTicker(ticker, mask = 0) {
+  const t = String(ticker || '').toUpperCase();
+  const gaps = Math.min(Math.max(0, t.length - 1), 31);
+  const m = Number.isInteger(mask) && mask > 0 && gaps > 0 ? mask % Math.pow(2, gaps) : 0;
+  if (!m) return t;
+  let out = '';
+  for (let i = 0; i < t.length; i++) {
+    out += t[i];
+    if (i < t.length - 1 && Math.floor(m / Math.pow(2, i)) % 2 === 1) out += SPACER;
+  }
+  return out;
+}
+
+/**
+ * The rune DEFINITIONS in an indexer's answer, each checked against the same root as the balances.
+ *
+ * Separate from verifiedBalances because the two carry different weight. A balance nobody can prove
+ * is a balance the wallet does not have, and dropping it is safe. A definition nobody can prove is
+ * worse than absent: `divisibility` is the whole difference between 11000 and 110.00, so an
+ * unchecked one lets whoever answered restate somebody's holdings by a factor of a hundred without
+ * going near a coin.
+ *
+ * The answer's shape is the server's, not a guess: `runes` is a list of `{ entry, path }`, the same
+ * pair as `entries`. Reading a `ref` field off it instead found nothing at all, silently, and every
+ * balance in the wallet lost its name and its decimal point at once.
+ */
+export async function verifiedDefinitions(answer, root) {
+  const defs = new Map();
+  let rejected = 0;
+  for (const item of (answer && answer.runes) || []) {
+    const path = ((item && item.path) || []).map((s) => Uint8Array.from(s));
+    if (!(await verifyRune(item && item.entry, path, root))) { rejected += 1; continue; }
+    defs.set(String(item.entry.runeRef), item.entry);
+  }
+  return { defs, rejected };
+}
+
+/**
+ * Balances turned into rows a screen can render, with nothing invented on the way.
+ *
+ * A rune with no proven definition keeps its balance and loses its name and its decimal point: it
+ * is reported in base units, marked `named: false`, and never scaled by a guessed divisibility.
+ * Guessing zero is exactly what showed 11,000 base units of a two-decimal coin as "11,000" to
+ * somebody holding 110.00, and a wallet that restates a holding by two orders of magnitude does
+ * more harm than one that admits it has not learned the name yet.
+ */
+export function runeRows(totals, defs) {
+  const rows = Object.keys(totals || {}).map((ref) => {
+    const d = (defs && defs.get(String(ref))) || null;
+    if (!d) {
+      return {
+        ref, ticker: null, display: ref, symbol: SYMBOL, divisibility: null,
+        units: totals[ref], amount: null, named: false, verified: true,
+      };
+    }
+    const div = Number.isInteger(d.divisibility) ? d.divisibility : 0;
+    return {
+      ref,
+      ticker: d.ticker,
+      display: displayTicker(d.ticker, d.spacers || 0),
+      symbol: SYMBOL,
+      divisibility: div,
+      units: totals[ref],
+      amount: totals[ref] / Math.pow(10, div),
+      named: true,
+      verified: true,
+    };
+  });
+  rows.sort((a, b) => String(a.display).localeCompare(String(b.display)));
+  return rows;
+}
+
 // --- the safety rule ----------------------------------------------------------------------------
 
 /** Does this coin carry any rune? `undefined` means "not known", which counts as yes. */

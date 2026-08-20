@@ -55,6 +55,7 @@ const { computeRarity } = require('./rarity');
 const { comboBonus } = require('./combos');
 const { Launchpad } = require('./launchpad');
 const { OrderBook } = require('./orderbook');
+const { RuneBook } = require('./runes/book');
 const { GameAuth } = require('./gameauth');
 const { verifyMessage } = require('./message');
 const { GameStore } = require('./gamestore');
@@ -1254,6 +1255,7 @@ async function handleLaunchpadSubmitFinalize(res, id) {
 // It never holds keys/funds, never broadcasts, and cannot execute a trade: settlement is the
 // counterparty broadcasting the fully-signed swap from their own wallet. See swap.js + spec.
 let orderbook = null;
+let runebook = null;
 
 function initOrderBook() {
   const { network } = pickNetwork(NETWORK);
@@ -1279,6 +1281,28 @@ function initOrderBook() {
     },
   };
   orderbook = new OrderBook({ dataDir: DATA_DIR, network, chain, feeBps: MARKET_FEE_BPS, feeAddress: MARKET_FEE_ADDRESS }).load();
+
+  // The rune book reads the same chain, plus what a carrier holds, which only the rune index knows.
+  runebook = new RuneBook({
+    dataDir: DATA_DIR,
+    network,
+    chain: {
+      outpointSpent: chain.outpointSpent,
+      async carrierRunes(txid, vout) {
+        const info = await chain.carrierInfo(txid, vout);
+        if (!info || info.spent) return null;
+        const held = service.runes.balances.get(`${txid}:${vout}`);
+        const runes = {};
+        if (held) for (const [ref, amt] of held) runes[ref] = amt;
+        return {
+          value: info.valueUnits,
+          script: bitcoin.address.toOutputScript(info.address, network).toString('hex'),
+          runes,
+          height: service.runes.height || 0,
+        };
+      },
+    },
+  }).load();
 }
 
 // --- Verginals Arena: player authentication and ownership (spec/GAME-SPEC-v0.md) --------------
@@ -1709,6 +1733,70 @@ async function handleRuneBalances(req, res) {
   return sendJSON(res, 200, {
     root, entries, runes, launched: true, height: service.scannedThrough,
   });
+}
+
+/**
+ * The rune book routes. A RELAY, never a custodian: everything here stores or serves messages other
+ * people signed, and nothing here can make a trade happen. Every one of them is closed while the
+ * protocol is unlaunched, because a book with nothing to trade is only a place to put junk.
+ *
+ * A seller who never touches these still trades: a bid is a whole transaction missing one signature,
+ * so it settles wherever it is handed over.
+ */
+function runeBookReady(res) {
+  if (!RUNES_ENABLED || !runebook) { sendJSON(res, 404, { error: 'the rune book is not open' }); return false; }
+  return true;
+}
+
+async function handleRuneOrderPut(req, res) {
+  if (!runeBookReady(res)) return;
+  let body;
+  try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); }
+  catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+  try { return sendJSON(res, 200, { key: runebook.putOrder(body.order || body) }); }
+  catch (e) { return sendJSON(res, 400, { error: e.message }); }
+}
+
+async function handleRuneOrderCancel(req, res) {
+  if (!runeBookReady(res)) return;
+  let body;
+  try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); }
+  catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+  try { runebook.cancelOrder(body.cancel || body); return sendJSON(res, 200, { cancelled: true }); }
+  catch (e) { return sendJSON(res, 400, { error: e.message }); }
+}
+
+function handleRuneOrders(req, res, url) {
+  if (!runeBookReady(res)) return;
+  const runeRef = url.searchParams.get('rune') || null;
+  return sendJSON(res, 200, { orders: runebook.orders(runeRef ? { runeRef } : {}) });
+}
+
+async function handleRuneBidPut(req, res) {
+  if (!runeBookReady(res)) return;
+  let body;
+  try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); }
+  catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+  try { return sendJSON(res, 200, await runebook.putBid(body.bid || body)); }
+  catch (e) { return sendJSON(res, 400, { error: e.message }); }
+}
+
+/**
+ * The bids aimed at one script. Keyed by SCRIPT rather than by address on purpose: it is the same
+ * fact, and it is what the wallet already has in hand when it lists its own carriers.
+ */
+async function handleRuneBids(req, res, url) {
+  if (!runeBookReady(res)) return;
+  const script = String(url.searchParams.get('script') || '');
+  if (!/^[0-9a-f]{2,200}$/.test(script)) return sendJSON(res, 400, { error: 'script must be hex' });
+  return sendJSON(res, 200, { bids: await runebook.bidsFor(script) });
+}
+
+async function handleRuneDepth(req, res, url) {
+  if (!runeBookReady(res)) return;
+  const runeRef = url.searchParams.get('rune');
+  if (!runeRef) return sendJSON(res, 400, { error: 'name a rune' });
+  return sendJSON(res, 200, { depth: await runebook.depth(runeRef) });
 }
 
 /**
@@ -3456,6 +3544,12 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && p.startsWith('/api/job/')) return await handleJob(res, p.slice('/api/job/'.length));
     if (req.method === 'POST' && p === '/api/runes/balances') return await handleRuneBalances(req, res);
+    if (req.method === 'POST' && p === '/api/runes/order') return await handleRuneOrderPut(req, res);
+    if (req.method === 'POST' && p === '/api/runes/order/cancel') return await handleRuneOrderCancel(req, res);
+    if (req.method === 'GET' && p === '/api/runes/orders') return handleRuneOrders(req, res, url);
+    if (req.method === 'POST' && p === '/api/runes/bid') return await handleRuneBidPut(req, res);
+    if (req.method === 'GET' && p === '/api/runes/bids') return await handleRuneBids(req, res, url);
+    if (req.method === 'GET' && p === '/api/runes/depth') return await handleRuneDepth(req, res, url);
     if (req.method === 'GET' && p === '/api/runes/locks') return handleRuneLocks(req, res);
     if (req.method === 'POST' && p === '/api/runes/release') return await handleRuneRelease(req, res);
     if (req.method === 'POST' && p === '/api/runes/etch/release') return await handleRuneEtchRelease(req, res);

@@ -213,6 +213,14 @@ function verifyRuneBid({ network, bid, onChain, dustUnits }) {
     if (bid.vin[k].txid !== chain[k].txid || bid.vin[k].vout !== chain[k].vout) {
       return bad(`input ${k} does not spend the carrier it was looked up against`);
     }
+    // carriers[] is a LABEL, vin[] is what gets signed and spent. Nothing used to compare them, so
+    // the label could name one outpoint while the transaction took another. Whether that was
+    // reachable depended on which of the two a caller had used to read the chain, which is exactly
+    // the kind of "safe if you hold it right" that stops being safe. Pinning them together removes
+    // the question instead of answering it.
+    if (bid.carriers[k].txid !== bid.vin[k].txid || bid.carriers[k].vout !== bid.vin[k].vout) {
+      return bad(`the bid labels carrier ${k} as ${bid.carriers[k].txid}:${bid.carriers[k].vout} but input ${k} spends ${bid.vin[k].txid}:${bid.vin[k].vout}`);
+    }
     if (bid.scriptSigs[k]) return bad(`carrier input ${k} is already signed, it must be left blank`);
     if (bid.carriers[k].value !== chain[k].value) return bad(`the bid says carrier ${k} holds ${bid.carriers[k].value}, the chain says ${chain[k].value}`);
     if (bid.carriers[k].script !== chain[k].script) return bad(`the bid names a different script for carrier ${k} than the chain does`);

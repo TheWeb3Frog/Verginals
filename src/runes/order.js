@@ -92,6 +92,46 @@ function verifyOrder({ network, order, now }) {
   return { ok: true, address: order.address };
 }
 
+const CANCEL_KIND = 'verge-rune-cancel-v1';
+
+/**
+ * Withdraw an order before it expires.
+ *
+ * A cancel carries no key of its own: it is checked against the PUBLISHED ORDER'S key, so only the
+ * seller who signed the order can withdraw it. Cancelling twice is harmless, which is why there is
+ * no replay counter here to get wrong.
+ *
+ * This is a courtesy to the book, not a security boundary. The real withdrawal is refusing to sign,
+ * and it is always available: an order binds nobody.
+ */
+function signCancel({ order, key, at }) {
+  const when = at == null ? Math.floor(Date.now() / 1000) : Number(at);
+  const digest = cancelDigest(order.address, order.nonce, when);
+  const sig = Buffer.from(ecc.sign(digest, Buffer.from(key.privateKey)));
+  if (!ecc.verify(digest, Buffer.from(key.publicKey), sig)) throw new Error('cancel signature self-check failed');
+  return { kind: CANCEL_KIND, address: order.address, nonce: String(order.nonce), at: when, sig: sig.toString('hex') };
+}
+
+function cancelDigest(address, nonce, at) {
+  return dsha256(Buffer.from([CANCEL_KIND, address, String(nonce), String(at)].join('|'), 'utf8'));
+}
+
+/** Does this cancel really come from the key that signed that order? */
+function verifyCancel({ cancel, order }) {
+  if (!cancel || cancel.kind !== CANCEL_KIND) return { ok: false, reason: 'not a cancel' };
+  if (!order) return { ok: false, reason: 'no such order' };
+  if (cancel.address !== order.address || String(cancel.nonce) !== String(order.nonce)) {
+    return { ok: false, reason: 'the cancel does not name this order' };
+  }
+  let sig, pubkey;
+  try { sig = Buffer.from(cancel.sig, 'hex'); pubkey = Buffer.from(order.pubkey, 'hex'); }
+  catch (e) { return { ok: false, reason: 'unreadable cancel' }; }
+  if (!ecc.verify(cancelDigest(cancel.address, cancel.nonce, cancel.at), pubkey, sig)) {
+    return { ok: false, reason: 'the cancel is not signed by the order\'s key' };
+  }
+  return { ok: true };
+}
+
 /** How much of the order is still on offer, by the seller's own accounting. */
 function remaining(order, alreadySold) {
   const sold = Number(alreadySold || 0);
@@ -194,4 +234,8 @@ function fillsOrder({ network, order, bid, onChain, now, alreadySold, dustUnits 
   return { ok: true, receives: v.receives, gives: v.gives, keeps: v.keeps, soldAfter: Number(alreadySold || 0) + bid.amount };
 }
 
-module.exports = { KIND, signOrder, verifyOrder, orderDigest, remaining, quote, priceFor, scriptFor, fillsOrder };
+module.exports = {
+  KIND, CANCEL_KIND,
+  signOrder, verifyOrder, orderDigest, remaining, quote, priceFor, scriptFor, fillsOrder,
+  signCancel, verifyCancel, cancelDigest,
+};

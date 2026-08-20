@@ -18,8 +18,9 @@ const codec = require('../src/runes/codec');
 const { RuneState, applyTx, outpoint, runeRefOf } = require('../src/runes/indexer');
 const {
   buildRuneBid, verifyRuneBid, acceptRuneBid, bidTx,
-  CARRIER_INPUT, RUNESTONE, CHANGE_OUTPUT, TAKE_OUTPUT, PAY_OUTPUT, DUST_UNITS,
+  RUNESTONE, CHANGE_OUTPUT, TAKE_OUTPUT, PAY_OUTPUT, DUST_UNITS,
 } = require('../src/runes/bid');
+const CARRIER_INPUT = 0; // with a single carrier the seller's input is index 0
 
 const ECPair = (ecpair.ECPairFactory || ecpair.default)(ecc);
 const { network } = pickNetwork('mainnet');
@@ -83,6 +84,7 @@ test('the seller is paid at the address their carrier already sits on', () => {
   assert.strictEqual(paid, addr(seller));
   assert.strictEqual(bid.vout[PAY_OUTPUT].value, PRICE);
   assert.strictEqual(bid.vout[CHANGE_OUTPUT].script, scriptOf(seller));
+  assert.strictEqual(bid.carriers.length, 1);
 });
 
 test('the carrier input is left blank and every other input is signed SIGHASH_ALL', () => {
@@ -117,7 +119,7 @@ test('acceptance produces a broadcastable transaction, checked from the wire byt
 
 test('a key that does not own the carrier cannot accept', () => {
   const bid = mkBid();
-  assert.throws(() => acceptRuneBid({ network, bid, sellerKey: buyer }), /does not own the carrier/);
+  assert.throws(() => acceptRuneBid({ network, bid, sellerKey: buyer }), /does not own the carriers/);
 });
 
 // --- the two load-bearing ones -----------------------------------------------------------------
@@ -151,7 +153,7 @@ test('THE ATTACK: a carrier holding one rune is refused, not filled at the full 
   const thin = { ...onChain, runes: { [REF]: 1 } };
   const r = verifyRuneBid({ network, bid, onChain: thin });
   assert.strictEqual(r.ok, false);
-  assert.match(r.reason, /holds 1 .*asks for 37000/);
+  assert.match(r.reason, /hold 1 .*asks for 37000/);
 });
 
 // --- guards -------------------------------------------------------------------------------------
@@ -166,7 +168,7 @@ test('a rune change routed anywhere but the carrier\'s own address is refused', 
   bid.vout[CHANGE_OUTPUT].script = scriptOf(buyer);
   const r = verifyRuneBid({ network, bid, onChain });
   assert.strictEqual(r.ok, false);
-  assert.match(r.reason, /does not return to the carrier/);
+  assert.match(r.reason, /does not return to the carriers/);
 });
 
 test('a carrier below the dust floor is refused at build time', () => {
@@ -178,7 +180,7 @@ test('a payment sent to somebody else is refused', () => {
   bid.vout[PAY_OUTPUT].script = scriptOf(buyer);
   const r = verifyRuneBid({ network, bid, onChain });
   assert.strictEqual(r.ok, false);
-  assert.match(r.reason, /does not go to the carrier/);
+  assert.match(r.reason, /does not go to the carriers/);
 });
 
 test('a payment short of the stated price is refused', () => {
@@ -264,6 +266,78 @@ test('a second rune on the carrier has to come home too', () => {
     })),
   });
   assert.strictEqual(s.balanceOf(outpoint(id, CHANGE_OUTPUT), REF2), 5_000);
+});
+
+// --- fragmented holdings, which is the normal state after any trading -----------------------------
+const frag = [
+  { txid: H('1'), vout: 0, value: DUST_UNITS, script: scriptOf(seller) },
+  { txid: H('2'), vout: 3, value: DUST_UNITS, script: scriptOf(seller) },
+  { txid: H('3'), vout: 1, value: DUST_UNITS, script: scriptOf(seller) },
+];
+const fragChain = [
+  { ...frag[0], runes: { [REF]: 12_000 }, height: 9_500_000 },
+  { ...frag[1], runes: { [REF]: 20_000 }, height: 9_500_000 },
+  { ...frag[2], runes: { [REF]: 18_000 }, height: 9_500_000 },
+];
+
+test('one bid drains three fragments to fill an amount none of them could alone', () => {
+  const bid = mkBid({ carriers: frag, amount: 40_000 });
+  const r = verifyRuneBid({ network, bid, onChain: fragChain });
+  assert.strictEqual(r.ok, true, r.reason);
+  assert.strictEqual(r.gives, 40_000);
+  assert.strictEqual(r.keeps, 10_000);
+  assert.strictEqual(bid.vout[CHANGE_OUTPUT].value, 3 * DUST_UNITS, 'all three postages come back');
+});
+
+test('the seller signs every carrier input, and the wire bytes show it', () => {
+  const bid = mkBid({ carriers: frag, amount: 40_000 });
+  const { hex } = acceptRuneBid({ network, bid, sellerKey: seller });
+  const wire = parseTx(hex);
+  for (let k = 0; k < frag.length; k++) {
+    const parts = bitcoin.script.decompile(wire.vin[k].script);
+    const d = bitcoin.script.signature.decode(parts[0]);
+    const sh = legacySighash(bidTx(bid), k, Buffer.from(scriptOf(seller), 'hex'), SIGHASH_ALL);
+    assert.ok(ecc.verify(sh, parts[1], d.signature), `carrier ${k} signature verifies`);
+  }
+});
+
+test('carriers from two different owners are refused at build time', () => {
+  const mixed = [frag[0], { ...frag[1], script: scriptOf(buyer) }];
+  assert.throws(() => mkBid({ carriers: mixed, amount: 20_000 }), /same address/);
+});
+
+test('the same carrier named twice is refused', () => {
+  assert.throws(() => mkBid({ carriers: [frag[0], frag[0]], amount: 10_000 }), /named twice/);
+});
+
+test('a fragmented bid whose change output does not return every postage is refused', () => {
+  const bid = mkBid({ carriers: frag, amount: 40_000 });
+  bid.vout[CHANGE_OUTPUT].value = 2 * DUST_UNITS;
+  const r = verifyRuneBid({ network, bid, onChain: fragChain });
+  assert.strictEqual(r.ok, false);
+  assert.match(r.reason, /does not return the carriers' own coin/);
+});
+
+test('a bid verified against the wrong number of carriers is refused', () => {
+  const bid = mkBid({ carriers: frag, amount: 40_000 });
+  const r = verifyRuneBid({ network, bid, onChain: fragChain.slice(0, 2) });
+  assert.strictEqual(r.ok, false);
+  assert.match(r.reason, /names 3 carriers/);
+});
+
+test('the new outpoint is knowable only once the seller signs, and accept is what reports it', () => {
+  // A legacy txid covers the scriptSigs, so signing the carrier CHANGES the id. Anything derived
+  // from the unsigned bid would name an outpoint that never exists, which is why verifyRuneBid
+  // reports no outpoint at all and acceptRuneBid reports the real one, before broadcast.
+  const bid = mkBid();
+  const v = verifyRuneBid({ network, bid, onChain });
+  assert.strictEqual(v.ok, true, v.reason);
+  assert.strictEqual(v.changeOutpoint, undefined, 'verify must not guess an outpoint');
+
+  const unsigned = txid(bidTx(bid));
+  const a = acceptRuneBid({ network, bid, sellerKey: seller });
+  assert.notStrictEqual(a.txid, unsigned, 'signing the carrier moves the txid');
+  assert.strictEqual(a.changeOutpoint, `${a.txid}:${CHANGE_OUTPUT}`);
 });
 
 test('bids against different carriers share the buyer\'s coins, so only one can ever confirm', () => {

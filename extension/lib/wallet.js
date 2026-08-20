@@ -19,6 +19,11 @@ import { InscriptionDetector } from './inscriptions.js';
 import * as swap from './swap.js';
 import { verifiedBalances, spendableForPayment, selectForRuneTransfer, encodeEdicts, edictScript, DUST_UNITS } from './runes.js';
 import * as runebid from './runebid.js';
+// STATIC, never a dynamic import. An MV3 service worker forbids `await import(...)` outright,
+// and the three lazy loads that used to sit in the lock methods below failed at the only moment
+// they were ever called: the etch page asking for a lock key. Nothing background.js loads may
+// be lazy, and there is a test for it now.
+import { deriveLockKey, matchPublishedLocks, nextLockIndex, timeUntil, buildRelease } from './runelock.js';
 
 const DEFAULT_API = 'https://verginals.com';
 
@@ -499,7 +504,6 @@ export class Wallet {
    */
   async runesLockPubkey(index = 0) {
     const seed = await this._lockSeed();
-    const { deriveLockKey } = await import('./runelock.js');
     const k = await deriveLockKey(seed, index);
     return { index: k.index, path: k.path, pubkey: k.pubkey };
   }
@@ -513,7 +517,6 @@ export class Wallet {
    */
   async runesMyLocks(published) {
     const seed = await this._lockSeed();
-    const { matchPublishedLocks, nextLockIndex, timeUntil } = await import('./runelock.js');
     const mine = await matchPublishedLocks(seed, published);
     return {
       locks: mine.map((l) => ({ ...l, countdown: timeUntil(l.locktime).text, open: timeUntil(l.locktime).open })),
@@ -530,7 +533,6 @@ export class Wallet {
    */
   async runesSignRelease({ index, locktime, txid, vout, value, to, fee, time }) {
     const seed = await this._lockSeed();
-    const { deriveLockKey, buildRelease } = await import('./runelock.js');
     const { privateKey } = await deriveLockKey(seed, Number(index) || 0, { includePrivate: true });
     try {
       return await buildRelease(privateKey, {

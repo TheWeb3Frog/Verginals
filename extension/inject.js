@@ -82,6 +82,19 @@
     acceptBid: (opts) => call('acceptBid', opts),
 
     // --- Verge Runes ---
+    /**
+     * The public half of a lock key for a NEW etching, derived from this wallet's own recovery
+     * phrase at a hardened account of its own. The etcher writes nothing down: the backup happened
+     * when they wrote their words. Only the public half ever leaves the extension.
+     *
+     * This was reachable from the background and from the wallet for weeks and was NOT ON THE
+     * PROVIDER, so the etch page asked for a lock key, got nothing, and told people to reconnect.
+     * Reconnecting could never have helped. Nothing on this object is optional plumbing: a method
+     * the background answers and inject.js does not name simply does not exist to a page.
+     */
+    runesLockPubkey: (opts) => call('runesLockPubkey', opts),
+    /** Which published locks this wallet can open, matched locally. Discloses nothing, moves nothing. */
+    runesMyLocks: (opts) => call('runesMyLocks', opts),
     /** The runes this wallet holds, each proven against the published root. */
     getRunes: () => call('getRunes'),
     /** Send runes. { runeRef, amount, to }. Prompts to approve. */

@@ -101,6 +101,9 @@ tickerInput.addEventListener('input', () => {
 // { pubHex, derived, index, path, wif? }. `wif` is present ONLY for the fallback path, where the key
 // was made in this page and the etcher has to keep it themselves.
 let lockKey = null;
+// Why the last attempt to get a lock key failed, so the page can say something true instead of
+// sending somebody to reconnect a wallet that is working perfectly well.
+let lockError = null;
 
 /**
  * Ask the wallet for a lock key derived from its own recovery phrase.
@@ -136,7 +139,7 @@ async function connectWallet(ask) {
   const p = window.verge;
   if (!p || !p.isVerginals) return null;
   try {
-    const r = ask ? await p.connect() : await p.request({ method: 'getAddress' }).catch(() => null);
+    const r = ask ? await p.connect() : await p.getAddress().catch(() => null);
     const addr = r && (r.address || (Array.isArray(r) ? r[0] : null));
     if (!addr) return null;
     walletAddress = addr;
@@ -157,12 +160,19 @@ async function deriveFromWallet() {
     let index = 0;
     try {
       const res = await fetch('/api/runes/locks').then((r) => r.json());
-      const mine = await p.request({ method: 'runesMyLocks', params: { locks: res.locks || [] } });
+      const mine = await p.runesMyLocks({ locks: res.locks || [] });
       index = mine && Number.isInteger(mine.nextIndex) ? mine.nextIndex : 0;
     } catch (_) { /* an unreachable index service is not a reason to refuse to etch */ }
-    const k = await p.request({ method: 'runesLockPubkey', params: { index } });
+    if (typeof p.runesLockPubkey !== 'function') {
+      // An older wallet that predates this method. Say which one it is rather than blaming the
+      // connection, because reconnecting an old wallet produces the same nothing for ever.
+      lockError = 'this wallet is too old to derive a lock key: update the Verginals wallet';
+      return null;
+    }
+    const k = await p.runesLockPubkey({ index });
     return k && k.pubkey ? { pubHex: k.pubkey, derived: true, index: k.index, path: k.path } : null;
-  } catch (_) {
+  } catch (e) {
+    lockError = (e && e.message) ? 'the wallet refused to derive a lock key: ' + e.message : null;
     return null;
   }
 }
@@ -250,7 +260,7 @@ function readForm() {
   if (!recipient) problems.push('connect your wallet');
   // No separate line for the key. It is derived when the wallet connects, the person never sees it,
   // and after the release is inscribed they never need it again. A key nobody handles is not a step.
-  if (!lockKey && recipient) problems.push('the wallet did not return a lock key: reconnect it');
+  if (!lockKey && recipient) problems.push(lockError || 'the wallet did not return a lock key: reconnect it');
 
   return { typed, name, symbol, keepPct, recipient, whole, supply, premine, divisibility, open, perMint, cap, mintPrice, problems };
 }

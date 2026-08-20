@@ -84,8 +84,25 @@ function render(ul, rows, canMint) {
   }
 }
 
+/**
+ * Is the wallet able to do this at all, and if not, say which wallet it is.
+ *
+ * A page that calls a method an older wallet does not have throws a raw TypeError at the user:
+ * "window.verge.mintRune is not a function". That is a true sentence and a useless one. It names no
+ * remedy and it looks like the site is broken rather than the extension being behind.
+ */
+async function needs(method) {
+  if (!window.verge) return 'Install the Verginals wallet to do this.';
+  if (typeof window.verge[method] === 'function') return null;
+  let v = '';
+  try { const r = await window.verge.walletVersion(); if (r && r.version) v = ' You have ' + r.version + '.'; }
+  catch (_) { v = ''; }
+  return 'Your Verginals wallet is too old for this: update it, then reload this page.' + v;
+}
+
 async function mint(m, btn) {
-  if (!window.verge) { alert('Install the Verginals wallet to mint.'); return; }
+  const missing = await needs('mintRune');
+  if (missing) { alert(missing); return; }
   btn.disabled = true;
   const was = btn.textContent;
   btn.textContent = 'Check your wallet...';

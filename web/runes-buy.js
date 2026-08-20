@@ -134,8 +134,18 @@ async function place() {
   const amount = Number($('amount').value.replace(/[^0-9]/g, ''));
   if (!amount || !chosen) return;
 
+  // Same guard as the mint page, for the same reason: an older wallet has no placeRuneBid and would
+  // throw a raw TypeError that reads as a broken site.
   if (!window.verge) {
     note.textContent = 'Install the Verginals wallet to place an offer.';
+    note.classList.add('bad');
+    return;
+  }
+  if (typeof window.verge.placeRuneBid !== 'function') {
+    let v = '';
+    try { const r = await window.verge.walletVersion(); if (r && r.version) v = ' You have ' + r.version + '.'; }
+    catch (_) { v = ''; }
+    note.textContent = 'Your Verginals wallet is too old to place an offer: update it, then reload this page.' + v;
     note.classList.add('bad');
     return;
   }

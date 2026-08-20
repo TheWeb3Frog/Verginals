@@ -454,8 +454,19 @@ export async function signMessage(message, priv, compressed = true) {
  */
 export async function buildAndSignP2PKH({ inputs, outputs, time, version = 1, locktime = 0 }) {
   const vout = [];
-  // Inputs are always P2PKH (we only hold P2PKH keys); outputs may pay any address shape.
-  for (const o of outputs) vout.push({ value: o.value, script: await outputScript(o.address) });
+  // Inputs are always P2PKH (we only hold P2PKH keys); outputs may pay any address shape, OR carry
+  // a ready-made script.
+  //
+  // The script case was missing and two callers relied on it: sendRune and mintRune both build an
+  // OP_RETURN, which has no address by definition. This read o.address, found undefined, and died
+  // inside decodeAddress as "Cannot read properties of undefined (reading 'length')", a message that
+  // names neither the output nor the caller. sendRune had been broken that way since it shipped and
+  // nobody could tell, because no rune existed to send.
+  for (const o of outputs) {
+    if (o.script) { vout.push({ value: o.value, script: o.script }); continue; }
+    if (!o.address) throw new Error('an output needs either an address or a script');
+    vout.push({ value: o.value, script: await outputScript(o.address) });
+  }
   const vin = inputs.map((inp) => ({ txid: inp.txid, vout: inp.vout, sequence: 0xffffffff, script: new Uint8Array(0) }));
   const tx = { version, time, vin, vout, locktime };
 

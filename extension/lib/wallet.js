@@ -1136,7 +1136,7 @@ export class Wallet {
       outputs: vout,
       time: Math.floor(Date.now() / 1000),
     });
-    const b = await this._post('/api/broadcast', { hex: tx.hex });
+    const b = await this._post('/api/wallet/broadcast', { rawtx: tx.hex });
     const splitTxid = (b && b.txid) || b;
     // Tell the server, which checks every output against the chain before it signs anything.
     await this._post('/api/runes/etch/funded', { jobId, splitTxid });
@@ -1250,7 +1250,7 @@ export class Wallet {
         time: Math.floor(Date.now() / 1000),
       });
       try {
-        const r = await this._post('/api/broadcast', { hex: tx.hex });
+        const r = await this._post('/api/wallet/broadcast', { rawtx: tx.hex });
         done.push((r && r.txid) || r);
       } catch (e) {
         // Report what actually went out. Mints already broadcast are real and paid for, and a caller
@@ -1311,7 +1311,7 @@ export class Wallet {
       outputs,
       time: Math.floor(Date.now() / 1000),
     });
-    const txid = await this._post('/api/broadcast', { hex: tx.hex });
+    const txid = await this._post('/api/wallet/broadcast', { rawtx: tx.hex });
     return { txid: (txid && txid.txid) || txid, hex: tx.hex, sent: units, runeRef };
   }
 

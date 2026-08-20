@@ -14,7 +14,8 @@ const assert = require('assert');
 const codec = require('../src/runes/codec');
 const { RuneState, applyTx, index, runeRefOf, outpoint, mature } = require('../src/runes/indexer');
 const verifyImpl = require('../src/runes/verify');
-const { lockFor } = require('./fixtures/etchlock');
+const { lockFor, PUBKEY } = require('./fixtures/etchlock');
+const tickers = require('../src/runes/tickers');
 
 let passed = 0;
 const test = (name, fn) => { fn(); passed++; console.log('  ok - ' + name); };
@@ -109,6 +110,72 @@ test('mature() is the rule, and it is off by one in the right direction', () => 
   assert.strictEqual(mature(REF, A + 5), false);
   assert.strictEqual(mature(REF, A + 6), true);
   assert.strictEqual(mature('not a ref', A + 999), false);
+});
+
+// --- the two names nobody gets ----------------------------------------------------------------------
+test('VERGE and XVG cannot be etched, by either implementation, even when fully paid', () => {
+  // The attacker here does everything right except the name: they lock the correct amount for a
+  // ticker of that length and claim the reserved one anyway. Note the fixture cannot even quote a
+  // price for VERGE any more, so the lock is built against a legal name of the same length. Refusing
+  // an underpaid etching would prove nothing; this proves the NAME is what is refused.
+  for (const [name, sameLength] of [['VERGE', 'ALPHA'], ['XVG', 'ABC']]) {
+    const paid = lockFor(sameLength);
+    const tx = {
+      txid: 'r' + name, height: A, txIndex: 1, inputs: [], time: paid.time,
+      outputs: [out(), paid.output],
+      etching: { ticker: name, supply: 1000, premine: 1000, divisibility: 0, lock: paid.lock },
+    };
+    const st = new RuneState();
+    applyTx(st, tx);
+    assert.strictEqual(st.runes.size, 0, name + ' must not become a rune');
+    assert.strictEqual(st.tickers.size, 0, name + ' must stay unclaimed');
+
+    const j = verifyImpl.index([tx]);
+    assert.strictEqual(j.definitions.size, 0, name + ' must not become a rune in verify.js either');
+
+    // CONTROL: the very same transaction with a legal name of the same length DOES etch, so the
+    // refusal above is about the name and not about the transaction being malformed.
+    const okTx = { ...tx, etching: { ...tx.etching, ticker: sameLength } };
+    const st2 = new RuneState();
+    applyTx(st2, okTx);
+    assert.strictEqual(st2.runes.size, 1, sameLength + ' must etch');
+  }
+});
+
+test('a spacer cannot walk around the reservation', () => {
+  // Spacers are display only, so the bare ticker is what the rule sees. If it ever saw the typed form
+  // instead, V(bullet)ERGE would be a rune that renders as VERGE.
+  assert.strictEqual(tickers.bareTicker('V\u2022ERGE'), 'VERGE');
+  assert.strictEqual(tickers.isReserved(tickers.bareTicker('V\u2022ERGE')), true);
+  assert.throws(() => tickers.priceOf('VERGE'), /chain's own name/);
+  // And the fold is real, not decoration: every caller uppercases before asking, so this is the only
+  // place that would notice if it were dropped.
+  assert.strictEqual(tickers.isReserved('verge'), true);
+  assert.strictEqual(tickers.isReserved('xvg'), true);
+  assert.strictEqual(tickers.isReserved('Verge'), true);
+});
+
+test('the list is exactly two, and neighbours are not swept up with them', () => {
+  assert.deepStrictEqual([...tickers.RESERVED].sort(), ['VERGE', 'XVG']);
+  for (const near of ['VERGECOIN', 'XVGCOIN', 'VERG', 'XV', 'WVERGE', 'VERGES']) {
+    assert.strictEqual(tickers.isReserved(near), false, near + ' is a different word');
+    assert.ok(tickers.priceOf(near) > 0, near + ' must still be etchable');
+  }
+});
+
+test('a reserved name is refused at compose time too, not only by the indexer', () => {
+  const { buildEtch } = require('../src/runes/builder');
+  assert.throws(() => buildEtch({ ticker: 'XVG', supply: 100, premine: 100, lock: { t: 1_800_000_000, k: PUBKEY } },
+    { address: 'D7CaV2E9RLJwaPY2MXD14Th12SYpjFuB8H', value: 100000 }), /chain's own name/);
+  // CONTROL: a legal name gets PAST that line. Asserted on the message rather than on success,
+  // because buildEtch has other requirements this call does not satisfy and the point here is only
+  // that the reserved-name guard is not rejecting everything it sees.
+  let msg = '';
+  try {
+    buildEtch({ ticker: 'ALPHA', supply: 100, premine: 100, lock: { t: 1_800_000_000, k: PUBKEY } },
+      { address: 'D7CaV2E9RLJwaPY2MXD14Th12SYpjFuB8H', value: 100000 });
+  } catch (e) { msg = e.message; }
+  assert.doesNotMatch(msg, /chain's own name/, 'ALPHA must not be refused as reserved');
 });
 
 // --- both implementations ---------------------------------------------------------------------------

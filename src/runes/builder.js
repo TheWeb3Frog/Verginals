@@ -146,6 +146,13 @@ function buildEtch(rune, recipient, opts = {}) {
   const typed = String(rune.ticker || '');
   const ticker = tickers.bareTicker(typed);
   if (!/^[A-Z]{1,26}$/.test(ticker)) throw new Error('ticker must be 1..26 letters, A-Z');
+  // Redundant for correctness and kept anyway, labelled so nobody mistakes it for a defence:
+  // tickers.priceOf refuses the same names 76 lines below, so removing this changes no outcome, only
+  // WHEN the caller finds out. Failing on the first line that reads the name beats failing after the
+  // spacers, the supply and the terms have all been validated for a coin that can never exist.
+  if (tickers.isReserved(ticker)) {
+    throw new Error(`${ticker} is the chain's own name and cannot be a rune`);
+  }
   const spacers = tickers.normalizeSpacers(ticker, rune.spacers != null
     ? Number(rune.spacers)
     : tickers.spacersFromDisplay(typed));

@@ -32,6 +32,30 @@ const PRICE_XVG = {
 const PRICE_LONG_XVG = 10; // 12 characters and above: nominal, purely anti-spam
 const MAX_TICKER_LENGTH = 26;
 
+/**
+ * The two names no rune may ever take.
+ *
+ * A rune called VERGE or XVG claims to be the chain's own money, and no rune can be. That is not a
+ * preference about which names are nice, it is the one case where a ticker is a lie the protocol can
+ * tell for somebody: a wallet showing "1,000 XVG" next to a rune balance would be indistinguishable
+ * from a wallet showing a coin balance, and there is no honest reading of that.
+ *
+ * THE LIST IS EXACTLY TWO AND IT DOES NOT GROW. A reserved list that can be added to later is a
+ * governance surface, and the moment one exists somebody has to be trusted to decide what goes on it.
+ * The rule is not "names we would rather keep", it is "the name of the chain and the name of its
+ * coin", and that set was fixed in 2014. Anything longer is a different word: VERGECOIN is not a
+ * claim to be XVG, and reserving it would be taste rather than a rule.
+ *
+ * Checked against the BARE ticker, so a spacer cannot walk around it: V(bullet)ERGE reduces to VERGE
+ * before this is consulted, exactly as it does everywhere else.
+ */
+const RESERVED = Object.freeze(['VERGE', 'XVG']);
+
+/** Is this name one the protocol refuses to hand to anybody? */
+function isReserved(ticker) {
+  return RESERVED.includes(String(ticker || '').toUpperCase());
+}
+
 /** Cost of a ticker in atomic units. Throws on a length the protocol does not allow. */
 function priceOf(ticker) {
   const t = String(ticker || '').toUpperCase();
@@ -40,6 +64,10 @@ function priceOf(ticker) {
   // 0/O and 1/I are the classic pair. A ticker is short and permanent, so the cheap fix is to not
   // have the characters at all.
   if (!/^[A-Z]{1,26}$/.test(t)) throw new Error('ticker must be 1..26 letters, A-Z');
+  // Throwing here rather than returning a number is what makes the rule reach the indexer for free:
+  // isLocked below already treats a ticker with no price as an etching that did not pay, so a
+  // reserved name is refused by the same fail-closed path a malformed one is.
+  if (isReserved(t)) throw new Error(`${t} is the chain's own name and cannot be a rune`);
   const xvg = t.length >= 12 ? PRICE_LONG_XVG : PRICE_XVG[t.length];
   return Math.round(xvg * COIN);
 }
@@ -287,6 +315,7 @@ function costOfHoarding(length, count) {
 }
 
 module.exports = {
+  RESERVED, isReserved,
   DEFAULT_SYMBOL, symbolOf,
   PRICE_XVG, PRICE_LONG_XVG, MAX_TICKER_LENGTH, SPACER_CHAR,
   LOCK_SECONDS, LOCK_GRACE_SECONDS, LOCKTIME_THRESHOLD,

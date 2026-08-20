@@ -81,6 +81,15 @@
     /** Accept an offer on your Verginal. { outpoint, buyerAddress, priceUnits?, name? }. */
     acceptBid: (opts) => call('acceptBid', opts),
 
+    /**
+     * The extension build that is running, e.g. { version: '0.16.0' }.
+     *
+     * It exists because a fix shipped, a page still failed the same way, and there was no way to tell
+     * a stale service worker from a real bug without guessing. A page can now say which build it is
+     * talking to instead of asking somebody to check a settings screen.
+     */
+    walletVersion: () => call('walletVersion'),
+
     // --- Verge Runes ---
     /**
      * The public half of a lock key for a NEW etching, derived from this wallet's own recovery

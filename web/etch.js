@@ -163,16 +163,22 @@ async function deriveFromWallet() {
       const mine = await p.runesMyLocks({ locks: res.locks || [] });
       index = mine && Number.isInteger(mine.nextIndex) ? mine.nextIndex : 0;
     } catch (_) { /* an unreachable index service is not a reason to refuse to etch */ }
+    // Say which build is answering. A stale service worker looks exactly like a broken one, and the
+    // difference between "reload the extension" and "this is a bug" is worth one call.
+    let build = '';
+    try { const v = await p.walletVersion(); if (v && v.version) build = ' (wallet ' + v.version + ')'; }
+    catch (_) { build = ' (wallet too old to say which version it is)'; }
+
     if (typeof p.runesLockPubkey !== 'function') {
       // An older wallet that predates this method. Say which one it is rather than blaming the
       // connection, because reconnecting an old wallet produces the same nothing for ever.
-      lockError = 'this wallet is too old to derive a lock key: update the Verginals wallet';
+      lockError = 'this wallet is too old to derive a lock key: update the Verginals wallet' + build;
       return null;
     }
     const k = await p.runesLockPubkey({ index });
     return k && k.pubkey ? { pubHex: k.pubkey, derived: true, index: k.index, path: k.path } : null;
   } catch (e) {
-    lockError = (e && e.message) ? 'the wallet refused to derive a lock key: ' + e.message : null;
+    lockError = (e && e.message) ? 'the wallet refused to derive a lock key: ' + e.message + (build || '') : null;
     return null;
   }
 }

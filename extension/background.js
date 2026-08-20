@@ -170,6 +170,12 @@ async function handleRpc(method, params, origin, sender) {
       return { signature: sig, address: w.address };
     }
     // --- Verge Runes: balances and transfers ------------------------------------------------------
+    // Which build is actually running. No approval and no connection needed: it discloses nothing,
+    // and the whole point is that a page can say "your wallet is old" BEFORE anything else fails.
+    case 'walletVersion': {
+      try { return { version: chrome.runtime.getManifest().version }; }
+      catch (_) { return { version: null }; }
+    }
     case 'getRunes': {
       await requireConnected(origin, w);
       return w.getRunesForDisplay();

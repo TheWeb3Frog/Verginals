@@ -113,7 +113,9 @@ const SECONDFORM_ENABLED = process.env.VERGINALS_SECONDFORM === '1';
 const RUNES_ENABLED = process.env.VERGINALS_RUNES_ENABLED === '1';
 // Where the rune ledger starts. Runes ride inside inscriptions, so they cannot predate the
 // inscription index; leaving it unset simply starts both at the same height.
-const RUNES_FROM = Number(process.env.VERGINALS_RUNES_FROM || 0) || null;
+// Nothing below the activation height can be a rune, so scanning for one there is 130,000 blocks of
+// work that cannot find anything. Overridable, because a regtest chain activates somewhere else.
+const RUNES_FROM = Number(process.env.VERGINALS_RUNES_FROM || 0) || require('./runes/codec').ACTIVATION_HEIGHT;
 const MAX_BODY = 8 * 1024 * 1024; // 8 MB JSON cap
 
 const toXVG = (units) => units / COIN;
@@ -3441,12 +3443,21 @@ const server = http.createServer(async (req, res) => {
     }
     // The real buy page, as opposed to the interface preview below it. Closed while the protocol is
     // unlaunched: a market page with no market is only a way to mislead somebody.
-    if (req.method === 'GET' && p === '/runes/buy') {
-      if (!RUNES_ENABLED) return (writeHead(res, 404, { 'content-type': 'text/plain' }), res.end('not found'));
-      return serveStatic(res, 'runes-buy.html');
+    // Served whether or not the protocol is running. The API behind it stays closed, and the page
+    // says so in words: "The book is not open yet." A 404 on a page named in an announcement reads as
+    // a broken site, which is a worse lie than an empty one.
+    if (req.method === 'GET' && p === '/runes/buy') return serveStatic(res, 'runes-buy.html');
+    if (req.method === 'GET' && /^\/runes-buy\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
+    // RETIRED 2026-08-20, before the launch was announced. Both were interface previews built on
+    // SAMPLE DATA, and both still said "Assets", the name this protocol carried before it was renamed
+    // to Verge Runes. A page with invented volume and a dead product name is fine while a URL is
+    // handed out by hand and worse than useless the moment a link to the site is public: nobody
+    // screenshotting it will read the word "preview" first.
+    if (req.method === 'GET' && (p === '/verge-runes-market' || p === '/verge-runes-token')) {
+      writeHead(res, 302, { location: '/runes' });
+      res.end();
+      return;
     }
-    if (req.method === 'GET' && p === '/verge-runes-market') return serveStatic(res, 'verge-runes-market.html');
-    if (req.method === 'GET' && p === '/verge-runes-token') return serveStatic(res, 'verge-runes-token.html');
     if (req.method === 'GET' && /^\/verge-runes(-market|-token|-chart)?\.(js|css)$/.test(p)) {
       return serveStatic(res, p.slice(1));
     }

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex, nofollow">
+<meta name="robots" content="index, follow">
 <title>Verge Runes</title>
 <meta name="description" content="Fungible tokens and one-of-a-kind items on Verge, with balances a wallet can prove against an on-chain root.">
 <link rel="icon" href="/favicon.svg">
@@ -172,11 +172,32 @@
     </p>
     <div class="va-status" id="va-progress"></div>
     <p class="va-say" style="margin-top:22px">
+      <b>Verge Runes starts at block 9,420,420.</b> An etching in any block below that is not a rune,
+      however well formed it is, so no name can be claimed before the rules were published. A rune
+      also has to settle for six blocks, about three minutes, before anyone can move it: a reorg
+      re-mines an etching somewhere else and changes the name it is known by, and six blocks is six
+      times the deepest reorg measured on Verge over 56,572 blocks.
+    </p>
+    <p class="va-say">
       You can compose a coin now and see exactly what it would cost and what would be written:
       <a href="/etch"><b>etch a coin</b></a>. Already have one and want your locked price back?
       <a href="/unlock"><b>recover your coins</b></a>. Nothing is broadcast while the protocol is switched
       off, which is deliberate: a ticker costs real money, and a name nothing yet honours is not
       worth paying for.
+    </p>
+    <h2>Buying and selling</h2>
+    <p class="va-say">
+      To buy, name an amount and a price on <a href="/runes/buy"><b>the buy page</b></a>. Your wallet
+      builds the whole transaction and signs everything except the seller's own coin, so nothing
+      leaves you until they sign, and you can withdraw the offer at any time by spending one of the
+      coins behind it. Your wallet checks what the seller's coins really hold against the root
+      published on chain, not against anything this site says.
+    </p>
+    <p class="va-say">
+      <b>Selling happens in the wallet, not on this site, and that is on purpose.</b> A buyer's
+      signature commits coins they can take back in one block. A seller's signature gives runes away.
+      No web page should ever be able to ask for the second one, so offers waiting on you appear in
+      the wallet's own Runes tab, where each one is checked against your own coins before it is shown.
     </p>
   </section>
 

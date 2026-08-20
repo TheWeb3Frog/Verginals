@@ -68,6 +68,30 @@ function compareRefs(a, b) {
 // first body byte with the control opcodes. Heights below this would decode as a mint or a
 // checkpoint, so they are refused at encode time. Nothing is lost: no rune can be etched in the
 // first three blocks of a chain.
+/**
+ * The block Verge Runes starts counting from. An etching below this height is not a rune, however
+ * well formed it is.
+ *
+ * It is not only a date. It is the INDEXER'S START BLOCK, so nobody can pre-etch a name before the
+ * rules were announced, and any implementation can skip 9.4M blocks of history before it begins.
+ */
+const ACTIVATION_HEIGHT = 9420420;
+
+/**
+ * How many blocks must sit on top of an etching before its rune can be moved by an edict.
+ *
+ * A rune is named by WHERE it was etched, the pair (height, txIndex). A reorg re-mines the etching
+ * somewhere else, so its name CHANGES, and a different etching can inherit the old one. Measured on
+ * mainnet over 56,572 blocks: two reorgs, both one block deep, both resolved inside thirty seconds.
+ * Six blocks is 3.4 minutes at the observed 34 s pace, six times the deepest thing seen.
+ *
+ * WHAT THIS COVERS AND WHAT IT DOES NOT. Only EDICTS are held back. A young rune's balance still
+ * rides the default assignment on an ordinary spend, deliberately: refusing it there would BURN a
+ * premine on a routine wallet transaction, which is far worse than waiting three minutes. What the
+ * rule stops is being SOLD a rune whose name is not settled yet, because a sale moves it by edict.
+ */
+const ETCH_MATURITY = 6;
+
 const MIN_RUNE_HEIGHT = 3;
 
 // --- varints ---------------------------------------------------------------------------------
@@ -250,6 +274,7 @@ function fits(edicts) {
 
 module.exports = {
   MAGIC, VERSION, MAX_PAYLOAD, OP_MINT, OP_CHECKPOINT, MIN_RUNE_HEIGHT,
+  ACTIVATION_HEIGHT, ETCH_MATURITY,
   refOf, parseRef, compareRefs,
   encodeVarint, readVarint,
   encodeEdicts, encodeMint, encodeCheckpoint, decode, fits,

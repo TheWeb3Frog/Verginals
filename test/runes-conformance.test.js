@@ -13,6 +13,12 @@ const assert = require('assert');
 const crypto = require('crypto');
 const indexerImpl = require('../src/runes/indexer');
 const verifyImpl = require('../src/runes/verify');
+
+// Both implementations get the SAME options, and the maturity delay is left ON: the point of a
+// differential harness is to make two implementations disagree, so switching a rule off in it would
+// be switching off the only place that rule is compared. Activation is relaxed because these
+// histories live at small heights and the rule under test here is agreement, not the calendar.
+const CONFORM = { activationHeight: 0, etchMaturity: 6 };
 const { buildTree, allEntries } = require('../src/runes/checkpoint');
 const codec = require('../src/runes/codec');
 const { lockFor } = require('./fixtures/etchlock');
@@ -34,8 +40,8 @@ const rootOf = (entries) => buildTree([...entries]).root.toString('hex');
 const fullRoot = (state) => rootOf(allEntries(state));
 
 function agree(txs) {
-  const a = fullRoot(indexerImpl.index(txs));
-  const b = fullRoot(verifyImpl.index(txs));
+  const a = fullRoot(indexerImpl.index(txs, CONFORM));
+  const b = fullRoot(verifyImpl.index(txs, CONFORM));
   return { same: a === b, a, b };
 }
 
@@ -269,7 +275,7 @@ test('both agree that a mint past its cap or window changes nothing', () => {
   const r = agree(txs);
   assert.ok(r.same, `${r.a} vs ${r.b}`);
   // and the shared answer is the correct one: only the two inside the window and under the cap
-  assert.strictEqual(indexerImpl.index(txs).runes.get(REF).minted, 2000);
+  assert.strictEqual(indexerImpl.index(txs, CONFORM).runes.get(REF).minted, 2000);
 });
 
 test('both ignore an undefined etching field, and ignore it the same way', () => {
@@ -286,7 +292,7 @@ test('both ignore an undefined etching field, and ignore it the same way', () =>
   assert.ok(agree(plain).same);
   assert.ok(agree(decorated).same);
   // and the extra field changed nothing at all, in either implementation
-  assert.strictEqual(rootOf(indexerImpl.index(plain).entries()), rootOf(indexerImpl.index(decorated).entries()));
+  assert.strictEqual(rootOf(indexerImpl.index(plain, CONFORM).entries()), rootOf(indexerImpl.index(decorated, CONFORM).entries()));
 });
 
 test('a deliberately broken implementation is caught (the harness can fail)', () => {
@@ -294,8 +300,8 @@ test('a deliberately broken implementation is caught (the harness can fail)', ()
   const REF = indexerImpl.runeRefOf(100, 1);
   const txs = [paidEtch({ txid: 'e', height: 100, txIndex: 1, inputs: [], outputs: [out()],
     etching: { ticker: 'SANITY', supply: 1000, premine: 1000 } })];
-  const good = rootOf(indexerImpl.index(txs).entries());
-  const tampered = verifyImpl.index(txs);
+  const good = rootOf(indexerImpl.index(txs, CONFORM).entries());
+  const tampered = verifyImpl.index(txs, CONFORM);
   tampered.record('tx:0', REF, 1); // one extra unit out of nowhere
   assert.notStrictEqual(good, rootOf(tampered.entries()));
 });

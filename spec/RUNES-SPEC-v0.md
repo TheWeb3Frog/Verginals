@@ -158,6 +158,38 @@ Consequences that matter in practice:
 - an output carrying a rune must hold at least the dust minimum in XVG so it stays spendable;
 - burning is sending to an unspendable output, and needs no special opcode.
 
+### 3.1 Activation, and how long a rune must settle
+
+**Activation height: 9,420,420.** An etching in a block below this height is not a rune, however well
+formed it is. This is not only a start date. It is the **indexer's start block**: no name can be
+claimed before the rules were published, and any implementation may skip 9.4M blocks of history
+before it begins reading.
+
+**Maturity: 6 blocks.** A rune is named by *where* it was etched, the pair `(height, txIndex)`. A
+reorg re-mines the etching somewhere else, so **the name changes**, and a different etching can
+inherit the old one. Until an etching has 6 blocks on top of it:
+
+- **no edict naming that rune is honoured**, and
+- an implementation must not report the rune as settled.
+
+Everything else about the etching applies at once. In particular **the ticker is claimed
+immediately**, because a name that stayed free for six blocks could be claimed twice inside the gap
+and only one claimant would ever find out.
+
+**A held-back edict does not destroy anything.** The balance falls through to the default assignment
+below, exactly as an unnamed rune does. This is deliberate and it is the more important half of the
+rule: refusing the balance outright would **burn a premine** on an ordinary wallet transaction sent a
+few minutes after an etch, which is far worse than the problem the delay exists to solve. What the
+delay stops is being *sold* a rune whose name is not settled, because a sale moves it by edict.
+
+**Why 6.** Measured on Verge mainnet across 56,572 blocks (9,362,949 to 9,419,521): two reorgs, both
+one block deep, both resolved inside thirty seconds. At the observed 34 s pace six blocks is 3.4
+minutes, six times the deepest thing seen, and it costs an etcher that wait exactly once.
+
+Both numbers are parameters, not constants of nature: a test or a regtest chain passes its own, and
+the defaults are the mainnet rule so forgetting to pass them gives the strict behaviour rather than
+the permissive one.
+
 **Default assignment.** Inputs' balances are pooled per rune, edicts are applied in order (§4), and
 anything left over goes to the first non-OP_RETURN output. If a transaction has no such output, the
 remainder is **burned**. This makes an ordinary wallet transaction that knows nothing about the

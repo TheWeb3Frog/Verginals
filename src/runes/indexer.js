@@ -19,6 +19,14 @@ const tickers = require('./tickers');
 const sha256 = (b) => crypto.createHash('sha256').update(b).digest();
 const outpoint = (txid, vout) => `${txid}:${vout}`;
 
+/** Has this rune's etching settled enough that its name can no longer move under it? */
+function mature(runeRef, atHeight, blocks) {
+  const r = codec.parseRef(runeRef);
+  if (!r) return false;
+  const need = blocks != null ? blocks : codec.ETCH_MATURITY;
+  return Number(atHeight) - r.height >= need;
+}
+
 class RuneState {
   constructor() {
     this.runes = new Map();   // runeRef -> etching record
@@ -113,6 +121,11 @@ const runeRefOf = (height, txIndex) => codec.refOf(height, txIndex);
  */
 function applyTx(state, tx, opts = {}) {
   const dust = opts.dustUnits != null ? opts.dustUnits : 100000;
+  // Overridable for the same reason dust is: regtest cannot reach block 9,420,420, and a test that
+  // could not etch could not test anything. The DEFAULTS are the mainnet rule, so forgetting to pass
+  // them gives the real behaviour rather than a permissive one.
+  const activation = opts.activationHeight != null ? opts.activationHeight : codec.ACTIVATION_HEIGHT;
+  const maturity = opts.etchMaturity != null ? opts.etchMaturity : codec.ETCH_MATURITY;
   state.height = Math.max(state.height, tx.height || 0);
 
   // 1) Pool everything the inputs carried, and consume those outpoints.
@@ -126,7 +139,10 @@ function applyTx(state, tx, opts = {}) {
   }
 
   // 2) An etching creates a new rune and may premine into the pool.
-  if (tx.etching) {
+  // Below the activation height an etching is not a rune, however well formed. This is what stops
+  // anybody pre-claiming a name before the rules were published, and it is checked here rather than
+  // by the caller for the same reason the lock is: it is what makes an allocation valid.
+  if (tx.etching && Number(tx.height) >= activation) {
     const ref = runeRefOf(tx.height, tx.txIndex);
     const rec = normaliseEtching(tx.etching, ref);
     // The price has to be locked in this same transaction (spec §7.2), or the ticker is not taken.
@@ -166,6 +182,10 @@ function applyTx(state, tx, opts = {}) {
       const available = pool.get(e.runeRef) || 0;
       if (available <= 0) continue;
       if (!eligible.includes(e.output)) continue;
+      // A rune younger than ETCH_MATURITY cannot be moved by an edict, because a reorg could still
+      // change the name this edict is written against. The balance is untouched: it falls through to
+      // the default assignment below, exactly as an unnamed rune does.
+      if (!mature(e.runeRef, tx.height, maturity)) continue;
       const amount = e.amount === 0 ? available : Math.min(e.amount, available);
       state.credit(outpoint(tx.txid, e.output), e.runeRef, amount);
       pool.set(e.runeRef, available - amount);
@@ -372,4 +392,4 @@ function index(txs, opts = {}) {
   return state;
 }
 
-module.exports = { RuneState, applyTx, index, runeRefOf, outpoint, allowlistLeaf, AL_NODE };
+module.exports = { RuneState, applyTx, index, runeRefOf, outpoint, allowlistLeaf, AL_NODE, mature };

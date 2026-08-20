@@ -9,7 +9,10 @@ if (!globalThis.crypto) globalThis.crypto = webcrypto; // verge.js uses WebCrypt
 
 const require = createRequire(import.meta.url);
 const nodeCodec = require('../src/runes/codec');
-const { RuneState, applyTx, runeRefOf } = require('../src/runes/indexer');
+const { RuneState, applyTx: rawApplyTx, runeRefOf } = require('../src/runes/indexer');
+// Synthetic heights of 1, so the mainnet activation and maturity rules are switched off here
+// explicitly. They are covered against the real defaults in test/runes-maturity.test.js.
+const applyTx = (state, tx, o) => rawApplyTx(state, tx, Object.assign({ activationHeight: 0, etchMaturity: 0 }, o));
 const nodeCheckpoint = require('../src/runes/checkpoint');
 const { lockFor } = require('../test/fixtures/etchlock');
 

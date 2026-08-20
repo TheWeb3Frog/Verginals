@@ -106,7 +106,7 @@ class FakeChain {
   }
 }
 
-const service = (chain, from = 100) => new IndexService({
+const service = (chain, from = 100) => new IndexService({ runeOpts: { activationHeight: 0, etchMaturity: 0 },
   chain, from, runesFrom: from, trailDepth: 50, snapshotInterval: 2,
 });
 
@@ -283,7 +283,7 @@ test('after a repair the state is EXACTLY a fresh scan of the new chain', async 
 test('a reorg deeper than the trail refuses rather than pretending', async () => {
   const chain = new FakeChain();
   for (let h = 100; h <= 108; h++) chain.add(h, [revealTx('r' + h, 'c' + h, 'text/plain', Buffer.from('x'))]);
-  const svc = new IndexService({ chain, from: 100, trailDepth: 2, snapshotInterval: 1000 });
+  const svc = new IndexService({ runeOpts: { activationHeight: 0, etchMaturity: 0 }, chain, from: 100, trailDepth: 2, snapshotInterval: 1000 });
   await svc.sync();
 
   chain.forkAt(100);
@@ -315,7 +315,7 @@ test('a state file from a different start height is refused, not adapted', async
   const chain = new FakeChain().add(100, [revealTx('r1', 'c0', 'text/plain', Buffer.from('x'))]);
   const svc = service(chain, 100);
   await svc.sync();
-  const other = new IndexService({ chain, from: 200, runesFrom: 200 });
+  const other = new IndexService({ runeOpts: { activationHeight: 0, etchMaturity: 0 }, chain, from: 200, runesFrom: 200 });
   const r = other.load(svc.toJSON());
   assert.strictEqual(r.ok, false);
   assert.match(r.reason, /built from height 100/);

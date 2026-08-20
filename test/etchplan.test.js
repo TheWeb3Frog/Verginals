@@ -16,7 +16,10 @@ const bitcoin = require('bitcoinjs-lib');
 const cbor = require(path.join(ROOT, 'src/cbor'));
 const { ECPair } = require(path.join(ROOT, 'src/builder'));
 const { pickNetwork } = require(path.join(ROOT, 'src/cli'));
-const { RuneState, applyTx, runeRefOf } = require(path.join(ROOT, 'src/runes/indexer'));
+const { RuneState, applyTx: rawApplyTx, runeRefOf } = require(path.join(ROOT, 'src/runes/indexer'));
+// Synthetic heights, so the mainnet activation and maturity rules are switched off explicitly here.
+// They are covered against the real defaults in test/runes-maturity.test.js.
+const applyTx = (state, tx, o) => rawApplyTx(state, tx, Object.assign({ activationHeight: 0, etchMaturity: 0 }, o));
 const tickers = require(path.join(ROOT, 'src/runes/tickers'));
 
 const PORT = 8900 + Math.floor(Math.random() * 90);

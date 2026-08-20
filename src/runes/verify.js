@@ -247,6 +247,8 @@ function allowlistGate(tx, def, ref, per, journal) {
  */
 function apply(journal, tx, opts = {}) {
   const dust = opts.dustUnits != null ? opts.dustUnits : 100000;
+  const activation = opts.activationHeight != null ? opts.activationHeight : codec.ACTIVATION_HEIGHT;
+  const maturity = opts.etchMaturity != null ? opts.etchMaturity : codec.ETCH_MATURITY;
 
   // (a) drain the inputs into a pool, recording the negative deltas
   const pooled = new Map();
@@ -261,7 +263,10 @@ function apply(journal, tx, opts = {}) {
   }
 
   // (b) an etching, if the ticker is free
-  if (tx.etching) {
+  // Re-derived, not shared: an etching before the activation height is not a rune. Only the NUMBER
+  // comes from codec, because two implementations disagreeing about a constant is a different bug
+  // from two implementations disagreeing about a rule.
+  if (tx.etching && Number(tx.height) >= activation) {
     const ref = refOf(tx.height, tx.txIndex);
     const def = validDefinition(tx.etching);
     if (def && lockedEnough(tx, def.ticker, tx.etching.lock)
@@ -307,6 +312,11 @@ function apply(journal, tx, opts = {}) {
     for (const e of message.edicts) {
       const have = pooled.get(e.runeRef) || 0;
       if (have <= 0 || !eligible.includes(e.output)) continue;
+      // An edict cannot move a rune whose etching is younger than ETCH_MATURITY: a reorg could still
+      // move the name out from under it. Written the long way round on purpose, so this reads as its
+      // own derivation rather than a copy of the other indexer's line.
+      const born = codec.parseRef(e.runeRef);
+      if (!born || (Number(tx.height) - born.height) < maturity) continue;
       const move = e.amount === 0 ? have : Math.min(e.amount, have);
       journal.record(OP(tx.txid, e.output), e.runeRef, move);
       pooled.set(e.runeRef, have - move);

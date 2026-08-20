@@ -60,9 +60,13 @@ class IndexService {
    * @param {boolean} [p.runes]     index runes at all
    */
   constructor({ chain, from, runesFrom = null, runes = true, trailDepth = TRAIL_DEPTH,
-    snapshotInterval = SNAPSHOT_INTERVAL, onSnapshot = null } = {}) {
+    snapshotInterval = SNAPSHOT_INTERVAL, onSnapshot = null, runeOpts = null } = {}) {
     this.chain = chain;
     this.from = from;
+    // The rune rules that a different chain needs different numbers for: the activation height and
+    // the maturity delay. Left null the mainnet values apply, which is the safe direction to forget
+    // in. Regtest cannot reach block 9,420,420 and would otherwise index nothing at all.
+    this.runeOpts = runeOpts || undefined;
     // Called each time a snapshot is taken, which is the natural moment to write to disk: a cold
     // scan of the whole chain takes minutes and a kill part way through should not throw it away.
     this.onSnapshot = onSnapshot;
@@ -116,7 +120,7 @@ class IndexService {
       }
 
       this.inscriptions.processTx(decoded, height);
-      if (extra) applyTx(this.runes, toIndexerTx(rawTx, height, i, extra));
+      if (extra) applyTx(this.runes, toIndexerTx(rawTx, height, i, extra), this.runeOpts);
     }
 
     // Mirrors Indexer.processBlock, which this method replaces: the digest is taken AFTER the block

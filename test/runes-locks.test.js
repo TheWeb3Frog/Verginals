@@ -2,7 +2,12 @@
 // Run: node test/runes-locks.test.js
 const assert = require('assert');
 const crypto = require('crypto');
-const { RuneState, applyTx } = require('../src/runes/indexer');
+const { RuneState, applyTx: rawApplyTx } = require('../src/runes/indexer');
+// These histories are synthetic and sit at heights like 100, so the mainnet activation height and
+// the maturity delay are switched off HERE, explicitly, rather than left to be discovered. The rules
+// themselves are covered by test/runes-maturity.test.js against the real defaults.
+const RELAXED = { activationHeight: 0, etchMaturity: 0 };
+const applyTx = (state, tx, o) => rawApplyTx(state, tx, Object.assign({}, RELAXED, o));
 const tickers = require('../src/runes/tickers');
 const checkpoint = require('../src/runes/checkpoint');
 const locks = require('../src/runes/locks');

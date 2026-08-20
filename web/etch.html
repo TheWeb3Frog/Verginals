@@ -15,7 +15,8 @@
     <p class="et-eyebrow">VERGE RUNES</p>
     <h1>Etch a coin</h1>
     <p class="et-lede">
-      Three things to decide, one price to pay, and none of it can be changed afterwards.
+      Three things to decide, and none of it can be changed afterwards. The name is not bought, it is
+      held: you lock XVG against it and you get all of it back.
       Nothing is broadcast until you say so, and the total is shown before anything is signed.
       <a href="/runes">How the protocol works</a>.
     </p>
@@ -33,7 +34,7 @@
     <dl class="et-card-facts">
       <div><dt>Supply</dt><dd id="card-supply">21,000,000</dd></div>
       <div><dt>You keep</dt><dd id="card-keep">none</dd></div>
-      <div><dt>Price</dt><dd id="card-price">pick a name</dd></div>
+      <div><dt>You lock</dt><dd id="card-price">pick a name</dd></div>
       <div><dt>Yours again</dt><dd id="card-back">in four years</dd></div>
     </dl>
   </aside>
@@ -46,7 +47,7 @@
         <h2>The name</h2>
         <p class="et-say">
           Up to 26 letters, A to Z. Press space for a separator: it is display only and
-          costs nothing, so <b>DOG&#8226;GO</b> and <b>DOGGO</b> are the same coin at the same price.
+          costs nothing, so <b>DOG&#8226;GO</b> and <b>DOGGO</b> are the same coin and lock the same amount.
         </p>
         <label class="et-label" for="et-ticker">Ticker <span class="et-perm">PERMANENT</span></label>
         <input id="et-ticker" class="et-input et-ticker-input" type="text" placeholder="GRUMPY" spellcheck="false">
@@ -130,11 +131,11 @@
         <h2>Where it lands</h2>
 
         <!-- Connected, this whole step is one sentence. The wallet already knows the address, and
-             the key that reopens the locked price comes from the same recovery phrase, so there is
+             the key that reopens the locked XVG comes from the same recovery phrase, so there is
              nothing to type and nothing to save. -->
         <div id="et-wallet-on" hidden>
           <p class="et-say">
-            Your coins and your locked price both come back to
+            Your coins and your locked XVG both come back to
             <b id="et-wallet-addr" class="et-addr"></b>, and the key that reopens the lock is derived
             from your recovery phrase. Nothing to type, nothing to write down.
           </p>
@@ -143,14 +144,14 @@
         <div id="et-wallet-off">
           <p class="et-say">
             A coin is etched from a wallet, not from a form. Your coins come back to the address it
-            already holds, and the key that reopens the locked price is derived from your recovery
+            already holds, and the key that reopens the locked XVG is derived from your recovery
             phrase, so there is nothing to type and nothing new to keep safe.
           </p>
           <button type="button" id="et-connect" class="et-connect">Connect wallet</button>
           <p class="et-note" id="et-noext" hidden>
             No wallet answered. <a href="/#wallet">Install the Verginals wallet</a>, then come back
             to this page. Etching by hand is not offered on purpose: a pasted address and a key made
-            in a web page are the two ways people lose a locked price, and both are avoidable.
+            in a web page are the two ways people lose a locked deposit, and both are avoidable.
           </p>
         </div>
       </div>
@@ -171,7 +172,7 @@
     <p>Nothing has been signed or sent. The next screen shows the total and the address to pay it to.
     </p>
     <p>
-      Already made a coin and want your locked price back? <a href="/unlock">Recover your coins</a>,
+      Already made a coin and want your locked XVG back? <a href="/unlock">Recover your coins</a>,
       or use the <a href="/recovery-kit.html">offline tool</a>, which works with no internet and no
       website at all.
     </p>

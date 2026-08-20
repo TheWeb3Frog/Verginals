@@ -266,9 +266,12 @@ function refresh() {
     const price = priceOf(f.name.length);
     kv(tOut, 'The coin is', f.name, 'lead');
     if (f.typed !== f.name) kv(tOut, 'Shown as', f.typed);
-    kv(tOut, 'Price to claim it', xvg(price) + ' XVG', 'warn');
+    // Never the word "price" here. Nobody is paid this, it is not a fee, and it is not spent: it is
+    // locked to the name and it comes back in full. Calling it a price made people read the biggest
+    // number on the page as money leaving for ever, which is the opposite of what happens.
+    kv(tOut, 'You lock', xvg(price) + ' XVG', 'warn');
     const releases = new Date(Date.now() + 1460 * 86400e3);
-    kv(tOut, 'Yours again on', releases.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }));
+    kv(tOut, 'You get all of it back on', releases.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }));
   }
 
   const sOut = $('#et-supply-out');
@@ -310,11 +313,15 @@ function refresh() {
     $('#et-compose').disabled = true;
   } else {
     const price = priceOf(f.name.length);
-    kv(review, 'Ticker price, locked four years', xvg(price) + ' XVG');
-    kv(review, 'Miner fees and the inscription', 'about ' + xvg(4 * 100000) + ' XVG');
-    kv(review, 'Total you need', xvg(price + 4 * 100000) + ' XVG', 'lead');
-    review.append(el('p', 'et-note', 'The ticker price is not spent and not burnt. It returns to the '
-      + 'key you generated, four years from the block that confirms this.'));
+    // The two numbers are different in kind and the review has to say which is which. One leaves for
+    // good, the other is only parked. Showing a single "total" without that distinction is how
+    // somebody comes away thinking a four letter name cost them 10,000 XVG.
+    kv(review, 'Locked to the name, comes back in four years', xvg(price) + ' XVG');
+    kv(review, 'Actually spent, on miner fees and the inscription', 'about ' + xvg(4 * 100000) + ' XVG');
+    kv(review, 'You need in the wallet today', xvg(price + 4 * 100000) + ' XVG', 'lead');
+    review.append(el('p', 'et-note', 'Only the fees are spent. The locked amount is not paid to '
+      + 'anybody, not burnt, and not ours: it returns in full to the key you generated, four years '
+      + 'from the block that confirms this.'));
     $('#et-compose').disabled = false;
   }
 }

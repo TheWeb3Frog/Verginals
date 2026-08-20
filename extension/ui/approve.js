@@ -66,6 +66,23 @@ function renderDetails(req, extra) {
     row('Verginal', req.params.name || req.params.outpoint);
     row('Your offer', fmtXvg(req.params.priceUnits) + ' XVG');
     row('You sign', 'an offer the owner can accept; nothing moves until they do');
+  } else if (req.type === 'sendRune') {
+    row('Rune', req.params.runeRef || '');
+    row('Amount', Number(req.params.amount || 0).toLocaleString());
+    row('To', shorten(req.params.to || ''));
+    row('This is final', 'a rune transfer cannot be reversed once it confirms');
+  } else if (req.type === 'runesLockPubkey') {
+    // The one people are most likely to be alarmed by, because it is the first thing the etch page
+    // asks for and the word "key" is in it. Say what it is AND what it is not.
+    row('What', 'a PUBLIC key for the deposit that will hold your coin\u2019s name');
+    row('Derived from', 'your recovery phrase, on its own hardened branch');
+    row('Leaves the wallet', 'only the public half, which the etching publishes on chain anyway');
+    row('Moves money', 'no');
+  } else if (req.type === 'runesSignRelease') {
+    row('What', 'the transaction that reopens your name deposit');
+    row('Reopens', req.params.locktime ? new Date(Number(req.params.locktime) * 1000).toLocaleDateString() : 'in four years');
+    row('Returns to', shorten(req.params.to || 'your own address'));
+    row('Signed now', 'so the deposit comes back even if you lose this wallet');
   } else if (req.type === 'placeRuneBid') {
     row('Rune', (req.params.order && req.params.order.runeRef) || '');
     row('You want', Number(req.params.amount || 0).toLocaleString());

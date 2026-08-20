@@ -58,6 +58,17 @@ for (const m of ['runesLockPubkey', 'runesMyLocks']) {
   ok(m + ' is answered by the background', background.includes(`case '${m}'`));
 }
 
+console.log('\nevery approval prompt can say what it is asking for');
+// A type the background asks approval for and approve.js cannot describe renders as a bare method
+// name: "verginals.com wants to: runesLockPubkey", with no amount, no destination and no explanation.
+// sendRune was in that state, which means a rune transfer was being approved blind.
+const approve = readFileSync(join(ROOT, 'extension/ui/approve.js'), 'utf8');
+const asked = new Set([...background.matchAll(/requestApproval\(\{\s*type:\s*'([A-Za-z]+)'/g)].map((m) => m[1]));
+const described = new Set([...approve.matchAll(/req\.type === '([A-Za-z]+)'/g)].map((m) => m[1]));
+const bare = [...asked].filter((t) => !described.has(t));
+ok('every approval type has a description' + (bare.length ? ' (bare: ' + bare.join(', ') + ')' : ''), bare.length === 0);
+ok('CONTROL: the harness found approval types at all, so an empty list is not a pass', asked.size >= 8);
+
 console.log('\nselling stays out of reach of a page');
 for (const m of ['publishOrder', 'withdrawOrder', 'fillBid', 'pendingBids']) {
   ok(m + ' is NOT on the provider', !exposed.has(m));

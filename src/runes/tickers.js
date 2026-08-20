@@ -56,6 +56,7 @@ const MAX_TICKER_LENGTH = 26;
 const RESERVED = Object.freeze([
   'VERGE', 'VERGECOIN', 'VERGECURRENCY', 'VERGECURENCY',
   'XVG', 'XVGCOIN', 'XVGCURRENCY', 'XVGCURENCY',
+  'VERGEXVG', 'XVGVERGE',
 ]);
 
 /** Is this name one the protocol refuses to hand to anybody? */

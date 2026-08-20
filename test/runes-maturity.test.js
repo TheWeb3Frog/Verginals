@@ -157,8 +157,9 @@ test('a spacer cannot walk around the reservation', () => {
 
 test('the list is the frozen six, and ordinary words containing verge are not swept up', () => {
   assert.deepStrictEqual([...tickers.RESERVED].sort(),
-    ['VERGE', 'VERGECOIN', 'VERGECURENCY', 'VERGECURRENCY',
-      'XVG', 'XVGCOIN', 'XVGCURENCY', 'XVGCURRENCY']);
+    ['VERGE', 'VERGECOIN', 'VERGECURENCY', 'VERGECURRENCY', 'VERGEXVG',
+      'XVG', 'XVGCOIN', 'XVGCURENCY', 'XVGCURRENCY', 'XVGVERGE']);
+  assert.strictEqual(tickers.RESERVED.length, 10, 'ten, and closed');
   // CONVERGE and DIVERGE contain "verge" and impersonate nothing. A rule broad enough to catch them
   // would be a rule about spelling rather than about identity, which is how a reservation list stops
   // being defensible.

@@ -114,7 +114,8 @@ function validDefinition(e) {
   // would say so, which is the whole reason a second implementation exists. Frozen at the activation
   // height and never extended after it, so this literal is final rather than current.
   if (['VERGE', 'VERGECOIN', 'VERGECURRENCY', 'VERGECURENCY',
-    'XVG', 'XVGCOIN', 'XVGCURRENCY', 'XVGCURENCY'].includes(ticker)) return null;
+    'XVG', 'XVGCOIN', 'XVGCURRENCY', 'XVGCURENCY',
+    'VERGEXVG', 'XVGVERGE'].includes(ticker)) return null;
   const d = Number(e.divisibility || 0);
   const s = Number(e.supply || 0);
   const p = Number(e.premine || 0);

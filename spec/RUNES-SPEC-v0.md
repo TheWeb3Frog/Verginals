@@ -160,12 +160,12 @@ Consequences that matter in practice:
 
 ### 3.0 Names no rune may take
 
-Eight tickers cannot be etched. An etching claiming one is ignored even when the lock pays in full,
+Ten tickers cannot be etched. An etching claiming one is ignored even when the lock pays in full,
 and the name stays unclaimed for ever:
 
 ```
-VERGE   VERGECOIN   VERGECURRENCY   VERGECURENCY
-XVG     XVGCOIN     XVGCURRENCY     XVGCURENCY
+VERGE   VERGECOIN   VERGECURRENCY   VERGECURENCY   VERGEXVG
+XVG     XVGCOIN     XVGCURRENCY     XVGCURENCY     XVGVERGE
 ```
 
 The reason is narrow and it is the only one: each of these trades on the chain's own identity. A
@@ -178,7 +178,7 @@ impersonation there is.
 than the list being short. A list that can be extended once runes exist is a governance surface:
 somebody has to be trusted to decide what belongs on it, and every holder of an already etched name
 is exposed to that decision. Fixed before the first etching, it is a rule everybody could read in
-advance. An implementation that adds a ninth name is not this protocol.
+advance. An implementation that adds an eleventh name is not this protocol.
 
 It is a rule about identity, not about spelling. `CONVERGE`, `DIVERGE` and `VERGENCE` all contain the
 word and impersonate nothing, so all three are etchable. A rule broad enough to catch them would be a

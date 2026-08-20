@@ -363,3 +363,16 @@
 /* The default currency sign is dimmed: it is a placeholder standing in for a choice nobody made,
    and showing it at full strength would read as a symbol that was picked. */
 .et-card-sym-default { opacity: .38; }
+
+/* A cap is the one field on this page that can quietly destroy a coin: it counts claims for the
+   whole supply, and read as a per-person limit it caps the coin itself. One etcher set 5, which
+   closed a 21,000 supply after 25 coins existed, permanently. So the consequence is spelled out in
+   coins rather than left as arithmetic, and it takes a deliberate tick to go through with it. */
+.et-hint { margin: 6px 0 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
+.et-alarm {
+  margin: 12px 0 0; padding: 12px 14px; border-radius: 10px;
+  border: 1px solid #7a3a2a; background: rgba(140, 60, 40, 0.14);
+}
+.et-alarm-head { margin: 0; font-size: 13px; font-weight: 600; color: #e0906f; }
+.et-alarm-say { margin: 6px 0 10px; font-size: 12.5px; line-height: 1.55; color: var(--txt); }
+.et-alarm .et-check { color: var(--txt); }

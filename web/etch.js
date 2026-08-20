@@ -286,6 +286,22 @@ function readForm() {
       problems.push('an open mint needs supply left over: keep less than all of it');
     }
   }
+
+  // The cap counts claims for the WHOLE COIN, and it was labelled in a way that reads as a limit per
+  // person. Somebody set it to 5 meaning "five each", and their coin closed for ever with 25 of a
+  // 21,000 supply in existence. Nothing on the page had told them the other 20,975 would never be
+  // mintable, because the readout stated the cap back to them rather than its consequence.
+  //
+  // So the consequence is computed here, in coins, and it takes a deliberate tick to etch anyway.
+  // A stranded supply is a legitimate design and is not forbidden; it just stops being an accident.
+  const claimable = supplyOk && Number.isInteger(premine) ? supply - premine : 0;
+  const mintable = open && Number.isInteger(cap) && cap > 0 && Number.isInteger(perMint) && perMint > 0
+    ? Math.min(claimable, cap * perMint) : claimable;
+  const stranded = open && claimable > 0 ? claimable - mintable : 0;
+  const strandedOk = $('#et-strand-ok').checked;
+  if (stranded > 0 && !strandedOk) {
+    problems.push('the cap leaves coins nobody can ever mint: read the warning and tick the box, or clear the cap');
+  }
   // Connecting a wallet fixes the address and the key at once, so listing them as two failures
   // reads as twice the work. They are one sentence until somebody opens the manual panel.
   if (!recipient) problems.push('connect your wallet');
@@ -293,7 +309,40 @@ function readForm() {
   // and after the release is inscribed they never need it again. A key nobody handles is not a step.
   if (!lockKey && recipient) problems.push(lockError || 'the wallet did not return a lock key: reconnect it');
 
-  return { typed, name, symbol, keepPct, recipient, whole, supply, premine, divisibility, open, perMint, cap, mintPrice, problems };
+  return { typed, name, symbol, keepPct, recipient, whole, supply, premine, divisibility, open,
+    perMint, cap, mintPrice, claimable, mintable, stranded, problems };
+}
+
+/**
+ * What the mint terms actually do to the coin, said in coins rather than in claims.
+ *
+ * The old line here read "Others can claim 5 times, 5 each", which is true and tells nobody that
+ * 20,975 of their 21,000 coins had just been made impossible. A cap is the only field on this form
+ * whose damage is invisible in its own units, so it is reported in the units that matter.
+ */
+function paintMintTerms(f) {
+  const out = $('#et-mint-out');
+  const alarm = $('#et-strand');
+  out.textContent = '';
+  alarm.hidden = true;
+  if (!f.open || !Number.isInteger(f.perMint) || f.perMint <= 0
+    || !Number.isInteger(f.divisibility) || f.claimable <= 0) return;
+
+  const scale = 10 ** f.divisibility;
+  const claims = Math.floor(f.mintable / f.perMint);
+  kv(out, 'Claims available', fmt(claims) + ' in total, to everyone put together');
+  kv(out, 'That releases', fmt(f.mintable / scale) + ' coins');
+  if (f.stranded > 0) {
+    kv(out, 'Nobody can ever mint', fmt(f.stranded / scale) + ' coins', 'warn');
+    $('#et-strand-say').textContent = `A cap of ${fmt(f.cap)} claims at `
+      + `${fmt(f.perMint / scale)} coins each releases ${fmt(f.mintable / scale)} coins. `
+      + `The remaining ${fmt(f.stranded / scale)} of your ${fmt(f.claimable / scale)} `
+      + 'can never be minted by anyone, and an etching cannot be changed afterwards. '
+      + 'If you meant "each person may claim this many times", that is not something any chain '
+      + 'can enforce, and it is not what this field does. Clear it to let claiming run until the '
+      + 'supply is gone.';
+    alarm.hidden = false;
+  }
 }
 
 // --- live readouts -------------------------------------------------------------------------------
@@ -322,12 +371,9 @@ function refresh() {
     kv(sOut, 'Whole coins', fmt(f.whole));
     kv(sOut, 'You keep', fmt(f.premine / (10 ** f.divisibility)) + ' of them');
     kv(sOut, 'Everyone else can have', fmt((f.supply - f.premine) / (10 ** f.divisibility)));
-    if (f.open && Number.isInteger(f.perMint) && f.perMint > 0) {
-      const claimable = f.supply - f.premine;
-      const claims = f.cap !== null ? Math.min(f.cap, Math.floor(claimable / f.perMint)) : Math.floor(claimable / f.perMint);
-      kv(sOut, 'Others can claim', fmt(claims) + ' times, ' + fmt(f.perMint / (10 ** f.divisibility)) + ' each');
-    }
   }
+
+  paintMintTerms(f);
 
   // The card. It is the only thing on the page anybody is here for, so it updates on every
   // keystroke and never shows a number the form does not actually hold.
@@ -471,7 +517,7 @@ $('#et-compose').addEventListener('click', async () => {
 })();
 
 for (const id of ['#et-symbol', '#et-supply', '#et-div', '#et-keep', '#et-per', '#et-cap',
-  '#et-price']) {
+  '#et-price', '#et-strand-ok']) {
   $(id).addEventListener('input', refresh);
 }
 refresh();

@@ -117,7 +117,7 @@
         <h2>Who else can get some</h2>
         <p class="et-say">
           Leave this off and the supply is only what you kept. Turn it on and anyone may claim a
-          fixed amount, until the cap is reached.
+          fixed amount, first come first served, until the supply runs out.
         </p>
         <label class="et-check"><input id="et-openmint" type="checkbox"> Let others mint</label>
         <div id="et-terms" class="et-terms" hidden>
@@ -127,9 +127,22 @@
               <input id="et-per" class="et-input" type="text" inputmode="numeric" value="1000">
             </div>
             <div>
-              <label class="et-label" for="et-cap">Maximum claims <span class="et-opt">optional</span></label>
-              <input id="et-cap" class="et-input" type="text" inputmode="numeric" placeholder="unlimited">
+              <label class="et-label" for="et-cap">Total claims ever <span class="et-opt">optional</span></label>
+              <input id="et-cap" class="et-input" type="text" inputmode="numeric" placeholder="no limit">
+              <p class="et-hint">
+                Everyone put together, not per person. Leave it empty and claiming runs until the
+                supply is gone, which is what almost every coin wants.
+              </p>
             </div>
+          </div>
+          <div id="et-mint-out" class="et-readout"></div>
+          <div id="et-strand" class="et-alarm" hidden>
+            <p class="et-alarm-head">This cap strands most of your supply</p>
+            <p id="et-strand-say" class="et-alarm-say"></p>
+            <label class="et-check">
+              <input id="et-strand-ok" type="checkbox">
+              I understand, and I want those coins to be unmintable for ever
+            </label>
           </div>
           <label class="et-label" for="et-price">Network fee per claim <span class="et-opt">in XVG</span></label>
           <input id="et-price" class="et-input" type="text" inputmode="decimal" value="20">

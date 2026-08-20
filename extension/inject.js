@@ -104,6 +104,8 @@
     runesLockPubkey: (opts) => call('runesLockPubkey', opts),
     /** Which published locks this wallet can open, matched locally. Discloses nothing, moves nothing. */
     runesMyLocks: (opts) => call('runesMyLocks', opts),
+    /** Mint from a coin whose creator left the door open. { runeRef, priceUnits }. Prompts. */
+    mintRune: (opts) => call('mintRune', opts),
     /** The runes this wallet holds, each proven against the published root. */
     getRunes: () => call('getRunes'),
     /** Send runes. { runeRef, amount, to }. Prompts to approve. */

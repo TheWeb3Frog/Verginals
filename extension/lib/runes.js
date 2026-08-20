@@ -305,3 +305,33 @@ export function edictScript(payload) {
   if (payload.length > 75) throw new Error('payload needs a longer push than an edict should ever be');
   return cat(Uint8Array.from([0x6a, payload.length]), payload);
 }
+
+/**
+ * The mint message, and the script it travels in.
+ *
+ * Ported from src/runes/codec.js encodeMint. A mint the wallet framed even one byte differently
+ * would be ignored by every indexer while the fee, which IS the price, had already gone to a miner:
+ * the coins leave and nothing arrives. extension/test-mint.mjs compares both encoders byte for byte
+ * for that reason.
+ *
+ * `proofIndex` names which input carries the allowlist entitlement, and is left out entirely for an
+ * open mint rather than sent as zero, because zero is a valid input index.
+ */
+export function encodeMint(runeRef, proofIndex = null) {
+  const ref = parseRef(runeRef);
+  if (!ref) throw new Error(`runeRef must be "<height>:<txIndex>", got ${JSON.stringify(runeRef)}`);
+  const parts = [encodeVarint(OP_MINT), encodeVarint(ref.height), encodeVarint(ref.txIndex)];
+  if (proofIndex !== null && proofIndex !== undefined) parts.push(encodeVarint(Number(proofIndex)));
+  const payload = cat(Uint8Array.from([MAGIC_0, MAGIC_1, VERSION]), cat(...parts));
+  if (payload.length > MAX_PAYLOAD) {
+    throw new Error(`payload is ${payload.length} bytes, over the ${MAX_PAYLOAD}-byte OP_RETURN limit`);
+  }
+  return payload;
+}
+
+/** `OP_RETURN <push>` carrying a mint message. */
+export function mintScript(runeRef, proofIndex = null) {
+  const payload = encodeMint(runeRef, proofIndex);
+  if (payload.length > 75) throw new Error('a mint message should never need a long push');
+  return cat(Uint8Array.from([0x6a, payload.length]), payload);
+}

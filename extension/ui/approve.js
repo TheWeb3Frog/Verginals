@@ -66,6 +66,11 @@ function renderDetails(req, extra) {
     row('Verginal', req.params.name || req.params.outpoint);
     row('Your offer', fmtXvg(req.params.priceUnits) + ' XVG');
     row('You sign', 'an offer the owner can accept; nothing moves until they do');
+  } else if (req.type === 'mintRune') {
+    row('Rune', req.params.runeRef || '');
+    row('You pay', fmtXvg(req.params.priceUnits || 0) + ' XVG');
+    row('Who gets it', 'the miner of the block, as an ordinary fee. Not the coin\u2019s creator.');
+    row('You receive', 'one mint of this coin, if the block accepts it');
   } else if (req.type === 'sendRune') {
     row('Rune', req.params.runeRef || '');
     row('Amount', Number(req.params.amount || 0).toLocaleString());

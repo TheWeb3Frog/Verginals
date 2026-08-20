@@ -17,7 +17,7 @@ import * as bip32 from './bip32.js';
 import { ElectrumClient } from './electrum.js';
 import { InscriptionDetector } from './inscriptions.js';
 import * as swap from './swap.js';
-import { verifiedBalances, spendableForPayment, selectForRuneTransfer, encodeEdicts, edictScript, DUST_UNITS } from './runes.js';
+import { verifiedBalances, spendableForPayment, selectForRuneTransfer, encodeEdicts, edictScript, mintScript, DUST_UNITS } from './runes.js';
 import * as runebid from './runebid.js';
 // STATIC, never a dynamic import. An MV3 service worker forbids `await import(...)` outright,
 // and the three lazy loads that used to sit in the lock methods below failed at the only moment
@@ -1082,6 +1082,63 @@ export class Wallet {
     });
     await this._post('/api/runes/bid', { bid });
     return { bid, pays: q.priceUnits, gets: units, carriers: q.carriers.length };
+  }
+
+  /**
+   * Mint from a coin whose creator left the door open.
+   *
+   * THE PRICE IS THE FEE. That is the whole mechanism and it is also the trap: the etcher names a
+   * price, and a mint counts only if the transaction's fee reaches it (spec 2.2, feePaid in the
+   * indexer). Nobody collects it, the miner of the block does, which is exactly why it works as a
+   * price with no beneficiary and no payout address in the protocol and therefore no rug.
+   *
+   * A wallet that funded this the ordinary way would pay the relay minimum, the fee would fall
+   * short, and the indexer would ignore the mint while the coins were gone for good. So the fee is
+   * computed as the price, never as whatever the network happens to want, and the difference is
+   * simply left on the table for the miner.
+   */
+  async mintRune({ runeRef, priceUnits, to, extraFeeUnits }) {
+    this._requireUnlocked();
+    const price = Number(priceUnits || 0);
+    if (!Number.isInteger(price) || price < 0) throw new Error('the mint price must be a whole number of units');
+
+    // The relay still has its own floor, and a mint priced below it would never travel. Whichever is
+    // larger is what the transaction pays.
+    const relayFloor = 200000;
+    const fee = Math.max(price, relayFloor) + Number(extraFeeUnits || 0);
+    const dest = to || this.address;
+
+    // Only clean coins. selectForRuneTransfer exists for moving a rune this wallet already holds;
+    // a mint holds none yet, so the ordinary spendable set is right, and spendableForPayment is what
+    // keeps a coin carrying somebody's rune or Verginal out of it.
+    const clean = spendableForPayment(await this.getUtxos()).sort((a, b) => b.value - a.value);
+    const need = DUST_UNITS + fee;
+    const inputs = [];
+    let have = 0;
+    for (const u of clean) {
+      if (have >= need + DUST_UNITS) break;
+      inputs.push(u); have += u.value;
+    }
+    if (have < need) {
+      throw new Error(`a mint of this coin needs ${((need) / 1e6).toFixed(6)} XVG of clean coin, you have ${(have / 1e6).toFixed(6)}`);
+    }
+
+    // Output 0 receives the minted amount by the default assignment, so it must come first and it
+    // must be spendable. The OP_RETURN carries the mint message and can never receive anything.
+    const outputs = [
+      { address: dest, value: DUST_UNITS },
+      { script: mintScript(runeRef), value: 0 },
+    ];
+    const change = have - DUST_UNITS - fee;
+    if (change >= DUST_UNITS) outputs.push({ address: this.address, value: change });
+
+    const tx = await verge.buildAndSignP2PKH({
+      inputs: inputs.map((u) => ({ ...u, privateKey: this._priv })),
+      outputs,
+      time: Math.floor(Date.now() / 1000),
+    });
+    const r = await this._post('/api/broadcast', { hex: tx.hex });
+    return { txid: (r && r.txid) || r, runeRef, paidAsFee: fee, to: dest };
   }
 
   /**

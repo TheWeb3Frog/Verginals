@@ -1794,6 +1794,21 @@ async function handleRuneBids(req, res, url) {
   return sendJSON(res, 200, { bids: await runebook.bidsFor(script) });
 }
 
+/**
+ * GET /api/runes/mintable: every coin whose creator left the door open.
+ *
+ * Answered from the same state the indexer decides mints with, so a page never shows a Mint button
+ * on something the chain would refuse. Closed mints are RETURNED, not hidden: somebody arriving two
+ * blocks after a window shut deserves to read why rather than find an empty list.
+ */
+function handleRuneMintable(req, res, url) {
+  if (!runeBookReady(res)) return;
+  const { mintable } = require('./runes/mintable');
+  const runeRef = url.searchParams.get('rune') || null;
+  const height = service.runes.height || 0;
+  return sendJSON(res, 200, { height, mintable: mintable(service.runes, height, { runeRef }) });
+}
+
 async function handleRuneDepth(req, res, url) {
   if (!runeBookReady(res)) return;
   const runeRef = url.searchParams.get('rune');
@@ -3447,6 +3462,8 @@ const server = http.createServer(async (req, res) => {
     // says so in words: "The book is not open yet." A 404 on a page named in an announcement reads as
     // a broken site, which is a worse lie than an empty one.
     if (req.method === 'GET' && p === '/runes/buy') return serveStatic(res, 'runes-buy.html');
+    if (req.method === 'GET' && p === '/runes/mint') return serveStatic(res, 'runes-mint.html');
+    if (req.method === 'GET' && /^\/runes-mint\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
     if (req.method === 'GET' && /^\/runes-buy\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
     // RETIRED 2026-08-20, before the launch was announced. Both were interface previews built on
     // SAMPLE DATA, and both still said "Assets", the name this protocol carried before it was renamed
@@ -3567,6 +3584,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && p === '/api/runes/bid') return await handleRuneBidPut(req, res);
     if (req.method === 'GET' && p === '/api/runes/bids') return await handleRuneBids(req, res, url);
     if (req.method === 'GET' && p === '/api/runes/depth') return await handleRuneDepth(req, res, url);
+    if (req.method === 'GET' && p === '/api/runes/mintable') return handleRuneMintable(req, res, url);
     if (req.method === 'GET' && p === '/api/runes/locks') return handleRuneLocks(req, res);
     if (req.method === 'POST' && p === '/api/runes/release') return await handleRuneRelease(req, res);
     if (req.method === 'POST' && p === '/api/runes/etch/release') return await handleRuneEtchRelease(req, res);

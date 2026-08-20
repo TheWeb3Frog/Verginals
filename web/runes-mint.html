@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mint a coin on Verge</title>
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/verge-runes.css">
+<link rel="stylesheet" href="/runes-buy.css">
+<link rel="stylesheet" href="/sitenav.css">
+</head>
+<body>
+  <nav class="sitenav" aria-label="Site">
+    <a class="sn-brand" href="/"><span class="sn-logo">V</span>Verginals</a>
+    <div class="sn-group">
+      <span class="sn-label">Verginals</span>
+      <a href="/#inscribe">Inscribe</a>
+      <a href="/#market">Market</a>
+      <a href="/#arena">Arena</a>
+    </div>
+    <div class="sn-group">
+      <span class="sn-label">Runes</span>
+      <a href="/etch">Etch a coin</a>
+      <a href="/runes/mint" aria-current="page">Mint</a>
+      <a href="/runes/buy">Buy</a>
+      <a href="/runes">How it works</a>
+    </div>
+  </nav>
+<main class="vr-wrap">
+
+  <header class="vr-head slim">
+    <h1>Mint a coin</h1>
+    <p class="vr-lede">
+      Some coins are made with the door left open: anyone can take a share until the supply runs out
+      or the window closes. Nothing is reserved and nobody approves you.
+    </p>
+    <div id="status" class="vr-status">Looking for open mints...</div>
+  </header>
+
+  <section id="list" class="rb-orders" hidden>
+    <h2>Open right now</h2>
+    <ul id="mintList" class="rb-list"></ul>
+  </section>
+
+  <section id="closed" class="rb-orders" hidden style="margin-top:26px">
+    <h2>Not open</h2>
+    <p class="muted small">Shown rather than hidden, so you can see what you missed and why.</p>
+    <ul id="closedList" class="rb-list"></ul>
+  </section>
+
+  <section class="rb-how">
+    <h2>What you actually pay</h2>
+    <p>
+      The price of a mint is the transaction fee, and it goes to whoever mines the block. It is not
+      paid to the coin's creator, and there is no address in the protocol for them to receive it.
+      That is why a mint price cannot become a rug: nobody is collecting.
+    </p>
+    <p>
+      Your wallet builds the transaction and pays exactly what the coin asks. If the block accepts it,
+      the amount arrives on a coin your wallet already knows how to hold.
+    </p>
+  </section>
+
+</main>
+<script type="module" src="/runes-mint.js"></script>
+</body>
+</html>

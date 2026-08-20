@@ -47,6 +47,12 @@ const DEFAULT_API = 'https://verginals.com';
 // and the derivation is identical, so nobody has to migrate.
 export const DEFAULT_STRENGTH = 256;
 
+// How many mints one click may chain. A node refuses a chain of unconfirmed transactions past its
+// ancestor limit, which is 25 on a Bitcoin derived chain, and the last few would be rejected after
+// the earlier ones had already paid. Twenty leaves room for the change transaction and for a node
+// configured a little tighter than the default.
+const MAX_CHAINED_MINTS = 20;
+
 const DERIVATION_PATH = "m/44'/77'/0'/0/0";
 const accountPath = (i) => `m/44'/77'/0'/0/${i}`;
 
@@ -1185,10 +1191,17 @@ export class Wallet {
    * computed as the price, never as whatever the network happens to want, and the difference is
    * simply left on the table for the miner.
    */
-  async mintRune({ runeRef, priceUnits, to, extraFeeUnits }) {
+  async mintRune({ runeRef, priceUnits, to, extraFeeUnits, times }) {
     this._requireUnlocked();
     const price = Number(priceUnits || 0);
     if (!Number.isInteger(price) || price < 0) throw new Error('the mint price must be a whole number of units');
+
+    // ONE MINT IS ONE TRANSACTION, always. The indexer reads a single protocol message per
+    // transaction (readMessage returns the first it can decode), so a second mint message in the
+    // same one would simply be ignored while its price had already been paid. Minting ten times
+    // means broadcasting ten transactions, each chained onto the change of the one before, which is
+    // why a count is capped rather than free.
+    const n = Math.max(1, Math.min(MAX_CHAINED_MINTS, Number(times) || 1));
 
     // The relay still has its own floor, and a mint priced below it would never travel. Whichever is
     // larger is what the transaction pays.
@@ -1200,7 +1213,8 @@ export class Wallet {
     // a mint holds none yet, so the ordinary spendable set is right, and spendableForPayment is what
     // keeps a coin carrying somebody's rune or Verginal out of it.
     const clean = spendableForPayment(await this.getUtxos()).sort((a, b) => b.value - a.value);
-    const need = DUST_UNITS + fee;
+    // Enough for every mint asked for: each spends a dust carrier and pays the price as its fee.
+    const need = (DUST_UNITS + fee) * n;
     const inputs = [];
     let have = 0;
     for (const u of clean) {
@@ -1208,25 +1222,49 @@ export class Wallet {
       inputs.push(u); have += u.value;
     }
     if (have < need) {
-      throw new Error(`a mint of this coin needs ${((need) / 1e6).toFixed(6)} XVG of clean coin, you have ${(have / 1e6).toFixed(6)}`);
+      throw new Error(`${n} mint(s) of this coin need ${(need / 1e6).toFixed(6)} XVG of clean coin, you have ${(have / 1e6).toFixed(6)}`);
     }
 
-    // Output 0 receives the minted amount by the default assignment, so it must come first and it
-    // must be spendable. The OP_RETURN carries the mint message and can never receive anything.
-    const outputs = [
-      { address: dest, value: DUST_UNITS },
-      { script: mintScript(runeRef), value: 0 },
-    ];
-    const change = have - DUST_UNITS - fee;
-    if (change >= DUST_UNITS) outputs.push({ address: this.address, value: change });
+    // Each mint is built on the change of the one before it. The alternative, one input per mint,
+    // would need the wallet to already hold n separate coins, which nobody does.
+    const done = [];
+    let spend = inputs.map((u) => ({ ...u, privateKey: this._priv }));
+    let pot = have;
 
-    const tx = await verge.buildAndSignP2PKH({
-      inputs: inputs.map((u) => ({ ...u, privateKey: this._priv })),
-      outputs,
-      time: Math.floor(Date.now() / 1000),
-    });
-    const r = await this._post('/api/broadcast', { hex: tx.hex });
-    return { txid: (r && r.txid) || r, runeRef, paidAsFee: fee, to: dest };
+    for (let i = 0; i < n; i++) {
+      const change = pot - DUST_UNITS - fee;
+      if (change < 0) break;
+
+      // Output 0 receives the minted amount by the default assignment, so it must come first and it
+      // must be spendable. The OP_RETURN carries the mint message and can never receive anything.
+      const outputs = [
+        { address: dest, value: DUST_UNITS },
+        { script: mintScript(runeRef), value: 0 },
+      ];
+      const carriesChange = change >= DUST_UNITS && i < n - 1;
+      if (change >= DUST_UNITS) outputs.push({ address: this.address, value: change });
+
+      const tx = await verge.buildAndSignP2PKH({
+        inputs: spend,
+        outputs,
+        time: Math.floor(Date.now() / 1000),
+      });
+      try {
+        const r = await this._post('/api/broadcast', { hex: tx.hex });
+        done.push((r && r.txid) || r);
+      } catch (e) {
+        // Report what actually went out. Mints already broadcast are real and paid for, and a caller
+        // told "it failed" would have no idea it holds nine of the ten it asked for.
+        if (!done.length) throw e;
+        return { txids: done, minted: done.length, asked: n, runeRef, paidAsFee: fee * done.length,
+          to: dest, stoppedBecause: e.message };
+      }
+      if (!carriesChange) break;
+      spend = [{ txid: tx.txid, vout: 2, value: change, privateKey: this._priv }];
+      pot = change;
+    }
+
+    return { txids: done, minted: done.length, asked: n, runeRef, paidAsFee: fee * done.length, to: dest };
   }
 
   /**

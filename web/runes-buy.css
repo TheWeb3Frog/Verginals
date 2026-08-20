@@ -26,3 +26,10 @@
   .rb-row { flex-direction: column; align-items: flex-start; gap: 8px; }
   .rb-ask { text-align: left; }
 }
+
+/* How far along a mint is. Measured against what CAN be minted, never against the whole supply. */
+.rb-bar { height: 4px; border-radius: 3px; background: var(--line); overflow: hidden; margin: 6px 0 3px; max-width: 240px; }
+.rb-bar span { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.rb-pct { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rb-mintwrap { display: flex; gap: 8px; align-items: center; flex: 0 0 auto; }
+.rb-count { width: 58px; text-align: center; font-variant-numeric: tabular-nums; padding: 7px 6px; }

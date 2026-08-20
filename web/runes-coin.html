@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A coin on Verge</title>
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/verge-runes.css">
+<link rel="stylesheet" href="/runes-buy.css">
+<link rel="stylesheet" href="/runes-coin.css">
+<link rel="stylesheet" href="/sitenav.css">
+</head>
+<body>
+  <nav class="sitenav" aria-label="Site">
+    <a class="sn-brand" href="/"><span class="sn-logo">V</span>Verginals</a>
+    <div class="sn-group">
+      <span class="sn-label">Verginals</span>
+      <a href="/#inscribe">Inscribe</a>
+      <a href="/#market">Market</a>
+      <a href="/#arena">Arena</a>
+    </div>
+    <div class="sn-group">
+      <span class="sn-label">Runes</span>
+      <a href="/etch">Etch a coin</a>
+      <a href="/runes/mint">Mint</a>
+      <a href="/runes/buy">Buy</a>
+      <a href="/runes">How it works</a>
+    </div>
+  </nav>
+<main class="vr-wrap">
+  <div id="status" class="vr-status">Loading...</div>
+  <article id="coin" hidden>
+
+    <header class="rc-head">
+      <div class="rc-mark" id="rc-symbol"></div>
+      <div>
+        <h1 id="rc-name">.</h1>
+        <p class="rc-sub"><span id="rc-ref"></span> · etched in block <span id="rc-block"></span></p>
+      </div>
+      <div class="rc-actions" id="rc-actions"></div>
+    </header>
+
+    <section class="rc-grid">
+      <div class="rc-card">
+        <h2>Supply</h2>
+        <dl class="rc-facts" id="rc-supply"></dl>
+        <div class="rb-bar"><span id="rc-fill"></span></div>
+        <p class="rb-pct" id="rc-progress"></p>
+      </div>
+
+      <div class="rc-card">
+        <h2>Minting</h2>
+        <dl class="rc-facts" id="rc-mint"></dl>
+      </div>
+
+      <div class="rc-card">
+        <h2>Who holds it</h2>
+        <dl class="rc-facts" id="rc-dist"></dl>
+        <p class="muted small">These are coins, not people. One person can hold many, and this
+          server never learns which address a coin belongs to.</p>
+      </div>
+
+      <div class="rc-card" id="rc-deposit-card">
+        <h2>The name deposit</h2>
+        <dl class="rc-facts" id="rc-deposit"></dl>
+        <p class="muted small">The name was not bought. XVG was locked against it and comes back in
+          full. Nobody was paid it and none of it was burned.</p>
+      </div>
+    </section>
+
+  </article>
+</main>
+<script type="module" src="/runes-coin.js"></script>
+</body>
+</html>

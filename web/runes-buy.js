@@ -51,7 +51,9 @@ function render() {
 
     const id = document.createElement('div');
     id.className = 'rb-id';
-    const name = document.createElement('b');
+    const name = document.createElement('a');
+    name.className = 'rb-name';
+    name.href = '/runes/coin?rune=' + encodeURIComponent(row.order.runeRef);
     name.textContent = row.order.runeRef;
     const left = document.createElement('span');
     left.textContent = `${fmtN(row.remaining)} still on offer`;

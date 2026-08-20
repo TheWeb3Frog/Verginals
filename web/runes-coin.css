@@ -1,0 +1,17 @@
+/* One coin, on its own page. Facts in four boxes, and the two that are easy to misread carry their
+   own caveat rather than a footnote nobody reaches. */
+.rc-head { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin: 8px 0 26px; }
+.rc-mark { width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center;
+           font-size: 26px; background: var(--card); border: 1px solid var(--line); flex: 0 0 auto; }
+.rc-head h1 { margin: 0; font-size: 30px; letter-spacing: .01em; }
+.rc-sub { margin: 4px 0 0; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.rc-actions { margin-left: auto; display: flex; gap: 10px; }
+.rc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.rc-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
+.rc-card h2 { margin: 0 0 12px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.rc-facts { margin: 0; display: flex; flex-direction: column; gap: 9px; }
+.rc-facts > div { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; }
+.rc-facts dt { color: var(--muted); font-size: 13px; }
+.rc-facts dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
+.rc-facts dd.warn { color: var(--accent); }
+@media (max-width: 560px) { .rc-actions { margin-left: 0; width: 100%; } .rc-head h1 { font-size: 24px; } }

@@ -1801,6 +1801,23 @@ async function handleRuneBids(req, res, url) {
  * on something the chain would refuse. Closed mints are RETURNED, not hidden: somebody arriving two
  * blocks after a window shut deserves to read why rather than find an empty list.
  */
+/**
+ * GET /api/runes/coin?rune=<ref>: everything true about one coin.
+ *
+ * Open even before the protocol is switched on, because the page it feeds is where a link lands and
+ * a 404 on a shared link reads as a broken site. With nothing etched it simply answers that nothing
+ * of that name exists, which is the truth.
+ */
+function handleRuneCoin(req, res, url) {
+  const { coin } = require('./runes/coin');
+  const ref = url.searchParams.get('rune');
+  if (!ref) return sendJSON(res, 400, { error: 'name a rune' });
+  const height = service.runes.height || 0;
+  const c = coin(service.runes, ref, height);
+  if (!c) return sendJSON(res, 404, { error: 'no coin of that name has been etched', runeRef: ref });
+  return sendJSON(res, 200, c);
+}
+
 function handleRuneMintable(req, res, url) {
   if (!runeBookReady(res)) return;
   const { mintable } = require('./runes/mintable');
@@ -3532,6 +3549,8 @@ const server = http.createServer(async (req, res) => {
     // a broken site, which is a worse lie than an empty one.
     if (req.method === 'GET' && p === '/runes/buy') return serveStatic(res, 'runes-buy.html');
     if (req.method === 'GET' && p === '/runes/mint') return serveStatic(res, 'runes-mint.html');
+    if (req.method === 'GET' && p === '/runes/coin') return serveStatic(res, 'runes-coin.html');
+    if (req.method === 'GET' && /^\/runes-coin\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
     if (req.method === 'GET' && /^\/runes-mint\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
     if (req.method === 'GET' && /^\/runes-buy\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
     // RETIRED 2026-08-20, before the launch was announced. Both were interface previews built on
@@ -3654,6 +3673,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/runes/bids') return await handleRuneBids(req, res, url);
     if (req.method === 'GET' && p === '/api/runes/depth') return await handleRuneDepth(req, res, url);
     if (req.method === 'GET' && p === '/api/runes/mintable') return handleRuneMintable(req, res, url);
+    if (req.method === 'GET' && p === '/api/runes/coin') return handleRuneCoin(req, res, url);
     if (req.method === 'GET' && p === '/api/runes/locks') return handleRuneLocks(req, res);
     if (req.method === 'POST' && p === '/api/runes/release') return await handleRuneRelease(req, res);
     if (req.method === 'POST' && p === '/api/runes/etch/release') return await handleRuneEtchRelease(req, res);

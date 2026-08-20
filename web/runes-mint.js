@@ -44,7 +44,11 @@ function render(ul, rows, canMint) {
 
     const id = document.createElement('div');
     id.className = 'rb-id';
-    const name = document.createElement('b');
+    // The name is the way in. Somebody who wants to know what a coin IS before spending on it
+    // should not have to guess that the row is clickable.
+    const name = document.createElement('a');
+    name.className = 'rb-name';
+    name.href = '/runes/coin?rune=' + encodeURIComponent(m.runeRef);
     name.textContent = (m.symbol ? m.symbol + ' ' : '') + (m.display || m.ticker);
     const sub = document.createElement('span');
     // What one mint gives you, and how many are left. Two numbers, because the second is the one

@@ -3365,7 +3365,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && (/^\/v\/[A-Za-z0-9]{1,64}$/.test(p) || /^\/gallery\/[a-km-zA-HJ-NP-Z1-9]{25,40}$/.test(p) || /^\/launchpad(\/[a-z0-9-]{3,32})?$/.test(p) || (ARENA_ENABLED && /^\/arena(\/replay\/[A-Za-z0-9_-]{1,4096})?$/.test(p)))) {
       return serveStatic(res, 'index.html');
     }
-    if (req.method === 'GET' && (p === '/app.js' || p === '/wallet.js' || p === '/style.css')) return serveStatic(res, p.slice(1));
+    if (req.method === 'GET' && (p === '/app.js' || p === '/wallet.js' || p === '/style.css' || p === '/sitenav.css')) return serveStatic(res, p.slice(1));
     // The old design preview is RETIRED. It demonstrated a merkle tree the protocol no longer
     // builds and a ticker rule that no longer allows what it accepted, so anybody who still had the
     // link would have been shown two things that are now wrong. Its URL redirects to the page that

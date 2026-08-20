@@ -66,6 +66,28 @@ $$('[data-goto]').forEach((el) => el.addEventListener('click', (e) => {
   activateTab(el.dataset.goto);
 }));
 
+// --- linkable tabs -----------------------------------------------------------------------
+//
+// The tabs used to answer to clicks and to nothing else, which meant no other page could point at
+// one. A link to the market from the etch page had nowhere to go, and that is the real reason this
+// site had no menu: half of it had no addresses.
+//
+// The hash is now the address of a tab. /#market opens the market, the back button walks the tabs,
+// and a link somebody pastes lands where they meant it to.
+function tabFromHash() {
+  const name = (location.hash || '').replace(/^#/, '');
+  if (!name) return;
+  const tab = document.querySelector(`.tab[data-tab="${name}"]`);
+  if (tab && !tab.classList.contains('active')) tab.click();
+}
+$$('.tab').forEach((t) => t.addEventListener('click', () => {
+  // replaceState, not a hash assignment: writing location.hash would push an entry per click and
+  // bury the page somebody actually arrived from under a pile of tab switches.
+  try { history.replaceState(null, '', '#' + t.dataset.tab); } catch (_) { /* file:// and old browsers */ }
+}));
+window.addEventListener('hashchange', tabFromHash);
+tabFromHash();
+
 // --- Terms-acceptance gate ---------------------------------------------------------------
 // Before any inscription or mint, the user must tick a box accepting the Terms of Use and
 // acknowledging that inscriptions are permanent, public and irreversible. Consent is asked

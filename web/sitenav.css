@@ -1,0 +1,44 @@
+/* The one navigation the whole site shares.
+ *
+ * It exists because the site grew a second product and nothing connected the two: the Runes pages
+ * were reachable only by typing their address, and the homepage tabs had no addresses at all. The
+ * fix is not more links, it is naming the two things and putting three doors under each. Six in
+ * total. Anything that has to be explained to be found does not belong here, it belongs on a page.
+ */
+.sitenav {
+  display: flex; align-items: center; gap: 26px; flex-wrap: wrap;
+  padding: 10px 22px; border-bottom: 1px solid var(--line);
+  background: var(--bg2, var(--card)); font-size: 14px;
+}
+.sn-brand {
+  display: inline-flex; align-items: center; gap: 9px;
+  font-weight: 700; color: var(--txt); text-decoration: none; letter-spacing: .01em;
+}
+.sn-logo {
+  width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center;
+  background: linear-gradient(140deg, var(--accent), var(--accent2, var(--accent)));
+  color: #052436; font-weight: 800; font-size: 13px;
+}
+/* The group label is the point of the whole bar: it says which of the two things you are looking at
+   before you read a single link. Small, quiet, and never clickable. */
+.sn-group { display: flex; align-items: baseline; gap: 14px; }
+.sn-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .1em;
+  color: var(--muted); font-weight: 700;
+}
+.sn-group a {
+  color: var(--txt); text-decoration: none; padding: 3px 0;
+  border-bottom: 2px solid transparent; white-space: nowrap;
+}
+.sn-group a:hover { color: var(--accent); }
+.sn-group a[aria-current="page"] { color: var(--accent); border-bottom-color: var(--accent); }
+.sn-group a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+.sn-spacer { flex: 1 1 auto; }
+
+@media (max-width: 720px) {
+  .sitenav { gap: 14px 18px; padding: 10px 14px; font-size: 13px; }
+  .sn-group { gap: 11px; }
+  /* The labels are the first thing to go: on one column the groups sit on their own rows anyway,
+     and two extra words of chrome cost more than they explain. */
+  .sn-label { display: none; }
+}

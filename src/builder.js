@@ -81,13 +81,33 @@ function buildInscriptionScripts({ pubkey, contentType, body = Buffer.alloc(0), 
  * @param {number} [p.time]    tx nTime (defaults to now); fixed value makes builds reproducible
  * @returns {{ tx, hex, txid }} the signed Verge transaction (plain object), wire hex, and txid
  */
-function buildReveal({ network, inputs, outputs, signer, time }) {
+function buildReveal({ network, inputs, outputs, signer, time, notBefore }) {
+  // `notBefore` is a BLOCK HEIGHT this transaction may not be mined at or below. It exists for one
+  // situation and it is worth naming: an etching mined one block under the activation height is not
+  // a rune, and yet the ticker deposit still went into a real locked output. That is 5,000 XVG parked
+  // for four years in exchange for nothing, caused by a miner's timing rather than by any mistake.
+  //
+  // nLockTime is the fix, and it is enforced by consensus rather than by hoping. A transaction is
+  // final only when nLockTime is BELOW the height of the block carrying it, so notBefore = H - 1 can
+  // first appear in block H. It also needs a non-final sequence on every input: a transaction whose
+  // inputs are all 0xffffffff is final no matter what nLockTime says, which is the trap in this
+  // mechanism and the reason both are set together here rather than left to the caller.
+  //
+  // What it does NOT do is put you in a chosen block. It stops you being early. Missing the block you
+  // aimed at costs you nothing but the moment.
+  const lock = notBefore == null ? 0 : Number(notBefore);
+  if (lock !== 0) {
+    if (!Number.isInteger(lock) || lock < 1 || lock >= 500000000) {
+      throw new Error('notBefore must be a block height below 500000000, never a timestamp');
+    }
+  }
+  const seq = lock === 0 ? 0xffffffff : 0xfffffffe;
   const tx = {
     version: 1,
     time: time == null ? Math.floor(Date.now() / 1000) : time >>> 0,
-    vin: inputs.map((i) => ({ txid: i.txid, vout: i.vout, sequence: 0xffffffff, script: Buffer.alloc(0) })),
+    vin: inputs.map((i) => ({ txid: i.txid, vout: i.vout, sequence: seq, script: Buffer.alloc(0) })),
     vout: outputs.map((o) => ({ value: o.value, script: bitcoin.address.toOutputScript(o.address, network) })),
-    locktime: 0,
+    locktime: lock,
   };
 
   inputs.forEach((inp, i) => {

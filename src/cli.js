@@ -128,7 +128,7 @@ function buildPlan({ body, contentType, networkName = 'testnet', amount, wif, fi
  *   pay = { txid, vout, value, wif, change, outputs: [{ address, value }] }
  * @returns {{hex, txid, tx, outputValue, parentOut}}
  */
-function revealFromPlan({ plan, utxos, to, fee, values, parent, pay }) {
+function revealFromPlan({ plan, utxos, to, fee, values, parent, pay, notBefore }) {
   const { network } = pickNetwork(plan.network);
   const signer = ECPair.fromWIF(plan.wif, network);
   if (utxos.length !== plan.inputs.length) {
@@ -172,7 +172,10 @@ function revealFromPlan({ plan, utxos, to, fee, values, parent, pay }) {
     // Change last, so the carrier stays at index 0 and the lock keeps a fixed place behind it.
     if (change > 0) outputs.push({ address: pay.change, value: change });
   }
-  const { hex, txid, tx } = buildReveal({ network, inputs, outputs, signer });
+  // notBefore is a block height this reveal may not be mined at or below, and it exists for the one
+  // case where timing costs money rather than patience: an etching mined under the activation height
+  // is not a rune, while its ticker deposit still went into a real locked output.
+  const { hex, txid, tx } = buildReveal({ network, inputs, outputs, signer, notBefore });
   const parentOut = parent ? { txid, vout: 1, value: parent.value } : null;
   return { hex, txid, tx, outputValue, parentOut };
 }
@@ -290,8 +293,13 @@ async function cmdMintReveal(flags) {
     values = undefined;
   }
 
-  const { hex, txid, outputValue } = revealFromPlan({ plan, utxos, to: flags.to, fee, values });
+  const notBefore = flags['not-before'] == null ? undefined : Number(flags['not-before']);
+  const { hex, txid, outputValue } = revealFromPlan({ plan, utxos, to: flags.to, fee, values, notBefore });
   console.error(`reveal txid   : ${txid}`);
+  if (notBefore) {
+    console.error(`not before    : block ${notBefore + 1} (locktime ${notBefore}, sequences non-final)`);
+    console.error('                a node will refuse this with "non-final" until then, which is the point');
+  }
   console.error(`carrier output: ${fmtXVG(outputValue)} XVG -> ${flags.to}`);
   console.error(`fee           : ${fmtXVG(fee)} XVG`);
 
@@ -310,7 +318,10 @@ const USAGE = `verginals <command>
 
   list   [--from H] [--to H] [--json]
   mint commit --file <path> [--content-type CT] [--network testnet|mainnet] [--amount UNITS] [--key WIF] [--out PLAN]
-  mint reveal --plan <plan.json> --to <address> --utxo <txid:vout> [--utxo ...] [--fee UNITS] [--broadcast]
+  mint reveal --plan <plan.json> --to <address> --utxo <txid:vout> [--utxo ...] [--fee UNITS]
+              [--not-before HEIGHT] [--broadcast]
+              --not-before H makes the reveal unminable at or below block H, so an etching cannot
+              land under the activation height and lock its deposit for nothing.
   unlock --wif <WIF> --locktime <UNIX> --to <address> [--txid <etch txid>] [--fee UNITS] [--broadcast]
          Reopen a locked ticker price. Save the WIF, the locktime and the etch txid when you etch:
          Verge has no address index, so the txid is what makes this one lookup instead of a rescan.

@@ -257,3 +257,53 @@ function asScriptSigSignature(compact) {
   const big = (b) => BigInt('0x' + hex(b));
   return V.concatBytes(V.derEncodeSig(big(compact.slice(0, 32)), big(compact.slice(32))), new Uint8Array([V.SIGHASH_ALL]));
 }
+
+/** The bytes a standing order signs. Must match src/runes/order.js exactly or nothing verifies. */
+export async function orderDigest(o) {
+  const parts = [
+    'verge-rune-order-v1', o.runeRef, String(o.sell), String(o.minPrice.units),
+    String(o.minPrice.per), o.address, String(o.nonce), String(o.expiresAt), String(o.minFill || 0),
+  ];
+  for (const x of parts) if (String(x).includes('|')) throw new Error('an order field may not contain the separator');
+  return V.dsha256(new TextEncoder().encode(parts.join('|')));
+}
+
+/** Sign a standing order from the wallet. The signature is bare compact, not a scriptSig. */
+export async function signOrder({ runeRef, sell, minPrice, priv, nonce, expiresAt, minFill }) {
+  if (!Number.isInteger(sell) || sell <= 0) throw new Error('sell must be a positive whole number');
+  if (!minPrice || !Number.isInteger(minPrice.units) || !Number.isInteger(minPrice.per)) throw new Error('minPrice must be { units, per } as whole numbers');
+  if (minPrice.units <= 0 || minPrice.per <= 0) throw new Error('minPrice must be positive on both sides');
+  const pubkey = V.publicKeyFromPrivate(priv);
+  const address = await V.addressFromPubkey(pubkey);
+  const order = {
+    kind: 'verge-rune-order-v1', runeRef, sell,
+    minPrice: { units: minPrice.units, per: minPrice.per },
+    address, pubkey: hex(pubkey), nonce: String(nonce), expiresAt, minFill: minFill || 0,
+  };
+  const der = await V.signHashWith(await orderDigest(order), priv, V.SIGHASH_ALL);
+  return { ...order, sig: hex(derToCompact(der.slice(0, der.length - 1))) };
+}
+
+/** Withdraw a standing order. Checked against the order's own key, so only its author can. */
+export async function signCancel({ order, priv, at }) {
+  const when = at == null ? Math.floor(Date.now() / 1000) : Number(at);
+  const digest = await V.dsha256(new TextEncoder().encode(
+    ['verge-rune-cancel-v1', order.address, String(order.nonce), String(when)].join('|')));
+  const der = await V.signHashWith(digest, priv, V.SIGHASH_ALL);
+  return { kind: 'verge-rune-cancel-v1', address: order.address, nonce: String(order.nonce), at: when, sig: hex(derToCompact(der.slice(0, der.length - 1))) };
+}
+
+/** DER back to the bare 64 bytes an order carries. verge.js keeps its own copy private. */
+function derToCompact(der) {
+  if (der[0] !== 0x30) throw new Error('bad DER');
+  let i = 2;
+  if (der[i++] !== 0x02) throw new Error('bad DER r');
+  const rlen = der[i++];
+  const r = der.slice(i, i + rlen); i += rlen;
+  if (der[i++] !== 0x02) throw new Error('bad DER s');
+  const slen = der[i++];
+  const s = der.slice(i, i + slen);
+  const trim = (x) => { let j = 0; while (j < x.length - 1 && x[j] === 0) j++; return x.slice(j); };
+  const pad = (x) => { const o = new Uint8Array(32); const t = trim(x); o.set(t, 32 - t.length); return o; };
+  return V.concatBytes(pad(r), pad(s));
+}

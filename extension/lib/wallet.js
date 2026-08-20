@@ -18,6 +18,7 @@ import { ElectrumClient } from './electrum.js';
 import { InscriptionDetector } from './inscriptions.js';
 import * as swap from './swap.js';
 import { verifiedBalances, spendableForPayment, selectForRuneTransfer, encodeEdicts, edictScript, DUST_UNITS } from './runes.js';
+import * as runebid from './runebid.js';
 
 const DEFAULT_API = 'https://verginals.com';
 
@@ -941,6 +942,94 @@ export class Wallet {
     });
     runes.sort((a, b) => String(a.display).localeCompare(String(b.display)));
     return { runes, undetermined };
+  }
+
+  /** The scriptPubKey this account's coins sit on, as hex. Every carrier of ours has this script. */
+  async _ownScript() {
+    this._requireUnlocked();
+    return verge.bytesToHex(await verge.p2pkhScript(this._address));
+  }
+
+  /**
+   * Advertise that you are selling. A standing order names NO OUTPOINT, so a partial sale does not
+   * kill it: the remainder comes home on a new coin and the same signature keeps selling it.
+   *
+   * It binds nobody, and that is the point. Only this key can move these runes, so the promise is a
+   * promise and the buyer's bid is what is binding. The worst outcome of a broken promise is no
+   * trade, never a lost coin.
+   */
+  async publishOrder({ runeRef, sell, minPrice, expiresAt, minFill, nonce }) {
+    this._requireUnlocked();
+    const order = await runebid.signOrder({
+      runeRef, sell, minPrice, priv: this._priv, minFill,
+      nonce: nonce || String(Date.now()),
+      expiresAt: expiresAt || Math.floor(Date.now() / 1000) + 30 * 86400,
+    });
+    await this._post('/api/runes/order', { order });
+    return order;
+  }
+
+  async withdrawOrder(order) {
+    this._requireUnlocked();
+    const cancel = await runebid.signCancel({ order, priv: this._priv });
+    await this._post('/api/runes/order/cancel', { cancel });
+    return true;
+  }
+
+  /**
+   * The bids waiting on this wallet, each already checked against OUR OWN coins.
+   *
+   * The book is asked what is waiting and is believed about nothing else. Every claim a bid makes is
+   * re-derived here from this wallet's own verified utxos, so a book that lies, or is absent, or is
+   * replaced by a hostile one, costs the seller a trade and never a coin. A bid that fails is not
+   * hidden: it is returned with the reason, because a seller should be able to see somebody trying.
+   */
+  async getPendingBids() {
+    this._requireUnlocked();
+    const script = await this._ownScript();
+    let bids = [];
+    try { ({ bids } = await this._get(`/api/runes/bids?script=${script}`)); }
+    catch { return { bids: [], refused: [], reachable: false }; }
+
+    const utxos = await this.getUtxos();
+    const byOutpoint = new Map(utxos.map((u) => [`${u.txid}:${u.vout}`, u]));
+    const good = [], refused = [];
+    for (const bid of bids || []) {
+      const onChain = [];
+      let missing = null;
+      for (const c of bid.carriers || []) {
+        const u = byOutpoint.get(`${c.txid}:${c.vout}`);
+        if (!u || u.runes === undefined) { missing = `${c.txid}:${c.vout}`; break; }
+        onChain.push({ txid: u.txid, vout: u.vout, value: u.value, script, runes: u.runes });
+      }
+      if (missing) { refused.push({ bid, reason: `this wallet cannot account for ${missing}` }); continue; }
+      const v = await runebid.verifyRuneBid({ bid, onChain });
+      if (v.ok) good.push({ bid, ...v }); else refused.push({ bid, reason: v.reason });
+    }
+    good.sort((a, b) => b.receives - a.receives);
+    return { bids: good, refused, reachable: true };
+  }
+
+  /**
+   * Fill one bid. Verified AGAIN here rather than trusting what the list said: the list may be
+   * seconds old, and the coins it counted on may have moved since.
+   */
+  async fillBid(bid) {
+    this._requireUnlocked();
+    const script = await this._ownScript();
+    const utxos = await this.getUtxos();
+    const byOutpoint = new Map(utxos.map((u) => [`${u.txid}:${u.vout}`, u]));
+    const onChain = [];
+    for (const c of bid.carriers || []) {
+      const u = byOutpoint.get(`${c.txid}:${c.vout}`);
+      if (!u || u.runes === undefined) throw new Error(`this wallet cannot account for ${c.txid}:${c.vout}`);
+      onChain.push({ txid: u.txid, vout: u.vout, value: u.value, script, runes: u.runes });
+    }
+    const v = await runebid.verifyRuneBid({ bid, onChain });
+    if (!v.ok) throw new Error(v.reason);
+    const signed = await runebid.acceptRuneBid({ bid, priv: this._priv });
+    const txid = await this.electrum.broadcast(signed.hex);
+    return { txid, changeOutpoint: signed.changeOutpoint, receives: v.receives, gives: v.gives, keeps: v.keeps };
   }
 
   /**

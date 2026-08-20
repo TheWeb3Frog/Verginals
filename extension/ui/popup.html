@@ -122,6 +122,14 @@
       <div id="view-runes" class="view" hidden>
         <ul id="runeList" class="rune-list"><li class="muted">Loading...</li></ul>
         <p id="runeUnverified" class="warn" hidden></p>
+
+        <!-- Offers waiting on this wallet. Every one is checked against this wallet's own coins
+             before it is shown, so the list is what CAN be filled, not what somebody claims. -->
+        <div id="bidBox" class="bid-box" hidden>
+          <h3>Offers waiting on you <span id="bidCount" class="pill"></span></h3>
+          <ul id="bidList"></ul>
+          <p id="bidRefused" class="muted small" hidden></p>
+        </div>
       </div>
 
       <!-- Activity view -->

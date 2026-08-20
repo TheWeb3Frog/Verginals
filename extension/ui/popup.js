@@ -160,7 +160,7 @@ document.querySelectorAll('.tabbtn').forEach((b) => {
     $('view-runes').hidden = b.dataset.view !== 'runes';
     $('view-history').hidden = b.dataset.view !== 'history';
     if (b.dataset.view === 'history') renderHistory(); // lazy: only hit ElectrumX when opened
-    if (b.dataset.view === 'runes') renderRunes();
+    if (b.dataset.view === 'runes') { renderRunes(); renderBids(); }
   });
 });
 // send/receive segmented control
@@ -246,6 +246,69 @@ async function renderHistory() {
 // possible lie for a wallet to tell.
 
 let runeState = { runes: [], undetermined: 0 };
+
+/**
+ * Offers waiting on this wallet.
+ *
+ * Every bid here has already been checked against THIS WALLET'S OWN COINS, so the list is what can
+ * actually be filled rather than what a server says. Bids that failed that check are counted, not
+ * hidden: a seller should be able to see that somebody tried something.
+ */
+async function renderBids() {
+  const box = $('bidBox');
+  const list = $('bidList');
+  const refused = $('bidRefused');
+  let res;
+  try { res = await ui('pendingBids'); }
+  catch { box.hidden = true; return; }
+
+  const rows = (res && res.bids) || [];
+  const bad = (res && res.refused) || [];
+  if (!rows.length && !bad.length) { box.hidden = true; return; }
+  box.hidden = false;
+  $('bidCount').textContent = rows.length ? String(rows.length) : '';
+
+  list.innerHTML = '';
+  for (const row of rows) {
+    const li = document.createElement('li');
+    li.className = 'bid-row';
+
+    const terms = document.createElement('div');
+    terms.className = 'bid-terms';
+    const head = document.createElement('b');
+    head.textContent = `${row.gives.toLocaleString()} for ${(row.receives / 1e6).toLocaleString(undefined, { maximumFractionDigits: 6 })} XVG`;
+    const sub = document.createElement('span');
+    sub.textContent = `${row.bid.runeRef} \u00b7 you keep ${row.keeps.toLocaleString()}`;
+    terms.append(head, sub);
+
+    const btn = document.createElement('button');
+    btn.className = 'primary';
+    btn.textContent = 'Sell';
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = 'Selling...';
+      try {
+        const r = await ui('fillBid', { bid: row.bid });
+        toast(`Sold ${row.gives.toLocaleString()}. ${(r.receives / 1e6).toLocaleString()} XVG on the way.`);
+        await renderRunes();
+        await renderBids();
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = 'Sell';
+        toast(e.message || 'That offer could not be filled');
+      }
+    });
+
+    li.append(terms, btn);
+    list.append(li);
+  }
+
+  refused.hidden = bad.length === 0;
+  if (bad.length) {
+    refused.textContent = `${bad.length} other offer(s) did not check out against your own coins and are not shown. `
+      + 'Nothing was signed and nothing is at risk.';
+  }
+}
 
 async function renderRunes() {
   const list = $('runeList');

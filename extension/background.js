@@ -329,6 +329,12 @@ async function handleUi(action, payload) {
     case 'sendRune': {
       return w.sendRune({ runeRef: payload.runeRef, amount: payload.amount, to: payload.to });
     }
+    // Selling. These are POPUP-ONLY on purpose and are not exposed to the provider: a page must
+    // never be able to publish an offer or sign a fill on the user's behalf, however connected it is.
+    case 'pendingBids': { return w.getPendingBids(); }
+    case 'fillBid': { return w.fillBid(payload.bid); }
+    case 'publishOrder': { return w.publishOrder(payload); }
+    case 'withdrawOrder': { return w.withdrawOrder(payload.order); }
     default: throw new Error('unknown ui action: ' + action);
   }
 }

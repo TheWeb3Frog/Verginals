@@ -159,6 +159,27 @@ const evilInNode = nodeOrder.fillsOrder({ network, order, bid: evil, onChain: ch
 ok('THE FEE ATTACK is refused in the wallet too', !evilInWallet.ok && /under this order's floor/.test(evilInWallet.reason));
 ok('and the wallet and the node refuse it for the same reason', !evilInNode.ok && evilInNode.reason.includes('under this order'));
 
+console.log('\norders signed in the wallet, read by the node');
+
+// The wallet signs a bare compact signature and the node's verifier is written against the same
+// shape. This is the join most likely to break silently, because a DER wrapper looks harmless.
+const walletOrder = await ext.signOrder({
+  runeRef: REF, sell: 50_000, minPrice: { units: 720, per: 1 },
+  priv: Buffer.from(seller.privateKey), nonce: 'w1', expiresAt: NOW + 3600,
+});
+ok('the node accepts an order the wallet signed', nodeOrder.verifyOrder({ network, order: walletOrder, now: NOW }).ok);
+ok('and the wallet accepts its own', (await ext.verifyOrder(walletOrder, NOW)).ok);
+ok('the wallet derives the same address the node would', walletOrder.address === addr(seller));
+ok('a tampered wallet order is refused by the node',
+  !nodeOrder.verifyOrder({ network, order: { ...walletOrder, sell: 60_000 }, now: NOW }).ok);
+
+const walletCancel = await ext.signCancel({ order: walletOrder, priv: Buffer.from(seller.privateKey), at: NOW });
+ok('the node accepts a cancel the wallet signed', nodeOrder.verifyCancel({ cancel: walletCancel, order: walletOrder }).ok);
+ok('a cancel from another key is refused', await (async () => {
+  const forged = await ext.signCancel({ order: walletOrder, priv: Buffer.from(buyer.privateKey), at: NOW });
+  return !nodeOrder.verifyCancel({ cancel: forged, order: walletOrder }).ok;
+})());
+
 console.log('\nsigning, compared byte for byte');
 
 const wallet = await ext.acceptRuneBid({ bid, priv: Buffer.from(seller.privateKey) });

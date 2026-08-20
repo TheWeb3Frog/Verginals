@@ -158,21 +158,31 @@ Consequences that matter in practice:
 - an output carrying a rune must hold at least the dust minimum in XVG so it stays spendable;
 - burning is sending to an unspendable output, and needs no special opcode.
 
-### 3.0 Two names no rune may take
+### 3.0 Names no rune may take
 
-**`VERGE` and `XVG` cannot be etched.** An etching claiming either is ignored, even when the lock pays
-in full, and the name stays unclaimed for ever.
+Eight tickers cannot be etched. An etching claiming one is ignored even when the lock pays in full,
+and the name stays unclaimed for ever:
 
-The reason is narrow and it is the only one: a rune called XVG claims to be the chain's own money, and
-no rune can be. A wallet showing `1,000 XVG` beside a rune balance would be indistinguishable from one
-showing a coin balance, and there is no honest reading of that. Every other name is somebody's to take.
+```
+VERGE   VERGECOIN   VERGECURRENCY   VERGECURENCY
+XVG     XVGCOIN     XVGCURRENCY     XVGCURENCY
+```
 
-**The list is exactly two and it does not grow.** A reserved list that can be added to later is a
-governance surface, and the moment one exists somebody has to be trusted to decide what belongs on it.
-The rule is not "names we would rather keep", it is "the name of the chain and the name of its coin",
-and that pair was fixed in 2014. `VERGECOIN` is a different word and is not a claim to be XVG, so
-reserving it would be taste rather than a rule. An implementation that reserves a third name is not
-this protocol.
+The reason is narrow and it is the only one: each of these trades on the chain's own identity. A
+wallet showing `1,000 XVG` beside a rune balance is indistinguishable from one showing a coin
+balance, and `VERGECOIN` reads as the coin's full name to anybody who has not memorised the ticker.
+The two misspellings are deliberate. A typo nobody would notice in a list is the cheapest
+impersonation there is.
+
+**The list is frozen at the activation height and never grows after it.** That property matters more
+than the list being short. A list that can be extended once runes exist is a governance surface:
+somebody has to be trusted to decide what belongs on it, and every holder of an already etched name
+is exposed to that decision. Fixed before the first etching, it is a rule everybody could read in
+advance. An implementation that adds a ninth name is not this protocol.
+
+It is a rule about identity, not about spelling. `CONVERGE`, `DIVERGE` and `VERGENCE` all contain the
+word and impersonate nothing, so all three are etchable. A rule broad enough to catch them would be a
+rule about which letters a name may contain, which is where a reservation list stops being defensible.
 
 Checked against the **bare** ticker, after display spacers are removed (§7.1), so `V•ERGE` reduces to
 `VERGE` before the rule is consulted and cannot walk around it.

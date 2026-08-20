@@ -109,12 +109,12 @@ function validTerms(t) {
 function validDefinition(e) {
   const ticker = String(e.ticker || '').toUpperCase();
   if (!/^[A-Z]{1,26}$/.test(ticker)) return null;
-  // Re-derived rather than borrowed: a rune named after the chain or its coin would let a wallet
-  // show a rune balance that reads as a coin balance, and there is no honest reading of that. Written
-  // out here as a literal pair on purpose. If the other implementation ever grew this list, the two
-  // would disagree and the conformance harness would say so, which is what a second implementation
-  // is for.
-  if (ticker === 'VERGE' || ticker === 'XVG') return null;
+  // Re-derived rather than borrowed. Written out here as a literal on purpose: if the other
+  // implementation ever grew or shrank this list, the two would disagree and the conformance harness
+  // would say so, which is the whole reason a second implementation exists. Frozen at the activation
+  // height and never extended after it, so this literal is final rather than current.
+  if (['VERGE', 'VERGECOIN', 'VERGECURRENCY', 'VERGECURENCY',
+    'XVG', 'XVGCOIN', 'XVGCURRENCY', 'XVGCURENCY'].includes(ticker)) return null;
   const d = Number(e.divisibility || 0);
   const s = Number(e.supply || 0);
   const p = Number(e.premine || 0);

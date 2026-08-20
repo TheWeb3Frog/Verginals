@@ -33,23 +33,30 @@ const PRICE_LONG_XVG = 10; // 12 characters and above: nominal, purely anti-spam
 const MAX_TICKER_LENGTH = 26;
 
 /**
- * The two names no rune may ever take.
+ * Names no rune may ever take.
  *
- * A rune called VERGE or XVG claims to be the chain's own money, and no rune can be. That is not a
- * preference about which names are nice, it is the one case where a ticker is a lie the protocol can
- * tell for somebody: a wallet showing "1,000 XVG" next to a rune balance would be indistinguishable
- * from a wallet showing a coin balance, and there is no honest reading of that.
+ * A rune called XVG or VERGECOIN trades on the chain's own identity. It is not a preference about
+ * which names are nice: it is the one case where a ticker is a lie the protocol would be telling on
+ * somebody's behalf, because a wallet showing "1,000 XVG" beside a rune balance is indistinguishable
+ * from a wallet showing a coin balance, and "VERGECOIN" reads as the coin's full name to anybody who
+ * has not memorised the ticker.
  *
- * THE LIST IS EXACTLY TWO AND IT DOES NOT GROW. A reserved list that can be added to later is a
- * governance surface, and the moment one exists somebody has to be trusted to decide what goes on it.
- * The rule is not "names we would rather keep", it is "the name of the chain and the name of its
- * coin", and that set was fixed in 2014. Anything longer is a different word: VERGECOIN is not a
- * claim to be XVG, and reserving it would be taste rather than a rule.
+ * THE LIST IS FROZEN AT THE ACTIVATION HEIGHT AND NEVER GROWS AFTER IT. That is the property that
+ * matters, and it is stronger than being short. A list that can be extended once runes exist is a
+ * governance surface: somebody has to be trusted to decide what belongs on it, and every holder of
+ * an already-etched name is exposed to that decision. Fixed before the first etching, it is a rule
+ * everybody could read in advance. An implementation that adds a seventh name is not this protocol.
+ *
+ * VERGECURENCY is a deliberate misspelling and it is here on purpose. A typo nobody would notice in
+ * a wallet list is the cheapest impersonation there is.
  *
  * Checked against the BARE ticker, so a spacer cannot walk around it: V(bullet)ERGE reduces to VERGE
  * before this is consulted, exactly as it does everywhere else.
  */
-const RESERVED = Object.freeze(['VERGE', 'XVG']);
+const RESERVED = Object.freeze([
+  'VERGE', 'VERGECOIN', 'VERGECURRENCY', 'VERGECURENCY',
+  'XVG', 'XVGCOIN', 'XVGCURRENCY', 'XVGCURENCY',
+]);
 
 /** Is this name one the protocol refuses to hand to anybody? */
 function isReserved(ticker) {

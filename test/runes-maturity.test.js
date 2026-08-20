@@ -118,7 +118,7 @@ test('VERGE and XVG cannot be etched, by either implementation, even when fully 
   // ticker of that length and claim the reserved one anyway. Note the fixture cannot even quote a
   // price for VERGE any more, so the lock is built against a legal name of the same length. Refusing
   // an underpaid etching would prove nothing; this proves the NAME is what is refused.
-  for (const [name, sameLength] of [['VERGE', 'ALPHA'], ['XVG', 'ABC']]) {
+  for (const [name, sameLength] of [['VERGE', 'ALPHA'], ['XVG', 'ABC'], ['VERGECOIN', 'ALPHACOIN']]) {
     const paid = lockFor(sameLength);
     const tx = {
       txid: 'r' + name, height: A, txIndex: 1, inputs: [], time: paid.time,
@@ -155,12 +155,42 @@ test('a spacer cannot walk around the reservation', () => {
   assert.strictEqual(tickers.isReserved('Verge'), true);
 });
 
-test('the list is exactly two, and neighbours are not swept up with them', () => {
-  assert.deepStrictEqual([...tickers.RESERVED].sort(), ['VERGE', 'XVG']);
-  for (const near of ['VERGECOIN', 'XVGCOIN', 'VERG', 'XV', 'WVERGE', 'VERGES']) {
-    assert.strictEqual(tickers.isReserved(near), false, near + ' is a different word');
-    assert.ok(tickers.priceOf(near) > 0, near + ' must still be etchable');
+test('the list is the frozen six, and ordinary words containing verge are not swept up', () => {
+  assert.deepStrictEqual([...tickers.RESERVED].sort(),
+    ['VERGE', 'VERGECOIN', 'VERGECURENCY', 'VERGECURRENCY',
+      'XVG', 'XVGCOIN', 'XVGCURENCY', 'XVGCURRENCY']);
+  // CONVERGE and DIVERGE contain "verge" and impersonate nothing. A rule broad enough to catch them
+  // would be a rule about spelling rather than about identity, which is how a reservation list stops
+  // being defensible.
+  for (const ok of ['CONVERGE', 'DIVERGE', 'VERGENCE', 'VERG', 'ALPHA']) {
+    assert.strictEqual(tickers.isReserved(ok), false, ok + ' impersonates nothing');
+    assert.ok(tickers.priceOf(ok) > 0, ok + ' must still be etchable');
   }
+});
+
+test('both implementations refuse all six, and neither refuses a seventh', () => {
+  // The lists are written out separately on each side. If one drifted, this is where it shows.
+  for (const name of tickers.RESERVED) {
+    const paid = lockFor('ALPHA');
+    const tx = {
+      txid: 'x' + name, height: A, txIndex: 1, inputs: [], time: paid.time,
+      outputs: [out(), paid.output],
+      etching: { ticker: name, supply: 10, premine: 10, divisibility: 0, lock: paid.lock },
+    };
+    const st = new RuneState(); applyTx(st, tx);
+    assert.strictEqual(st.runes.size, 0, name + ' refused by indexer.js');
+    assert.strictEqual(verifyImpl.index([tx]).definitions.size, 0, name + ' refused by verify.js');
+  }
+  // CONTROL: a name that is NOT on the list etches in both, so the two are not simply refusing all.
+  const paid = lockFor('ALPHA');
+  const okTx = {
+    txid: 'okone', height: A, txIndex: 1, inputs: [], time: paid.time,
+    outputs: [out(), paid.output],
+    etching: { ticker: 'CONVERGE', supply: 10, premine: 10, divisibility: 0, lock: paid.lock },
+  };
+  const st = new RuneState(); applyTx(st, okTx);
+  assert.strictEqual(st.runes.size, 1, 'CONVERGE must etch in indexer.js');
+  assert.strictEqual(verifyImpl.index([okTx]).definitions.size, 1, 'CONVERGE must etch in verify.js');
 });
 
 test('a reserved name is refused at compose time too, not only by the indexer', () => {

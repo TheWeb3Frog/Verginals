@@ -51,7 +51,7 @@
 
   const api = {
     isVerginals: true,
-    version: '0.2.0',
+    version: '0.3.0',
 
     /** Request connection; prompts the user. Resolves { address } or rejects if denied. */
     connect: () => call('connect'),
@@ -80,6 +80,21 @@
     placeBid: (opts) => call('placeBid', opts),
     /** Accept an offer on your Verginal. { outpoint, buyerAddress, priceUnits?, name? }. */
     acceptBid: (opts) => call('acceptBid', opts),
+
+    // --- Verge Runes ---
+    /** The runes this wallet holds, each proven against the published root. */
+    getRunes: () => call('getRunes'),
+    /** Send runes. { runeRef, amount, to }. Prompts to approve. */
+    sendRune: (opts) => call('sendRune', opts),
+    /**
+     * Offer to buy runes at a named amount from a seller's standing order.
+     * { order, amount }. Prompts to approve, then leaves a signed offer on the book.
+     *
+     * There is deliberately no method for SELLING here. A buyer's signature commits coins they can
+     * withdraw in one block; a seller's signature gives runes away. A page may ask for the first and
+     * must never be able to ask for the second, so filling lives in the wallet's own screen.
+     */
+    placeRuneBid: (opts) => call('placeRuneBid', opts),
 
     /** Disconnect this site. */
     disconnect: () => call('disconnect'),

@@ -1,0 +1,28 @@
+/* The buy page. Quiet by default: the numbers that decide the trade are the only loud thing. */
+.rb-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.rb-row { display: flex; align-items: center; justify-content: space-between; gap: 16px;
+          background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.rb-id { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.rb-id b { font-size: 15px; }
+.rb-id span { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rb-ask { text-align: right; font-variant-numeric: tabular-nums; }
+.rb-ask b { display: block; font-size: 15px; }
+.rb-ask span { font-size: 12px; color: var(--muted); }
+.rb-buy { margin-top: 22px; background: var(--card); border: 1px solid var(--line);
+          border-radius: 14px; padding: 18px 20px; }
+.rb-buy label { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+                color: var(--muted); margin-bottom: 6px; }
+.rb-buy input { width: 100%; font-size: 20px; font-variant-numeric: tabular-nums; }
+.rb-terms { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0 4px; }
+.rb-terms dt { font-size: 12px; color: var(--muted); margin-bottom: 3px; }
+.rb-terms dd { margin: 0; font-size: 16px; font-variant-numeric: tabular-nums; }
+.rb-note { min-height: 18px; font-size: 13px; color: var(--muted); margin: 8px 0 14px; }
+.rb-note.bad { color: var(--danger, #ff6b6b); }
+.rb-actions { display: flex; gap: 10px; }
+.rb-how { margin-top: 28px; color: var(--muted); font-size: 14px; }
+.rb-how h2 { color: var(--txt); }
+@media (max-width: 560px) {
+  .rb-terms { grid-template-columns: 1fr; }
+  .rb-row { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .rb-ask { text-align: left; }
+}

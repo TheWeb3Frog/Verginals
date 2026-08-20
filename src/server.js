@@ -3439,6 +3439,12 @@ const server = http.createServer(async (req, res) => {
       writeHead(res, 200, { 'content-type': 'text/javascript; charset=utf-8' });
       return fs.createReadStream(f).pipe(res);
     }
+    // The real buy page, as opposed to the interface preview below it. Closed while the protocol is
+    // unlaunched: a market page with no market is only a way to mislead somebody.
+    if (req.method === 'GET' && p === '/runes/buy') {
+      if (!RUNES_ENABLED) return (writeHead(res, 404, { 'content-type': 'text/plain' }), res.end('not found'));
+      return serveStatic(res, 'runes-buy.html');
+    }
     if (req.method === 'GET' && p === '/verge-runes-market') return serveStatic(res, 'verge-runes-market.html');
     if (req.method === 'GET' && p === '/verge-runes-token') return serveStatic(res, 'verge-runes-token.html');
     if (req.method === 'GET' && /^\/verge-runes(-market|-token|-chart)?\.(js|css)$/.test(p)) {

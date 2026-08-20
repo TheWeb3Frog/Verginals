@@ -66,6 +66,11 @@ function renderDetails(req, extra) {
     row('Verginal', req.params.name || req.params.outpoint);
     row('Your offer', fmtXvg(req.params.priceUnits) + ' XVG');
     row('You sign', 'an offer the owner can accept; nothing moves until they do');
+  } else if (req.type === 'placeRuneBid') {
+    row('Rune', (req.params.order && req.params.order.runeRef) || '');
+    row('You want', Number(req.params.amount || 0).toLocaleString());
+    row('You commit', 'coins worth at least the seller\u2019s asking price, until this is filled or you cancel');
+    row('You sign', 'an offer only that seller can accept; nothing moves until they do');
   } else if (req.type === 'acceptBid') {
     row('Verginal', req.params.name || req.params.outpoint);
     row('You receive', fmtXvg(req.params.priceUnits) + ' XVG');

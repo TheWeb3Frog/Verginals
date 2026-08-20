@@ -194,6 +194,58 @@ ok('the wallet refuses to sign with an account that does not own the carriers', 
   catch (e) { return /does not own the carriers/.test(e.message); }
 })());
 
+console.log('\nthe buyer builds, compared byte for byte');
+
+// A buyer whose wallet framed the offer even slightly differently would sign something no seller
+// could read, so the two builders are compared on the wire, not on their intentions.
+for (const [what, over] of [
+  ['a plain bid', {}],
+  ['a bid with a market fee', { marketFeeUnits: 600_000, feeAddress: addr(buyer) }],
+  ['a bid with no change output', { exact: true }],
+  ['a bid across three carriers', { frag: true }],
+]) {
+  const frag = over.frag ? [
+    { txid: H('1'), vout: 0, value: DUST_UNITS, script: scriptOf(seller) },
+    { txid: H('2'), vout: 3, value: DUST_UNITS, script: scriptOf(seller) },
+    { txid: H('3'), vout: 1, value: DUST_UNITS, script: scriptOf(seller) },
+  ] : [carrier];
+  const amount = over.frag ? 40_000 : 10_000;
+  const p = nodeOrder.priceFor(order, amount);
+  const fee = 200_000;
+  const fundValue = over.exact ? p + DUST_UNITS + fee : p + DUST_UNITS + fee + 5_000_000;
+  const common = {
+    carriers: frag, runeRef: REF, amount, priceUnits: p,
+    buyerAddress: addr(buyer), funds: [{ txid: H('b'), vout: 0, value: fundValue }],
+    feeUnits: fee, time: NOW,
+    marketFeeUnits: over.marketFeeUnits, feeAddress: over.feeAddress,
+  };
+  const fromNode = nodeBid.buildRuneBid({ network, ...common, buyerKey: buyer });
+  const fromWallet = await ext.buildRuneBid({ ...common, priv: Buffer.from(buyer.privateKey) });
+  const same = JSON.stringify(fromNode.vout) === JSON.stringify(fromWallet.vout)
+    && JSON.stringify(fromNode.vin) === JSON.stringify(fromWallet.vin)
+    && JSON.stringify(fromNode.carriers) === JSON.stringify(fromWallet.carriers)
+    && fromNode.time === fromWallet.time && fromNode.priceUnits === fromWallet.priceUnits;
+  ok(what + ': the wallet and the node frame it identically', same);
+  const chainFor = frag.map((c, i) => ({ ...c, runes: { [REF]: over.frag ? [12_000, 20_000, 18_000][i] : 50_000 }, height: 9_500_000 }));
+  ok(what + ': and the node verifier accepts what the wallet built',
+    nodeBid.verifyRuneBid({ network, bid: fromWallet, onChain: chainFor }).ok);
+}
+
+ok('CONTROL: a bid the wallet framed differently would be caught', (() => {
+  const p = nodeOrder.priceFor(order, 10_000);
+  const a = nodeBid.buildRuneBid({
+    network, carriers: [carrier], runeRef: REF, amount: 10_000, priceUnits: p,
+    buyerAddress: addr(buyer), buyerKey: buyer,
+    funds: [{ txid: H('b'), vout: 0, value: p + DUST_UNITS + 5_200_000 }], feeUnits: 200_000, time: NOW,
+  });
+  const b = nodeBid.buildRuneBid({
+    network, carriers: [carrier], runeRef: REF, amount: 10_001, priceUnits: p,
+    buyerAddress: addr(buyer), buyerKey: buyer,
+    funds: [{ txid: H('b'), vout: 0, value: p + DUST_UNITS + 5_200_000 }], feeUnits: 200_000, time: NOW,
+  });
+  return JSON.stringify(a.vout) !== JSON.stringify(b.vout);
+})());
+
 console.log('\nwhat the wallet refuses');
 for (const [what, tamper] of [
   ['a redirected payment', (x) => { x.vout[3].script = scriptOf(buyer); }],

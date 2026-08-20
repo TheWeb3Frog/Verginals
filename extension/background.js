@@ -179,6 +179,14 @@ async function handleRpc(method, params, origin, sender) {
       await requestApproval({ type: 'sendRune', origin, params }, sender);
       return w.sendRune(params || {});
     }
+    // Buying is allowed from a page, unlike selling. The buyer is the one committing coins, they
+    // see the terms in the approval, and nothing moves until a seller signs. Selling stays popup
+    // only because there the signature GIVES SOMETHING AWAY, and no page should ever ask for that.
+    case 'placeRuneBid': {
+      await requireConnected(origin, w);
+      await requestApproval({ type: 'placeRuneBid', origin, params }, sender);
+      return w.placeRuneBid(params || {});
+    }
 
     // --- Verge Runes: the locked ticker price ---------------------------------------------------
     //

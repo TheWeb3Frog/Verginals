@@ -10,7 +10,7 @@
 // and compares, which is the only reason this file is allowed to exist.
 
 import * as V from './verge.js';
-import { decodeMessage, DUST_UNITS } from './runes.js';
+import { decodeMessage, encodeEdicts, edictScript, DUST_UNITS } from './runes.js';
 
 export const RUNESTONE = 0;
 export const CHANGE_OUTPUT = 1;
@@ -306,4 +306,122 @@ function derToCompact(der) {
   const trim = (x) => { let j = 0; while (j < x.length - 1 && x[j] === 0) j++; return x.slice(j); };
   const pad = (x) => { const o = new Uint8Array(32); const t = trim(x); o.set(t, 32 - t.length); return o; };
   return V.concatBytes(pad(r), pad(s));
+}
+
+// --- the buyer's side ---------------------------------------------------------------------------
+
+/**
+ * The smallest whole number of units that satisfies an order's floor for `amount` runes.
+ * Rounded UP, so a buyer never lands a unit under the floor through integer division.
+ */
+export function priceFor(order, amount) {
+  const units = BigInt(order.minPrice.units) * BigInt(amount);
+  const per = BigInt(order.minPrice.per);
+  return Number((units + per - 1n) / per);
+}
+
+/**
+ * Which of a seller's carriers to name for a wanted amount, largest first.
+ *
+ * Largest first is not greed, it is transaction size: every extra carrier is another input and
+ * another signature, and naming several exists to cover a FRAGMENTED holding rather than to
+ * assemble one out of dust.
+ */
+export function quote({ order, carriers, amount, alreadySold = 0, maxCarriers = 8 }) {
+  const left = Math.max(0, Number(order.sell) - Number(alreadySold));
+  if (!(amount > 0)) return { ok: false, reason: 'ask for a positive amount' };
+  if (amount > left) return { ok: false, reason: `only ${left} of this order is still on offer` };
+  if (order.minFill && amount < order.minFill) return { ok: false, reason: `this seller does not fill below ${order.minFill}` };
+
+  const mine = (carriers || [])
+    .map((c) => ({ c, held: Number(((c.runes || {})[order.runeRef]) || 0) }))
+    .filter((x) => x.held > 0)
+    .sort((a, b) => b.held - a.held);
+
+  const pick = [];
+  let got = 0;
+  for (const x of mine) {
+    if (got >= amount || pick.length >= maxCarriers) break;
+    pick.push(x.c); got += x.held;
+  }
+  if (got < amount) return { ok: false, reason: `this seller holds ${got} on the carriers one transaction can spend, short of ${amount}` };
+  return { ok: true, carriers: pick, pooled: got, priceUnits: priceFor(order, amount) };
+}
+
+/**
+ * Build and sign a bid. Must produce the same bytes as src/runes/bid.js, and the differential test
+ * compares them, because a buyer whose wallet framed the offer even slightly differently would sign
+ * something no seller could read.
+ */
+export async function buildRuneBid({ carriers, runeRef, amount, priceUnits, buyerAddress, priv, funds, feeUnits, marketFeeUnits, feeAddress, time, dustUnits = DUST_UNITS }) {
+  const list = carriers;
+  if (!Array.isArray(list) || list.length === 0) throw new Error('a bid needs at least one carrier');
+  const script = list[0].script;
+  const seen = new Set();
+  for (const c of list) {
+    if (c.script !== script) throw new Error('every carrier in one bid must sit on the same address');
+    const key = `${c.txid}:${c.vout}`;
+    if (seen.has(key)) throw new Error(`carrier ${key} is named twice`);
+    seen.add(key);
+  }
+  if (!Number.isInteger(amount) || amount <= 0) throw new Error('amount must be a positive whole number');
+  if (!Number.isInteger(priceUnits) || priceUnits <= 0) throw new Error('price must be a positive whole number');
+
+  const carriersValue = list.reduce((s, c) => s + c.value, 0);
+  if (!(carriersValue >= dustUnits)) throw new Error('the carriers hold less than the dust floor, their change could not be returned');
+  const marketFee = marketFeeUnits || 0;
+  const sellerReceive = priceUnits - marketFee;
+  if (!(sellerReceive > 0)) throw new Error('the market fee cannot swallow the price');
+  if (marketFee > 0 && !feeAddress) throw new Error('a market fee needs an address');
+
+  const carrierScript = unhex(script);
+  const buyerScript = await V.p2pkhScript(buyerAddress);
+  const fundsTotal = funds.reduce((s, u) => s + u.value, 0);
+  const change = fundsTotal - dustUnits - priceUnits - (feeUnits || 0);
+  if (change < 0) throw new Error('your coins do not cover the price, the dust and the fee');
+
+  const vout = [
+    { value: 0, script: edictScript(encodeEdicts([{ runeRef, amount, output: TAKE_OUTPUT }])) },
+    { value: carriersValue, script: carrierScript },
+    { value: dustUnits, script: buyerScript },
+    { value: sellerReceive, script: carrierScript },
+  ];
+  if (marketFee > 0) vout.push({ value: marketFee, script: await V.p2pkhScript(feeAddress) });
+  if (change > 0) vout.push({ value: change, script: buyerScript });
+
+  const vin = [
+    ...list.map((c) => ({ txid: c.txid, vout: c.vout, sequence: 0xffffffff, script: new Uint8Array(0) })),
+    ...funds.map((u) => ({ txid: u.txid, vout: u.vout, sequence: 0xffffffff, script: new Uint8Array(0) })),
+  ];
+  const nTime = time == null ? Math.floor(Date.now() / 1000) : Number(time);
+  const tx = { version: 1, time: nTime, locktime: 0, vin, vout };
+
+  const pub = V.publicKeyFromPrivate(priv);
+  const code = await V.p2pkhScript(await V.addressFromPubkey(pub));
+  const scriptSigs = {};
+  for (let i = list.length; i < vin.length; i++) {
+    const sighash = await V.legacySighash(tx, i, code, V.SIGHASH_ALL);
+    const sig = await V.signHashWith(sighash, priv, V.SIGHASH_ALL);
+    scriptSigs[i] = hex(V.concatBytes(push(sig), push(pub)));
+  }
+
+  return {
+    kind: 'verge-rune-bid-v1',
+    carriers: list.map((c) => ({ txid: c.txid, vout: c.vout, value: c.value, script: c.script })),
+    runeRef, amount, priceUnits,
+    feeUnits: marketFee,
+    feeAddress: marketFee > 0 ? feeAddress : null,
+    buyerAddress,
+    time: nTime,
+    version: 1,
+    locktime: 0,
+    vin: vin.map((v) => ({ txid: v.txid, vout: v.vout })),
+    vout: vout.map((o) => ({ value: o.value, script: hex(o.script) })),
+    scriptSigs,
+  };
+}
+
+function push(bytes) {
+  if (bytes.length < 0x4c) return V.concatBytes(new Uint8Array([bytes.length]), bytes);
+  return V.concatBytes(new Uint8Array([0x4c, bytes.length]), bytes);
 }

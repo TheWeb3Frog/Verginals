@@ -1033,6 +1033,56 @@ export class Wallet {
   }
 
   /**
+   * Place a limit order to BUY: name an amount and a price, and leave it on the book.
+   *
+   * The one thing that must not be taken on trust here is WHAT THE SELLER'S CARRIERS HOLD. A buyer
+   * who believed a server about that would sign a full price for a carrier holding a hundredth of
+   * what was claimed: the runestone caps an edict at what is actually there, so the money moves and
+   * the runes do not. So the seller's coins are listed from ELECTRUM, not from our backend, and their
+   * rune contents are proven against the published root by the same code that proves this wallet's
+   * own. Anything that will not prove is dropped, and a bid is never built on it.
+   */
+  async placeRuneBid({ order, amount, feeUnits, marketFeeUnits, feeAddress, alreadySold }) {
+    this._requireUnlocked();
+    const units = Number(amount);
+    if (!Number.isInteger(units) || units <= 0) throw new Error('the amount must be a whole number of units above zero');
+
+    const ov = await runebid.verifyOrder(order, Math.floor(Date.now() / 1000));
+    if (!ov.ok) throw new Error(ov.reason);
+
+    // The seller's coins, from the network rather than from us.
+    const raw = await this.electrum.listUnspent(order.address);
+    if (!raw.length) throw new Error('this seller has nothing to sell from that address');
+    const sellerScript = verge.bytesToHex(await verge.p2pkhScript(order.address));
+    const carriers = raw.map((u) => ({ txid: u.txid, vout: u.vout, value: u.value, script: sellerScript }));
+    await this._annotateRunes(carriers);
+    const proven = carriers.filter((c) => c.runes !== undefined);
+    if (!proven.length) throw new Error('none of this seller\'s coins could be proven against the published root');
+
+    const q = runebid.quote({ order, carriers: proven, amount: units, alreadySold: alreadySold || 0 });
+    if (!q.ok) throw new Error(q.reason);
+
+    const fee = feeUnits == null ? 2_000_000 : Number(feeUnits);
+    const need = q.priceUnits + DUST_UNITS + fee;
+    const mine = spendableForPayment(await this.getUtxos());
+    const funds = [];
+    let have = 0;
+    for (const u of mine.sort((x, y) => y.value - x.value)) {
+      if (have >= need) break;
+      funds.push(u); have += u.value;
+    }
+    if (have < need) throw new Error(`this bid needs ${(need / 1e6).toFixed(6)} XVG of clean coin, you have ${(have / 1e6).toFixed(6)}`);
+
+    const bid = await runebid.buildRuneBid({
+      carriers: q.carriers, runeRef: order.runeRef, amount: units, priceUnits: q.priceUnits,
+      buyerAddress: this._address, priv: this._priv, funds, feeUnits: fee,
+      marketFeeUnits, feeAddress,
+    });
+    await this._post('/api/runes/bid', { bid });
+    return { bid, pays: q.priceUnits, gets: units, carriers: q.carriers.length };
+  }
+
+  /**
    * Move a rune to somebody else.
    *
    * The layout is the one the indexer reads: output 0 is the OP_RETURN carrying the edict, output 1

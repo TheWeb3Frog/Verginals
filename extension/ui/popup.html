@@ -123,6 +123,14 @@
         <ul id="runeList" class="rune-list"><li class="muted">Loading...</li></ul>
         <p id="runeUnverified" class="warn" hidden></p>
 
+        <!-- Coins this wallet MADE. Separate from the balance list on purpose: an etcher who
+             premined nothing holds none of their own coin, and the thing they created would
+             otherwise leave no trace in the wallet that made it. -->
+        <div id="madeBox" class="bid-box" hidden>
+          <h3>Coins you created <span id="madeCount" class="pill"></span></h3>
+          <ul id="madeList"></ul>
+        </div>
+
         <!-- Offers waiting on this wallet. Every one is checked against this wallet's own coins
              before it is shown, so the list is what CAN be filled, not what somebody claims. -->
         <div id="bidBox" class="bid-box" hidden>

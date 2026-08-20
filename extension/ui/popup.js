@@ -160,7 +160,7 @@ document.querySelectorAll('.tabbtn').forEach((b) => {
     $('view-runes').hidden = b.dataset.view !== 'runes';
     $('view-history').hidden = b.dataset.view !== 'history';
     if (b.dataset.view === 'history') renderHistory(); // lazy: only hit ElectrumX when opened
-    if (b.dataset.view === 'runes') { renderRunes(); renderBids(); }
+    if (b.dataset.view === 'runes') { renderRunes(); renderBids(); renderMade(); }
   });
 });
 // send/receive segmented control
@@ -246,6 +246,50 @@ async function renderHistory() {
 // possible lie for a wallet to tell.
 
 let runeState = { runes: [], undetermined: 0 };
+
+/**
+ * The coins this wallet made.
+ *
+ * Shown even when the balance is zero, which is the whole point: somebody who opened their coin to
+ * everyone and kept none of it should still see their own name in their own wallet.
+ */
+async function renderMade() {
+  const box = $('madeBox');
+  const list = $('madeList');
+  let res;
+  try { res = await ui('createdCoins'); }
+  catch { box.hidden = true; return; }
+
+  const coins = (res && res.coins) || [];
+  if (!coins.length) { box.hidden = true; return; }
+  box.hidden = false;
+  $('madeCount').textContent = String(coins.length);
+
+  list.innerHTML = '';
+  for (const c of coins) {
+    const li = document.createElement('li');
+    li.className = 'bid-row';
+
+    const left = document.createElement('div');
+    left.className = 'bid-terms';
+    const name = document.createElement('b');
+    name.textContent = c.display || c.ticker;
+    const sub = document.createElement('span');
+    sub.textContent = `${c.runeRef} \u00b7 you etched this`;
+    left.append(name, sub);
+
+    const right = document.createElement('div');
+    right.className = 'bid-terms';
+    const amt = document.createElement('b');
+    amt.textContent = `${(c.lockedUnits / 1e6).toLocaleString()} XVG locked`;
+    const when = document.createElement('span');
+    when.textContent = c.open ? 'ready to reopen' : `back in ${c.opensIn}`;
+    right.append(amt, when);
+
+    li.append(left, right);
+    list.append(li);
+  }
+}
 
 /**
  * Offers waiting on this wallet.

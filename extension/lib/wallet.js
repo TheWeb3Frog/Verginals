@@ -1085,6 +1085,94 @@ export class Wallet {
   }
 
   /**
+   * Pay for an etching from this wallet, instead of sending coins to somebody else's address.
+   *
+   * The server hands over the exact outputs the split must have. This builds that transaction from
+   * this wallet's own coins, signs it here, broadcasts it, and tells the server the id. The etcher's
+   * money goes straight into the outputs that carry their own inscription and their own name
+   * deposit, and never sits anywhere a third party could spend it.
+   *
+   * The outputs are used EXACTLY as given, in order. The reveal spends them by index, so reordering
+   * them or merging two that happen to share an address would build a transaction the reveal cannot
+   * read, and the etching would fail after the money moved.
+   */
+  async fundEtch({ jobId, outputs, feeUnits }) {
+    this._requireUnlocked();
+    if (!Array.isArray(outputs) || !outputs.length) throw new Error('this etching published no outputs to pay');
+    for (const o of outputs) {
+      if (!o || !o.address || !Number.isInteger(o.value) || o.value <= 0) {
+        throw new Error('this etching published an output this wallet will not sign');
+      }
+    }
+
+    const fee = feeUnits == null ? 2_000_000 : Number(feeUnits);
+    const owed = outputs.reduce((s, o) => s + o.value, 0);
+    const need = owed + fee;
+
+    const clean = spendableForPayment(await this.getUtxos()).sort((a, b) => b.value - a.value);
+    const inputs = [];
+    let have = 0;
+    for (const u of clean) {
+      if (have >= need + DUST_UNITS) break;
+      inputs.push(u); have += u.value;
+    }
+    if (have < need) {
+      throw new Error(`this etching needs ${(need / 1e6).toFixed(6)} XVG of clean coin, you have ${(have / 1e6).toFixed(6)}`);
+    }
+
+    const vout = outputs.map((o) => ({ address: o.address, value: o.value }));
+    const change = have - owed - fee;
+    // Change goes LAST, after every output the reveal reads by index.
+    if (change >= DUST_UNITS) vout.push({ address: this.address, value: change });
+
+    const tx = await verge.buildAndSignP2PKH({
+      inputs: inputs.map((u) => ({ ...u, privateKey: this._priv })),
+      outputs: vout,
+      time: Math.floor(Date.now() / 1000),
+    });
+    const b = await this._post('/api/broadcast', { hex: tx.hex });
+    const splitTxid = (b && b.txid) || b;
+    // Tell the server, which checks every output against the chain before it signs anything.
+    await this._post('/api/runes/etch/funded', { jobId, splitTxid });
+    return { splitTxid, paid: owed, fee };
+  }
+
+  /**
+   * The coins this wallet CREATED, as opposed to the ones it holds.
+   *
+   * An etcher who premined nothing holds none of their own coin, so the balance list is empty and
+   * the wallet shows no trace of the thing they made. Their name is on the chain for ever and their
+   * own wallet says nothing about it, which is the wrong way round.
+   *
+   * The proof of authorship is already there and needs no server to vouch for it: the lock key comes
+   * from this wallet's seed, so matching the published locks locally says which etchings are ours.
+   * The list is public and the matching happens here, so nothing discloses which ones are whose.
+   */
+  async getCreatedCoins() {
+    this._requireUnlocked();
+    let published = [];
+    try { ({ locks: published = [] } = await this._get('/api/runes/locks')); }
+    catch { return { coins: [], reachable: false }; }
+    if (!published.length) return { coins: [], reachable: true };
+
+    const seed = await this._lockSeed();
+    const mine = await matchPublishedLocks(seed, published);
+    return {
+      reachable: true,
+      coins: mine.map((l) => ({
+        runeRef: l.ref,
+        ticker: l.ticker,
+        display: l.display || l.ticker,
+        lockedUnits: Number(l.value || 0),
+        locktime: Number(l.locktime),
+        opensIn: timeUntil(l.locktime).text,
+        open: timeUntil(l.locktime).open,
+        index: l.index,
+      })),
+    };
+  }
+
+  /**
    * Mint from a coin whose creator left the door open.
    *
    * THE PRICE IS THE FEE. That is the whole mechanism and it is also the trap: the etcher names a

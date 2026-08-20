@@ -104,6 +104,8 @@ let lockKey = null;
 // Why the last attempt to get a lock key failed, so the page can say something true instead of
 // sending somebody to reconnect a wallet that is working perfectly well.
 let lockError = null;
+let selfFunded = null;
+let fundError = null;
 
 /**
  * Ask the wallet for a lock key derived from its own recovery phrase.
@@ -485,17 +487,46 @@ async function startEtch(payload, host) {
     job = await (await fetch('/api/runes/etch', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload),
     })).json();
+
+    // Sign it here rather than sending coins to an address somebody else holds the key to. The
+    // deposit address stays as the fallback and is still shown, because an older wallet has no
+    // fundEtch and must not be left with no way to etch at all.
+    if (window.verge && typeof window.verge.fundEtch === 'function'
+      && Array.isArray(job.splitOutputs) && job.splitOutputs.length) {
+      try {
+        const paid = await window.verge.fundEtch({ jobId: job.jobId, outputs: job.splitOutputs });
+        selfFunded = paid && paid.splitTxid;
+      } catch (e) {
+        // Not fatal: the address below still works, and saying why beats silently falling back.
+        fundError = (e && e.message) || 'the wallet did not sign the payment';
+      }
+    }
     if (job.error) throw new Error(job.error);
   } catch (e) { return say(e.message, 'et-err'); }
 
   host.textContent = '';
-  host.append(el('h3', '', 'Pay once, and the coin is made'));
   const box = el('div');
-  kv(box, 'Send exactly', xvg(job.total) + ' XVG', 'lead');
-  kv(box, 'To this address', job.payTo, 'lead');
-  kv(box, 'For', job.display || job.ticker);
-  host.append(box);
-  const state = el('p', 'et-note', 'Waiting for your payment. You can leave this page open.');
+  let state;
+  if (selfFunded) {
+    // Paid from the etcher's own wallet. Nothing was sent to anybody, so the panel says that
+    // instead of an address, and the id is shown because it is the only receipt that exists yet.
+    host.append(el('h3', '', 'Paid from your wallet'));
+    kv(box, 'You signed', xvg(job.total) + ' XVG', 'lead');
+    kv(box, 'For', job.display || job.ticker);
+    kv(box, 'Transaction', selfFunded);
+    host.append(box);
+    state = el('p', 'et-note', 'Nothing was sent to anybody else. Building your coin now.');
+  } else {
+    host.append(el('h3', '', 'Pay once, and the coin is made'));
+    kv(box, 'Send exactly', xvg(job.total) + ' XVG', 'lead');
+    kv(box, 'To this address', job.payTo, 'lead');
+    kv(box, 'For', job.display || job.ticker);
+    host.append(box);
+    state = el('p', 'et-note', fundError
+      ? 'Your wallet could not sign this, so pay the address above instead: ' + fundError
+      : 'Waiting for your payment. You can leave this page open.');
+    if (fundError) state.className = 'et-note';
+  }
   host.append(state);
 
   for (let i = 0; i < 3600; i++) {

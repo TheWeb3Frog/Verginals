@@ -189,6 +189,12 @@ async function handleRpc(method, params, origin, sender) {
     // see the terms in the approval, and nothing moves until a seller signs. Selling stays popup
     // only because there the signature GIVES SOMETHING AWAY, and no page should ever ask for that.
     // Minting spends the user's coins and the price is the fee, so it is approved like a payment.
+    // Paying for an etching from the user's own coins, instead of sending to a deposit address.
+    case 'fundEtch': {
+      await requireConnected(origin, w);
+      await requestApproval({ type: 'fundEtch', origin, params }, sender);
+      return w.fundEtch(params || {});
+    }
     case 'mintRune': {
       await requireConnected(origin, w);
       await requestApproval({ type: 'mintRune', origin, params }, sender);
@@ -351,6 +357,9 @@ async function handleUi(action, payload) {
     }
     // Selling. These are POPUP-ONLY on purpose and are not exposed to the provider: a page must
     // never be able to publish an offer or sign a fill on the user's behalf, however connected it is.
+    // Popup only, like the rest of the selling surface. It reveals which etchings are this
+    // wallet's, which is precisely what the public lock list is designed NOT to say.
+    case 'createdCoins': { return w.getCreatedCoins(); }
     case 'pendingBids': { return w.getPendingBids(); }
     case 'fillBid': { return w.fillBid(payload.bid); }
     case 'publishOrder': { return w.publishOrder(payload); }

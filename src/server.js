@@ -2041,6 +2041,11 @@ async function handleRuneEtchCreate(req, res) {
   return sendJSON(res, 200, {
     jobId: job.id,
     payTo: depositAddress,
+    // The exact outputs the split must have, so a wallet can build and sign it from the user's own
+    // coins instead of asking them to send to an address somebody else holds the key to. The
+    // deposit address above still works and is still the fallback: an older wallet that cannot sign
+    // this must not be left with no way to etch at all.
+    splitOutputs: etchjob.splitOutputs(quote, depositAddress),
     total: quote.total,
     breakdown: { ticker: quote.price, inscription: quote.numInputs * quote.perInput,
       fees: quote.splitFee + quote.revealFee, slack: quote.priceHolder - quote.price },
@@ -2169,6 +2174,65 @@ async function handleRuneEtchRelease(req, res) {
   } catch (e) {
     return sendJSON(res, 502, { error: 'could not inscribe the release: ' + e.message });
   }
+}
+
+/**
+ * POST /api/runes/etch/funded: a wallet built and broadcast the split itself.
+ *
+ * The point of this route is that the etcher never hands their coins to anybody. They sign one
+ * transaction from their own wallet, and the server only ever touches the outputs that transaction
+ * created, which are useless for anything except this etching.
+ *
+ * IT VERIFIES BEFORE IT BELIEVES. A job pointed at some unrelated transaction would build a reveal
+ * that spends outputs which do not exist, and the etcher would watch it fail with no idea why. So
+ * every output the split is supposed to have is checked against the transaction as the chain reports
+ * it, by value AND by script, before anything is signed.
+ */
+async function handleRuneEtchFunded(req, res) {
+  if (!RUNES_ENABLED) return sendJSON(res, 503, { error: 'Verge Runes is not switched on here' });
+  let body;
+  try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); }
+  catch (_) { return sendJSON(res, 400, { error: 'bad JSON' }); }
+
+  const job = loadJob(String(body.jobId || ''));
+  if (!job || job.kind !== 'etch') return sendJSON(res, 404, { error: 'no such etching' });
+  if (job.splitTxid) return sendJSON(res, 200, { alreadyFunded: true, splitTxid: job.splitTxid });
+
+  const splitTxid = String(body.splitTxid || '');
+  if (!/^[0-9a-f]{64}$/.test(splitTxid)) return sendJSON(res, 400, { error: 'splitTxid must be a transaction id' });
+
+  const { network } = pickNetwork(job.networkName);
+  const quote = { plan: job.plan, numInputs: job.numInputs, perInput: job.perInput,
+    price: job.price, priceHolder: job.priceHolder, releaseHolder: job.releaseHolder };
+  const expected = etchjob.splitOutputs(quote, job.depositAddress);
+
+  let tx;
+  try { tx = await chain.getRawTransaction(splitTxid, true); }
+  catch (e) { return sendJSON(res, 400, { error: 'that transaction is not on this node yet: ' + e.message }); }
+  if (!tx || !Array.isArray(tx.vout)) return sendJSON(res, 400, { error: 'that transaction could not be read' });
+
+  for (let i = 0; i < expected.length; i++) {
+    const want = expected[i];
+    const got = tx.vout[i];
+    if (!got) return sendJSON(res, 400, { error: `the split is missing output ${i}` });
+    const gotUnits = Math.round(Number(got.value) * 1e6);
+    if (gotUnits !== want.value) {
+      return sendJSON(res, 400, { error: `split output ${i} pays ${gotUnits}, this etching needs ${want.value}` });
+    }
+    let wantHex;
+    try { wantHex = bitcoin.address.toOutputScript(want.address, network).toString('hex'); }
+    catch (_) { return sendJSON(res, 500, { error: 'this etching has an unreadable output address' }); }
+    const gotHex = got.scriptPubKey && got.scriptPubKey.hex;
+    if (gotHex !== wantHex) {
+      return sendJSON(res, 400, { error: `split output ${i} pays the wrong address` });
+    }
+  }
+
+  job.splitTxid = splitTxid;
+  job.status = 'funding';
+  job.selfFunded = true;
+  saveJob(job);
+  return sendJSON(res, 200, { splitTxid, verified: expected.length });
 }
 
 /** GET /api/runes/etch/status?job=...: poll, and finish the job once the payment lands. */
@@ -3596,6 +3660,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && p === '/api/runes/etch/plan') return await handleRuneEtchPlan(req, res);
     if (req.method === 'GET' && p === '/api/runes/lock') return await handleRuneLock(req, res, url);
     if (req.method === 'POST' && p === '/api/runes/etch') return await handleRuneEtchCreate(req, res);
+    if (req.method === 'POST' && p === '/api/runes/etch/funded') return await handleRuneEtchFunded(req, res);
     if (req.method === 'GET' && p === '/api/runes/etch/status') return await handleRuneEtchStatus(req, res, url);
     if (req.method === 'GET' && p === '/api/inscriptions') return await handleInscriptions(res, url.searchParams.get('owner'));
       if (req.method === 'GET' && p === '/api/index/digest') {

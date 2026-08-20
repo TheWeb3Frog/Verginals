@@ -66,6 +66,12 @@ function renderDetails(req, extra) {
     row('Verginal', req.params.name || req.params.outpoint);
     row('Your offer', fmtXvg(req.params.priceUnits) + ' XVG');
     row('You sign', 'an offer the owner can accept; nothing moves until they do');
+  } else if (req.type === 'fundEtch') {
+    const outs = Array.isArray(req.params.outputs) ? req.params.outputs : [];
+    row('What', 'paying for your etching from this wallet');
+    row('You pay', fmtXvg(outs.reduce((s, o) => s + Number(o.value || 0), 0)) + ' XVG (+ network fee)');
+    row('Where it goes', 'straight into your own inscription and your own name deposit');
+    row('Held by anybody else', 'no, which is the point of signing it here');
   } else if (req.type === 'mintRune') {
     row('Rune', req.params.runeRef || '');
     row('You pay', fmtXvg(req.params.priceUnits || 0) + ' XVG');

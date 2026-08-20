@@ -251,7 +251,15 @@ function readForm() {
   const supplyOk = Number.isInteger(supply) && supply > 0;
   const premine = supplyOk ? Math.round(supply * keepPct / 100) : 0;
   const open = $('#et-openmint').checked;
-  const perMint = open ? int('#et-per') : null;
+  // Scaled by the divisibility, exactly like the supply above it. It was NOT, and the two fields
+  // sat side by side: somebody typing 9420420 for the supply got 9,420,420 coins, and somebody
+  // typing 1000 here got 1000 ATOMIC UNITS, which at two decimals is ten coins. A hundredfold
+  // difference between two boxes that look identical, in terms that can never be changed once the
+  // etching confirms. This is the same mistake the supply field already had, one field over, and
+  // fixing one without looking at its neighbour is how it survived.
+  const perMintTyped = open ? int('#et-per') : null;
+  const perMint = open && Number.isInteger(perMintTyped) && perMintTyped > 0
+    ? perMintTyped * scale : perMintTyped;
   const cap = open ? int('#et-cap') : null;
   const priceRaw = open ? $('#et-price').value.replace(/[\s,]/g, '') : '';
   const mintPrice = open && priceRaw !== '' ? Math.round(Number(priceRaw) * COIN) : 0;

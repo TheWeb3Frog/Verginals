@@ -9,6 +9,7 @@
 // window shut deserves to read that, not to find an empty list.
 
 const codec = require('./codec');
+const tickers = require('./tickers');
 
 /**
  * Describe one rune's mint, whether or not it is open.
@@ -42,7 +43,9 @@ function describe(rune, ref, height) {
   return {
     runeRef: ref,
     ticker: rune.ticker,
-    display: rune.display || rune.ticker,
+    // From the mask the etching committed to. `rune.display` is a field no etching ever
+    // writes, so reading it meant every spaced name in existence rendered unspaced.
+    display: tickers.displayTicker(rune.ticker, rune.spacers || 0),
     symbol: rune.symbol || null,
     divisibility: Number(rune.divisibility || 0),
     amount,

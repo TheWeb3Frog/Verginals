@@ -1,3 +1,5 @@
+/* Kept after the buy page itself was retired: the coin page and the mint page both draw their
+   supply bar with .rb-bar and .rb-pct from here. Deleting the sheet would take the bars with it. */
 /* The buy page. Quiet by default: the numbers that decide the trade are the only loud thing. */
 .rb-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .rb-row { display: flex; align-items: center; justify-content: space-between; gap: 16px;

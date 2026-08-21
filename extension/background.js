@@ -205,6 +205,25 @@ async function handleRpc(method, params, origin, sender) {
       await requestApproval({ type: 'placeRuneBid', origin, params }, sender);
       return w.placeRuneBid(params || {});
     }
+    // Listing is not selling, and the difference is the whole reason this is allowed here.
+    //
+    // A standing order names no outpoint, moves nothing, binds nobody and can be withdrawn. It is an
+    // advertisement. Somebody who is fooled into publishing one has published a price, not parted
+    // with a coin: a bid against it arrives in the wallet's own screen, showing what it gives and
+    // what it takes, and it is still the SELLER'S OWN CLICK there that hands anything over.
+    //
+    // That click is fillBid, and fillBid stays off this switch for good. It is the signature that
+    // gives runes away, and no page may ever ask for it.
+    case 'publishRuneOrder': {
+      await requireConnected(origin, w);
+      await requestApproval({ type: 'publishRuneOrder', origin, params }, sender);
+      return w.publishOrder(params || {});
+    }
+    case 'withdrawRuneOrder': {
+      await requireConnected(origin, w);
+      await requestApproval({ type: 'withdrawRuneOrder', origin, params }, sender);
+      return w.withdrawOrder((params || {}).order);
+    }
 
     // --- Verge Runes: the locked ticker price ---------------------------------------------------
     //
@@ -383,6 +402,17 @@ async function handleApproval(kind, payload) {
       try {
         const carrier = await resolveCarrier(w, req.params);
         extra.carrier = carrier;
+      } catch (e) { extra.resolveError = e.message; }
+    }
+    // The coin's identity, resolved by THIS WALLET against the root published on chain, so the
+    // screen shows what the wallet knows rather than what the page claimed. It matters here more
+    // than anywhere: a listing's price is per whole coin, the scaling is the divisibility, and a
+    // page that sent a divisibility of 0 for a two-decimal coin would draw an approval showing a
+    // hundredth of the price actually being signed.
+    if (req.type === 'publishRuneOrder' && w.isUnlocked) {
+      try {
+        const held = await w.getRunesForDisplay();
+        extra.rune = (held.runes || []).find((r) => r.ref === (req.params || {}).runeRef) || null;
       } catch (e) { extra.resolveError = e.message; }
     }
     return { request: req, unlocked: w.isUnlocked, address: w.address, ...extra };

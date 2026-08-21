@@ -1818,6 +1818,38 @@ function handleRuneCoin(req, res, url) {
   return sendJSON(res, 200, c);
 }
 
+/**
+ * GET /api/runes/coins: every rune that exists, with what it costs.
+ *
+ * The directory a market opens on. It is deliberately not the order book: on the day the protocol
+ * opens there are coins and no orders, and a market page built only on orders would show an empty
+ * screen while three coins were minting behind it.
+ *
+ * Prices come out of here already scaled to a WHOLE COIN. Every page that has been handed the raw
+ * per-atomic-unit figure and asked to multiply by the divisibility itself has eventually forgotten
+ * to, in both directions, so the multiplication happens once in code that holds the divisibility.
+ */
+async function handleRuneCoins(req, res, url) {
+  const { directory } = require('./runes/directory');
+  const height = service.runes.height || 0;
+
+  // A book that is closed or absent is not an error here: the coins still exist and the page is
+  // still worth showing. It just has no asks on it.
+  const ordersByRune = new Map();
+  if (RUNES_ENABLED && runebook) {
+    for (const row of runebook.orders({})) {
+      const list = ordersByRune.get(row.order.runeRef) || [];
+      list.push(row);
+      ordersByRune.set(row.order.runeRef, list);
+    }
+  }
+
+  const coins = directory(service.runes, { height, ordersByRune });
+  const q = (url.searchParams.get('q') || '').trim().toUpperCase();
+  const filtered = q ? coins.filter((c) => c.ticker.includes(q) || c.runeRef === q) : coins;
+  return sendJSON(res, 200, { height, bookOpen: !!(RUNES_ENABLED && runebook), coins: filtered });
+}
+
 function handleRuneMintable(req, res, url) {
   if (!runeBookReady(res)) return;
   const { mintable } = require('./runes/mintable');
@@ -3547,7 +3579,9 @@ const server = http.createServer(async (req, res) => {
     // Served whether or not the protocol is running. The API behind it stays closed, and the page
     // says so in words: "The book is not open yet." A 404 on a page named in an announcement reads as
     // a broken site, which is a worse lie than an empty one.
-    if (req.method === 'GET' && p === '/runes/buy') return serveStatic(res, 'runes-buy.html');
+    if (req.method === 'GET' && p === '/runes/market') return serveStatic(res, 'runes-market.html');
+    // The old address kept, because it has been linked. One market, one door.
+    if (req.method === 'GET' && p === '/runes/buy') { res.writeHead(302, { Location: '/runes/market' }); return res.end(); }
     if (req.method === 'GET' && p === '/runes/mint') return serveStatic(res, 'runes-mint.html');
     if (req.method === 'GET' && p === '/runes/coin') return serveStatic(res, 'runes-coin.html');
     if (req.method === 'GET' && /^\/runes-coin\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
@@ -3673,6 +3707,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/runes/bids') return await handleRuneBids(req, res, url);
     if (req.method === 'GET' && p === '/api/runes/depth') return await handleRuneDepth(req, res, url);
     if (req.method === 'GET' && p === '/api/runes/mintable') return handleRuneMintable(req, res, url);
+    if (req.method === 'GET' && p === '/api/runes/coins') return await handleRuneCoins(req, res, url);
     if (req.method === 'GET' && p === '/api/runes/coin') return handleRuneCoin(req, res, url);
     if (req.method === 'GET' && p === '/api/runes/locks') return handleRuneLocks(req, res);
     if (req.method === 'POST' && p === '/api/runes/release') return await handleRuneRelease(req, res);

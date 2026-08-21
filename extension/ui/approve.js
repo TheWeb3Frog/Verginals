@@ -29,6 +29,19 @@ const TITLES = {
   buyListing: 'Buy a Verginal',
   placeBid: 'Make an offer',
   acceptBid: 'Accept an offer',
+  // These fell through to `req.type` and put a bare method name at the top of an approval screen.
+  // "mintRune" above a request to spend coins reads like something went wrong, which is the worst
+  // thing an approval can look like at the moment somebody decides whether to trust it.
+  send: 'Send XVG',
+  sendRune: 'Send coins',
+  mintRune: 'Claim from an open mint',
+  fundEtch: 'Pay for your etching',
+  placeRuneBid: 'Offer to buy coins',
+  publishRuneOrder: 'List coins for sale',
+  withdrawRuneOrder: 'Take a listing down',
+  runesLockPubkey: 'Reserve a name',
+  runesSignRelease: 'Sign your deposit release',
+  runesMyLocks: 'Find your name deposits',
 };
 
 function renderDetails(req, extra) {
@@ -99,6 +112,33 @@ function renderDetails(req, extra) {
     row('You want', Number(req.params.amount || 0).toLocaleString());
     row('You commit', 'coins worth at least the seller\u2019s asking price, until this is filled or you cancel');
     row('You sign', 'an offer only that seller can accept; nothing moves until they do');
+  } else if (req.type === 'publishRuneOrder') {
+    // Rendered from `extra.rune`, which this WALLET resolved against the published root, and never
+    // from the page's own description of the coin. The page supplies the terms it wants signed; it
+    // does not get to supply the units they are read in.
+    const p = req.params || {};
+    const known = extra && extra.rune;
+    const div = known && Number.isInteger(known.divisibility) ? known.divisibility : null;
+    row('Coin', known ? known.display : (p.runeRef || ''));
+    if (div === null) {
+      // Refusing to draw a number beats drawing one that might be off by a factor of a hundred.
+      row('Careful', 'this wallet does not hold that coin and could not verify its decimals, so the '
+        + 'amounts below cannot be shown in coins');
+      row('You offer', Number(p.sell || 0).toLocaleString() + ' base units');
+    } else {
+      const whole = (n) => (Number(n) / Math.pow(10, div))
+        .toLocaleString(undefined, { maximumFractionDigits: div });
+      row('You offer', whole(p.sell) + ' of ' + whole(known.units) + ' you hold');
+      row('Asking', p.minPrice
+        ? fmtXvg((Number(p.minPrice.units) / Number(p.minPrice.per)) * Math.pow(10, div)) + ' XVG each'
+        : '');
+    }
+    row('This moves', 'nothing: it publishes a price, and you can withdraw it at any time');
+    row('You still decide', 'every offer that arrives has to be accepted here, in this wallet');
+  } else if (req.type === 'withdrawRuneOrder') {
+    const o = (req.params || {}).order || {};
+    row('Coin', o.runeRef || '');
+    row('Effect', 'the listing comes off the book; nothing else changes');
   } else if (req.type === 'acceptBid') {
     row('Verginal', req.params.name || req.params.outpoint);
     row('You receive', fmtXvg(req.params.priceUnits) + ' XVG');

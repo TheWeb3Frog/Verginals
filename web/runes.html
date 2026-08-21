@@ -24,7 +24,7 @@
       <span class="sn-label">Runes</span>
       <a href="/etch">Etch a coin</a>
       <a href="/runes/mint">Mint</a>
-      <a href="/runes/buy">Buy</a>
+      <a href="/runes/market">Market</a>
       <a href="/runes" aria-current="page">How it works</a>
     </div>
   </nav>
@@ -204,17 +204,23 @@
     </p>
     <h2>Buying and selling</h2>
     <p class="va-say">
-      To buy, name an amount and a price on <a href="/runes/buy"><b>the buy page</b></a>. Your wallet
-      builds the whole transaction and signs everything except the seller's own coin, so nothing
-      leaves you until they sign, and you can withdraw the offer at any time by spending one of the
-      coins behind it. Your wallet checks what the seller's coins really hold against the root
+      Both happen on a coin's own page, which you reach from
+      <a href="/runes/market"><b>the market</b></a>. To buy, pick a listing and name an amount. Your
+      wallet builds the whole transaction and signs everything except the seller's own coin, so
+      nothing leaves you until they sign, and you can withdraw the offer at any time by spending one
+      of the coins behind it. Your wallet checks what the seller's coins really hold against the root
       published on chain, not against anything this site says.
     </p>
     <p class="va-say">
-      <b>Selling happens in the wallet, not on this site, and that is on purpose.</b> A buyer's
+      To sell, publish a price. That is all a listing is: it names no coin of yours, moves nothing,
+      and binds nobody. You can take it down whenever you like.
+    </p>
+    <p class="va-say">
+      <b>Handing the coins over happens in the wallet, and that is on purpose.</b> A buyer's
       signature commits coins they can take back in one block. A seller's signature gives runes away.
       No web page should ever be able to ask for the second one, so offers waiting on you appear in
-      the wallet's own Runes tab, where each one is checked against your own coins before it is shown.
+      the wallet's own Runes tab, where each is checked against your own coins before it is shown and
+      accepted with your own click.
     </p>
   </section>
 

@@ -31,7 +31,8 @@ const exposed = new Set([...inject.matchAll(/call\('([A-Za-z]+)'/g)].map((m) => 
  * else.
  */
 const pageCalls = new Set();
-for (const f of ['web/etch.js', 'web/runes-buy.js', 'web/app.js', 'web/wallet.js', 'web/unlock.js']) {
+for (const f of ['web/etch.js', 'web/runes-trade.js', 'web/runes-market.js',
+  'web/runes-coin.js', 'web/runes-mint.js', 'web/app.js', 'web/wallet.js', 'web/unlock.js']) {
   let src;
   try { src = readFileSync(join(ROOT, f), 'utf8'); } catch { continue; }
   const names = new Set(['window.verge']);
@@ -53,7 +54,7 @@ const viaRequest = [...pageCalls].filter((m) => m.startsWith('request:'));
 ok('no page uses p.request, which inject.js has never had' + (viaRequest.length ? ' (found: ' + viaRequest.join(', ') + ')' : ''), viaRequest.length === 0);
 
 console.log('\nthe two that were missing');
-for (const m of ['runesLockPubkey', 'runesMyLocks']) {
+for (const m of ['runesLockPubkey', 'runesMyLocks', 'publishRuneOrder', 'withdrawRuneOrder']) {
   ok(m + ' is on window.verge', exposed.has(m));
   ok(m + ' is answered by the background', background.includes(`case '${m}'`));
 }
@@ -69,11 +70,45 @@ const bare = [...asked].filter((t) => !described.has(t));
 ok('every approval type has a description' + (bare.length ? ' (bare: ' + bare.join(', ') + ')' : ''), bare.length === 0);
 ok('CONTROL: the harness found approval types at all, so an empty list is not a pass', asked.size >= 8);
 
-console.log('\nselling stays out of reach of a page');
-for (const m of ['publishOrder', 'withdrawOrder', 'fillBid', 'pendingBids']) {
+// The line is not "selling is off the provider". It is "HANDING THE COINS OVER is off the provider",
+// and the two are different things that used to sit on the same side of it.
+//
+// A listing names no outpoint, moves nothing and binds nobody, so a page may ask for one: somebody
+// fooled into publishing has published a price. Filling is the signature that gives runes away, and
+// it stays in the wallet's own screen for good.
+//
+// This block was previously written as the first sentence, and it kept passing after the policy
+// changed only because the new methods happen to be spelled differently. A check that passes for a
+// reason nobody chose is worse than one that fails.
+console.log('\nhanding the coins over stays out of reach of a page');
+for (const m of ['fillBid', 'pendingBids', 'acceptRuneBid']) {
   ok(m + ' is NOT on the provider', !exposed.has(m));
 }
+// Split at the real boundary rather than counting characters. A first version looked 400 characters
+// past `case 'X'` for the thing it wanted, which happily found it inside the NEXT case, so deleting
+// an approval left the check green. A window that spans a boundary is not a check.
+const dApp = background.slice(background.indexOf('async function handleRpc('),
+  background.indexOf('async function handleUi('));
+const inDapp = (m) => new RegExp("case '" + m + "'").test(dApp);
+
+ok('the background does not answer fillBid from a page either', !inDapp('fillBid'));
+ok('nor pendingBids', !inDapp('pendingBids'));
 ok('CONTROL: placeRuneBid IS on the provider, so the check above is not vacuous', exposed.has('placeRuneBid'));
+
+console.log('\npublishing a price is allowed, and is meant to be');
+ok('publishRuneOrder is on the provider', exposed.has('publishRuneOrder'));
+ok('withdrawRuneOrder is on the provider', exposed.has('withdrawRuneOrder'));
+/** Does THIS case, and not the one after it, ask for an approval of its own type? */
+function approves(method) {
+  const at = dApp.indexOf("case '" + method + "'");
+  if (at < 0) return false;
+  const next = dApp.indexOf("case '", at + 6);
+  const block = dApp.slice(at, next < 0 ? dApp.length : next);
+  return block.includes("requestApproval({ type: '" + method + "'");
+}
+ok('both go through an approval of their own type, inside their own case',
+  approves('publishRuneOrder') && approves('withdrawRuneOrder'));
+ok('CONTROL: the same check finds the approval placeRuneBid has always had', approves('placeRuneBid'));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

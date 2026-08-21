@@ -19,6 +19,10 @@
   font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #ffc93c;
 }
 .vr-status.bad { border-color: #6b2626; background: #241010; color: var(--danger); }
+/* `hidden` is a UA rule with almost no specificity, so the `display: inline-block` above beats it.
+   Every page that hid this banner after loading kept showing it, over content that had finished
+   loading, which reads as a page that is stuck. */
+.vr-status[hidden] { display: none; }
 
 .vr-sec { padding: 44px 0; border-bottom: 1px solid var(--line); }
 .vr-num {

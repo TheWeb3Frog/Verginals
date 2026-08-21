@@ -22,7 +22,7 @@
       <span class="sn-label">Runes</span>
       <a href="/etch" aria-current="page">Etch a coin</a>
       <a href="/runes/mint">Mint</a>
-      <a href="/runes/buy">Buy</a>
+      <a href="/runes/market">Market</a>
       <a href="/runes">How it works</a>
     </div>
   </nav>
@@ -145,11 +145,13 @@
             </label>
           </div>
           <label class="et-label" for="et-price">Network fee per claim <span class="et-opt">in XVG</span></label>
-          <input id="et-price" class="et-input" type="text" inputmode="decimal" value="20">
+          <input id="et-price" class="et-input" type="text" inputmode="decimal" value="1">
           <p class="et-note">
-            This is paid as an ordinary transaction fee, so the miner of the block receives it and
-            the protocol pays nobody. It is what stops one person taking the whole supply for the
-            cost of relay. Maximum 49 XVG, because Verge Core refuses a fee above 50.
+            1 XVG is the recommendation. It is paid as an ordinary transaction fee, so the miner of
+            the block receives it and the protocol pays nobody. Its job is to stop one person taking
+            the whole supply for the cost of relay, and a low number does that perfectly well: set
+            it high and people simply do not claim. Maximum 49 XVG, because Verge Core refuses a fee
+            above 50.
           </p>
         </div>
       </div>

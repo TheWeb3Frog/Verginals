@@ -51,7 +51,7 @@
 
   const api = {
     isVerginals: true,
-    version: '0.3.0',
+    version: '0.4.0',
 
     /** Request connection; prompts the user. Resolves { address } or rejects if denied. */
     connect: () => call('connect'),
@@ -125,11 +125,23 @@
      * Offer to buy runes at a named amount from a seller's standing order.
      * { order, amount }. Prompts to approve, then leaves a signed offer on the book.
      *
-     * There is deliberately no method for SELLING here. A buyer's signature commits coins they can
-     * withdraw in one block; a seller's signature gives runes away. A page may ask for the first and
-     * must never be able to ask for the second, so filling lives in the wallet's own screen.
+     * A buyer's signature commits coins they can withdraw in one block, so a page may ask for it.
      */
     placeRuneBid: (opts) => call('placeRuneBid', opts),
+    /**
+     * Advertise runes for sale. { runeRef, sell, minPrice: { units, per }, minFill, expiresAt }.
+     *
+     * Listing is not selling, and that distinction is what makes this safe to expose. The order
+     * names no outpoint, moves nothing and binds nobody: it is a price, published. A bid against it
+     * arrives in the wallet's own screen showing exactly what it gives and takes, and handing
+     * anything over is a separate click there.
+     *
+     * That click, fillBid, is the signature that gives runes away, and it is deliberately absent
+     * from this object. A page may ask for a price. It may never ask for the coins.
+     */
+    publishRuneOrder: (opts) => call('publishRuneOrder', opts),
+    /** Take a standing order back off the book. { order }. Signed by its author and nobody else. */
+    withdrawRuneOrder: (opts) => call('withdrawRuneOrder', opts),
 
     /** Disconnect this site. */
     disconnect: () => call('disconnect'),

@@ -5,6 +5,8 @@
 // page rather than in a footnote nobody reaches: the holder count counts coins and not people, and
 // the mint progress is measured against what CAN be minted rather than the whole supply.
 
+import { mountTrade } from '/runes-trade.js';
+
 const $ = (id) => document.getElementById(id);
 const COIN = 1_000_000;
 const fmtXvg = (u) => (u / COIN).toLocaleString(undefined, { maximumFractionDigits: 6 });
@@ -97,8 +99,12 @@ async function load() {
     acts.append(a);
   }
   const b = document.createElement('a');
-  b.className = 'btn'; b.href = '/runes/buy'; b.textContent = 'Buy';
+  b.className = 'btn'; b.href = '/runes/market'; b.textContent = 'All coins';
   acts.append(b);
+
+  // Trading goes below the identity and above the detail, because it is what somebody arriving here
+  // from the market came to do.
+  mountTrade($('rc-trade'), c);
 }
 
 load();

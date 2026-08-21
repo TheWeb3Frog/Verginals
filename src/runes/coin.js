@@ -7,6 +7,7 @@
 // rather than against the whole supply.
 
 const codec = require('./codec');
+const tickers = require('./tickers');
 const { describe } = require('./mintable');
 
 /**
@@ -55,7 +56,9 @@ function coin(state, ref, height) {
   return {
     runeRef: ref,
     ticker: rune.ticker,
-    display: rune.display || rune.ticker,
+    // From the mask the etching committed to. `rune.display` is a field no etching ever
+    // writes, so reading it meant every spaced name in existence rendered unspaced.
+    display: tickers.displayTicker(rune.ticker, rune.spacers || 0),
     symbol: rune.symbol || null,
     divisibility: div,
     etchedAtHeight: parsed.height,

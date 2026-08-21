@@ -3586,7 +3586,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/runes/coin') return serveStatic(res, 'runes-coin.html');
     if (req.method === 'GET' && /^\/runes-coin\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
     if (req.method === 'GET' && /^\/runes-mint\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
-    if (req.method === 'GET' && /^\/runes-buy\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
+    if (req.method === 'GET' && /^\/runes-market\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
+    if (req.method === 'GET' && /^\/runes-trade\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
+    // The page is gone; the stylesheet stays, because the coin page and the mint page draw their
+    // supply bar from it. Only the css half is still routed.
+    if (req.method === 'GET' && p === '/runes-buy.css') return serveStatic(res, 'runes-buy.css');
     // RETIRED 2026-08-20, before the launch was announced. Both were interface previews built on
     // SAMPLE DATA, and both still said "Assets", the name this protocol carried before it was renamed
     // to Verge Runes. A page with invented volume and a dead product name is fine while a URL is

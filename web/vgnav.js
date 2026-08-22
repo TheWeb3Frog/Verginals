@@ -127,10 +127,15 @@ function buildNav(active) {
   const tip = el('span', 'vg-tip');
   tip.dataset.tip = '1';
   right.append(tip);
-  // The wallet is the one section with no home in the five intents, because it is not an intent:
-  // it is where you are already standing. It gets the position a wallet always gets.
-  const wallet = el('a', 'vg-btn vg-nav-wallet', 'My wallet');
-  wallet.href = '/#wallet';
+  // THE CONNECT BUTTON, and it must keep this id.
+  //
+  // wallet.js finds #wallet-connect and drives everything from it: the connect flow, the three
+  // states it can be in, the "Pay with Verginals Wallet" buttons, and the address autofill that
+  // spares somebody pasting a Verge address into the mint form by hand. Replacing this with a
+  // plain link to the wallet tab took all of that away and left people typing an address.
+  const wallet = el('button', 'vg-btn primary vg-nav-wallet', 'Connect Wallet');
+  wallet.type = 'button';
+  wallet.id = 'wallet-connect';
   right.append(wallet);
   const burger = el('button', 'vg-burger', '☰');
   burger.type = 'button';
@@ -223,5 +228,8 @@ export function mountChrome({ active, where, right } = {}) {
   const main = document.querySelector('main');
   if (main) main.after(buildFooter()); else document.body.append(buildFooter());
   hydrate(nav);
+  // The bar arrives after the classic scripts have run, because a module is deferred and they are
+  // not. Anything that wires itself to a control in here has to be told the control now exists.
+  document.dispatchEvent(new CustomEvent('vg:chrome'));
   return nav;
 }

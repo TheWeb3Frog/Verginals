@@ -2699,21 +2699,20 @@ $('#arena-queue').addEventListener('click', () => arenaDuel('queue'));
   try {
     const info = await api('/api/info');
     MARKET_FEE_BPS = Number(info.marketFeeBps || 0);
-    // The block height moved into the site bar, so this element may not exist. It is written
-    // defensively rather than removed, because the throw it used to cause aborted the rest of this
-    // block, and the rest of this block is where the mint counters are filled in: one missing span
-    // in the header left the front door reading "-" with the collection a third sold.
-    const netinfo = $('#netinfo');
-    if (netinfo) netinfo.innerHTML = `network <strong>${info.network}</strong><br>height ${fmt(info.tip)}`;
-    // The server is pinned to one network; align the selector so the user can't pick a mismatch.
+    // The network and the block height are drawn by the site bar now. What remains here is the one
+    // thing the bar does not do: pin the selector so nobody can choose a network mismatch.
+    //
+    // The old lines wrote into #netinfo, which lived in the header the bar replaced. They were left
+    // guarded rather than deleted, and a guarded reference to something that no longer exists is
+    // dead code that reads as live: the check that found this could not tell them apart.
     const netsel = $('#network');
     if (info.network && netsel) netsel.value = info.network;
     // The Arena stays hidden until the server enables it (VERGINALS_ARENA_ENABLED); the tab and its
     // deep link only appear once the game is live.
     if (!info.arena) { const a = document.querySelector('.tab[data-tab="arena"]'); if (a) a.remove(); }
   } catch (e) {
-    const netinfo = $('#netinfo');
-    if (netinfo) netinfo.textContent = 'node unreachable';
+    // The bar reports the height, and reports nothing when it cannot reach the node. There is no
+    // second place that needs to say so.
   }
   loadMintStatus(); // reveals the Mint tab only when the server has a collection loaded
   loadLatestStrip();

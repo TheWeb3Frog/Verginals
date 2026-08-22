@@ -8,7 +8,7 @@
   <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/vg.css" />
-  <link rel="stylesheet" href="/style.css?v=26" />
+  <link rel="stylesheet" href="/style.css?v=27" />
 </head>
 <body class="vg vg-hosted">
 
@@ -223,6 +223,14 @@
 
       <!-- reserve form -->
       <div class="card" id="mint-form">
+        <!-- Connecting is the way in, and pasting is the fallback for somebody without the
+             extension. It used to be neither: the only connect button lived in the page header, so
+             standing on this form with a wallet installed there was nothing here to press. -->
+        <div class="mint-connect" id="mint-connect-row">
+          <button class="vg-btn primary" type="button" id="mint-connect">Connect your wallet</button>
+          <span class="vg-small">Your address fills itself in and you never paste anything.</span>
+        </div>
+        <div class="mint-or" id="mint-or"><span>or paste one</span></div>
         <label class="lbl">Your Verge address (where your Verginal will live)</label>
         <input type="text" id="mint-address" placeholder="paste your Verge address (Vesta, Core, Electrum…)" />
         <div class="hint">Your randomly-assigned Verginal is inscribed and sent here. The image is reserved for you the moment you start; nobody else can get it.</div>
@@ -829,7 +837,7 @@
 
   <script src="/vendor/qrcode.js"></script>
   <script type="module" src="/app-chrome.js"></script>
-<script src="/app.js?v=26"></script>
-  <script src="/wallet.js?v=26"></script>
+<script src="/app.js?v=27"></script>
+  <script src="/wallet.js?v=27"></script>
 </body>
 </html>

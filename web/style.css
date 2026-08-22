@@ -856,3 +856,13 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 .st-head { padding: 8px 0 22px; display: flex; flex-direction: column; gap: 12px; }
 .st-head h2 { margin: 0; }
 .st-claim { margin: 0; color: var(--accent); max-width: 44ch; }
+
+/* The connect-or-paste choice on the mint form. Connecting is the way in; pasting is the fallback
+   for somebody without the extension, so it is below the divider rather than beside it. */
+.mint-connect { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 16px; }
+.mint-connect .vg-small { margin: 0; max-width: 34ch; }
+.mint-or {
+  display: flex; align-items: center; gap: 12px; margin: 0 0 16px;
+  font: 700 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim);
+}
+.mint-or::before, .mint-or::after { content: ''; flex: 1; height: 1px; background: var(--hair); }

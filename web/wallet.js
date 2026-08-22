@@ -71,6 +71,12 @@
       const t = $('#to-address'); if (t && !t.value.trim()) t.value = address;
       const m = $('#mint-address'); if (m && !m.value.trim()) m.value = address;
     }
+    // Once connected there is nothing to connect and nothing to paste, so the whole choice goes and
+    // the form is one button.
+    const mrow = $('#mint-connect-row');
+    const mor = $('#mint-or');
+    if (mrow) mrow.classList.toggle('hidden', !!address || (absent && !installed));
+    if (mor) mor.classList.toggle('hidden', !!address || (absent && !installed));
     // Prominent install banner: only once we are sure the wallet is missing, and not dismissed.
     const banner = $('#install-banner');
     if (banner) banner.classList.toggle('hidden', !(absent && !installed && !address && !bannerDismissed));
@@ -282,6 +288,12 @@
     if (header) header.addEventListener('click', () => { if (address) activateWalletTab(); else tryConnect(header); });
     const c2 = $('#wallet-connect-2');
     if (c2) c2.addEventListener('click', () => tryConnect(c2));
+    // The one on the mint form itself, where somebody is actually standing when they need it.
+    const mc = $('#mint-connect');
+    if (mc && !mc.dataset.wired) {
+      mc.dataset.wired = '1';
+      mc.addEventListener('click', () => tryConnect(mc));
+    }
     const dc = $('#wallet-disconnect');
     if (dc) dc.addEventListener('click', disconnect);
     const rf = $('#wallet-refresh');
@@ -307,6 +319,14 @@
   // --- boot ------------------------------------------------------------------------------
   wire();
   reflect();
+  // The site bar is injected by a deferred module, so it does not exist yet when this runs and
+  // #wallet-connect is not there to be wired. Re-run both the moment it lands.
+  //
+  // This is what was missed when the old header was replaced: the button moved into the bar and
+  // nothing told wallet.js, so the connect flow, the pay-with-wallet buttons and the address
+  // autofill all silently stopped, and the mint form went back to asking people to paste an
+  // address by hand.
+  document.addEventListener('vg:chrome', () => { wire(); reflect(); });
   // If the provider has not shown up after a short grace window, conclude the wallet is absent and
   // surface the install prompt. The provider injects at document_start, so a real install is present
   // well within this window.

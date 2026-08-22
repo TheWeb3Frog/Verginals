@@ -3526,7 +3526,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && (p === '/app.js' || p === '/wallet.js' || p === '/style.css' || p === '/sitenav.css')) return serveStatic(res, p.slice(1));
     // The design system, and the one definition of the site bar. Every page pulls both.
-    if (req.method === 'GET' && (p === '/vg.css' || p === '/vgnav.js')) return serveStatic(res, p.slice(1));
+    if (req.method === 'GET' && (p === '/vg.css' || p === '/vgnav.js' || p === '/app-chrome.js')) return serveStatic(res, p.slice(1));
     // Self-hosted faces. The CSP is default-src 'self', and a page that promises nothing about you
     // leaves your device should not open a connection to a font CDN to draw its own headline.
     if (req.method === 'GET' && /^\/fonts\/[a-z0-9-]+\.woff2$/.test(p)) return serveStatic(res, p.slice(1));

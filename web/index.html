@@ -5,38 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Verginals: Inscriptions on Verge</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/style.css?v=20" />
-<link rel="stylesheet" href="/sitenav.css">
+  <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/vg.css" />
+  <link rel="stylesheet" href="/style.css?v=22" />
 </head>
-<body>
-  <nav class="sitenav" aria-label="Site">
-    <div class="sn-group">
-      <span class="sn-label">Verginals</span>
-      <a href="/#inscribe" aria-current="page">Inscribe</a>
-      <a href="/#market">Market</a>
-      <a href="/#arena">Arena</a>
-    </div>
-    <div class="sn-group">
-      <span class="sn-label">Runes</span>
-      <a href="/etch">Etch a coin</a>
-      <a href="/runes/mint">Mint</a>
-      <a href="/runes/market">Market</a>
-      <a href="/runes">How it works</a>
-    </div>
-  </nav>
-  <header class="topbar">
-    <div class="brand">
-      <span class="logo">V</span>
-      <div>
-        <h1>Verginals</h1>
-        <p class="tagline">Inscriptions on the Verge (XVG) blockchain</p>
-      </div>
-    </div>
-    <div class="topbar-right">
-      <div class="netinfo" id="netinfo">…</div>
-      <button class="btn ghost wallet-connect" id="wallet-connect">Connect Wallet</button>
-    </div>
-  </header>
+<body class="vg vg-hosted">
 
   <!-- Shown only when no Verginals Wallet extension is detected: a prominent, dismissible install CTA. -->
   <div id="install-banner" class="install-banner hidden">
@@ -176,20 +150,55 @@
 
     <!-- ============ MINT (Alpha Verginals) ============ -->
     <section class="panel" id="panel-mint">
-      <div class="card mint-hero">
-        <div class="mint-head">
-          <div>
-            <h2 id="mint-title">Alpha Verginals</h2>
-            <p class="hint">A free, provably-fair random drop. You only ever pay the <strong>Verge network fee</strong>; <strong>we take no service fee at all</strong>. Each mint reveals a random Verginal the instant your payment confirms.</p>
+      <!-- The front door. It carries the four things somebody decides on: what it is, how many are
+           left, what it costs, and who decides which one you get. Everything else about the
+           collection is below it. -->
+      <div class="mh">
+        <div class="mh-seal vg-grid-motif" aria-hidden="true"><span class="mh-diamond"></span></div>
+        <div class="mh-body">
+          <h2 class="vg-d1" id="mint-title">3,333 hand-drawn<br>pixel cats. Free.</h2>
+          <p class="vg-say">
+            The first inscription collection ever made on Verge. You do not choose which one you
+            get, and neither do we.
+          </p>
+
+          <div class="mh-counts">
+            <div class="vg-stat">
+              <span class="vg-label">Minted</span>
+              <b class="vg-num vg-n-xl" id="mint-minted">-</b>
+            </div>
+            <div class="vg-stat">
+              <span class="vg-label">Left</span>
+              <b class="vg-num vg-n-xl vg-accent" id="mint-supply">-</b>
+            </div>
           </div>
-          <div class="mint-count">
-            <div class="mc-num"><span id="mint-minted">–</span><span class="mc-tot">/<span id="mint-supply">–</span></span></div>
-            <div class="mc-lbl">minted</div>
+          <div class="vg-bar mh-bar"><span id="mint-bar" style="width:0"></span></div>
+
+          <div class="mh-houses" id="mh-houses">
+            <div class="mh-house"><span class="vg-label">Fire</span><b class="vg-num vg-n-sm">1,111</b>
+              <div class="vg-bar thin"><span class="fire" style="width:100%"></span></div></div>
+            <div class="mh-house"><span class="vg-label">Water</span><b class="vg-num vg-n-sm">1,111</b>
+              <div class="vg-bar thin"><span class="water" style="width:100%"></span></div></div>
+            <div class="mh-house"><span class="vg-label">Earth</span><b class="vg-num vg-n-sm">1,111</b>
+              <div class="vg-bar thin"><span class="earth" style="width:100%"></span></div></div>
           </div>
+
+          <div class="mh-pair">
+            <div>
+              <p class="vg-label">What it costs</p>
+              <p class="vg-small">The Verge network fee only. We charge nothing, and there is no
+                service fee anywhere on this site.</p>
+            </div>
+            <div>
+              <p class="vg-label">How it is decided</p>
+              <p class="vg-small">A committed random draw, published in advance. Nobody can steer
+                it, us included.</p>
+            </div>
+          </div>
+
+          <div class="vg-small mh-fair" id="mint-fair"></div>
+          <div class="mint-promo hidden" id="mint-promo"></div>
         </div>
-        <div class="mint-progress"><div class="mint-bar" id="mint-bar"></div></div>
-        <div class="hint mint-fair" id="mint-fair"></div>
-        <div class="mint-promo hidden" id="mint-promo"></div>
       </div>
 
       <!-- showcase: what an Alpha Verginal looks like -->
@@ -748,7 +757,8 @@
   </div>
 
   <script src="/vendor/qrcode.js"></script>
-  <script src="/app.js?v=21"></script>
-  <script src="/wallet.js?v=17"></script>
+  <script type="module" src="/app-chrome.js"></script>
+<script src="/app.js?v=22"></script>
+  <script src="/wallet.js?v=22"></script>
 </body>
 </html>

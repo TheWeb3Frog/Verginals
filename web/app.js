@@ -1,3 +1,4 @@
+
 'use strict';
 // Verginals web UI (payment-request flow). Talks to src/server.js. No framework, no build step.
 
@@ -86,7 +87,11 @@ $$('.tab').forEach((t) => t.addEventListener('click', () => {
   try { history.replaceState(null, '', '#' + t.dataset.tab); } catch (_) { /* file:// and old browsers */ }
 }));
 window.addEventListener('hashchange', tabFromHash);
-tabFromHash();
+// AFTER this script finishes evaluating, not during it. Called inline, this clicked a tab whose
+// handler reaches for `exploreTimer`, which is declared two hundred lines below and was therefore
+// still in its temporal dead zone: a ReferenceError on every load that carried a hash. It was
+// survivable while nothing linked to a tab. The site bar links to eight of them.
+queueMicrotask(tabFromHash);
 
 // --- Terms-acceptance gate ---------------------------------------------------------------
 // Before any inscription or mint, the user must tick a box accepting the Terms of Use and
@@ -1099,15 +1104,17 @@ async function loadMintStatus() {
     mintEnabled = true;
     $('#tab-mint').classList.remove('hidden');
     $('#tab-stats').classList.remove('hidden'); // stats need the collection endpoints
-    $('#mint-title').textContent = 'Alpha ' + (s.name || 'Verginals');
+    // The headline is the collection's pitch and is written in the page, not here: the supply is
+    // fixed at 3,333 and has been since before the first mint. Only the moving figures move.
     $('#mint-minted').textContent = fmt(s.minted);
-    $('#mint-supply').textContent = fmt(s.supply);
+    // LEFT, not the total. The label above it says Left, and the two were the same element until
+    // the front door was rebuilt, which is exactly how a figure ends up under the wrong word.
+    $('#mint-supply').textContent = fmt(s.remaining);
     const pct = s.supply ? Math.min(100, (s.minted / s.supply) * 100) : 0;
     $('#mint-bar').style.width = pct.toFixed(2) + '%';
     $('#mint-fair').innerHTML =
-      `Provably fair · commitment <code>${short(s.commitment)}</code>` +
-      (s.revealed && s.seed ? ` · seed revealed <code>${short(s.seed)}</code>` : '') +
-      ` · ${fmt(s.remaining)} left`;
+      `Committed draw · commitment <code>${short(s.commitment)}</code>` +
+      (s.revealed && s.seed ? ` · seed revealed <code>${short(s.seed)}</code>` : '');
     // Launch campaign badge. Driven entirely by the server: it shows only while the promo is active
     // and disappears on its own once the free allocation is used up, with no site change needed.
     const promoEl = $('#mint-promo');
@@ -2514,14 +2521,21 @@ $('#arena-queue').addEventListener('click', () => arenaDuel('queue'));
   try {
     const info = await api('/api/info');
     MARKET_FEE_BPS = Number(info.marketFeeBps || 0);
-    $('#netinfo').innerHTML = `network <strong>${info.network}</strong><br>height ${fmt(info.tip)}`;
+    // The block height moved into the site bar, so this element may not exist. It is written
+    // defensively rather than removed, because the throw it used to cause aborted the rest of this
+    // block, and the rest of this block is where the mint counters are filled in: one missing span
+    // in the header left the front door reading "-" with the collection a third sold.
+    const netinfo = $('#netinfo');
+    if (netinfo) netinfo.innerHTML = `network <strong>${info.network}</strong><br>height ${fmt(info.tip)}`;
     // The server is pinned to one network; align the selector so the user can't pick a mismatch.
-    if (info.network) $('#network').value = info.network;
+    const netsel = $('#network');
+    if (info.network && netsel) netsel.value = info.network;
     // The Arena stays hidden until the server enables it (VERGINALS_ARENA_ENABLED); the tab and its
     // deep link only appear once the game is live.
     if (!info.arena) { const a = document.querySelector('.tab[data-tab="arena"]'); if (a) a.remove(); }
   } catch (e) {
-    $('#netinfo').textContent = 'node unreachable';
+    const netinfo = $('#netinfo');
+    if (netinfo) netinfo.textContent = 'node unreachable';
   }
   loadMintStatus(); // reveals the Mint tab only when the server has a collection loaded
   loadLatestStrip();

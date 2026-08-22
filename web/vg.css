@@ -218,7 +218,9 @@
 /* The remainder is hatched rather than empty, because on this site the unfilled part is not nothing:
    it is the art that has not been revealed, or the coins nobody has claimed. */
 .vg-bar { height: 8px; border-radius: 2px; overflow: hidden; background: repeating-linear-gradient(45deg, var(--card) 0 6px, var(--bg) 6px 12px); }
-.vg-bar > span { display: block; height: 100%; background: var(--accent); border-radius: 2px 0 0 2px; }
+/* Width 0 by default. A bar whose fill has no width renders full, so an unloaded progress bar was
+   claiming a finished mint until the first fetch came back. */
+.vg-bar > span { display: block; width: 0; height: 100%; background: var(--accent); border-radius: 2px 0 0 2px; }
 .vg-bar.thin { height: 5px; }
 .vg-bar > span.done { background: var(--ok); }
 .vg-bar > span.fire { background: var(--danger); }
@@ -281,6 +283,7 @@
 .vg-nav-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
 .vg-tip { font: 400 11px/1 var(--mono); color: var(--dim); white-space: nowrap; }
 .vg-tip b { color: var(--muted); font-weight: 500; }
+.vg-nav-wallet { padding: 8px 15px; font-size: 12.5px; }
 .vg-burger { display: none; }
 
 /* The strip under the bar: where you are, and nothing else. */
@@ -354,7 +357,7 @@
 /* --- phone ----------------------------------------------------------------------------------- */
 
 @media (max-width: 860px) {
-  .vg-menu, .vg-tip { display: none; }
+  .vg-menu, .vg-tip, .vg-nav-wallet { display: none; }
   .vg-burger {
     display: inline-flex; align-items: center; justify-content: center;
     width: 38px; height: 38px; border-radius: var(--r-ctl);
@@ -378,3 +381,9 @@
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* The app's twelve-item tab strip is the routing mechanism, not a menu: every hash link and every
+   in-page shortcut works by clicking one of those buttons. So it stays in the document and stops
+   being drawn. Deleting it would break every deep link on the site. */
+.vg-hosted .tabs { display: none; }
+.vg-hosted .topbar { display: none; }

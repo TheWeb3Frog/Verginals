@@ -387,11 +387,19 @@ function renderGallery() {
   }
   g.innerHTML = '';
   if (!list.length) {
-    g.innerHTML = traitFilter
-      ? '<div class="empty">No inscribed Verginal carries this trait yet.</div>'
-      : (ownerFilter
-        ? '<div class="empty">No verginals found at this address yet.</div>'
-        : '<div class="empty">No inscriptions in the indexed range yet.</div>');
+    // A filter that matches nothing is a fact this page owns. An empty chain is not, while the
+    // index is still reading it, so that case says what is actually true instead.
+    if (traitFilter) {
+      g.innerHTML = '<div class="vg-empty"><p>No inscribed Verginal carries this trait yet.</p></div>';
+      return;
+    }
+    indexProgress().then((prog) => {
+      g.innerHTML = '';
+      if (prog && prog.scanning) { g.append(scanningNotice(prog, loadInscriptions)); return; }
+      g.innerHTML = ownerFilter
+        ? '<div class="vg-empty"><p>Nothing found at this address.</p></div>'
+        : '<div class="vg-empty"><p>Nothing inscribed in the indexed range yet.</p></div>';
+    });
     return;
   }
   list.forEach((ins) => g.appendChild(card(ins)));
@@ -834,6 +842,42 @@ function paintMarketStats(listings) {
   stat('Fee', '0 XVG', 'we take nothing');
 }
 
+/**
+ * Is the index still reading the chain?
+ *
+ * A restart costs a full rescan, and during it every panel that depends on the index answers with
+ * an empty or partial list. Those panels then draw "Loading..." for twenty minutes, or worse, draw
+ * an empty state that claims nothing exists. The site looks broken after every deploy, and it is
+ * not broken: it is reading.
+ *
+ * Answers null when the question cannot be asked, which is a third state and must not be mistaken
+ * for "finished".
+ */
+async function indexProgress() {
+  try {
+    const info = await api('/api/info');
+    if (!info || info.tip == null || info.indexedThrough == null) return null;
+    const behind = info.tip - info.indexedThrough;
+    return { scanning: behind > 2, done: info.indexedThrough, tip: info.tip,
+      pct: info.tip ? Math.min(100, (info.indexedThrough / info.tip) * 100) : null };
+  } catch { return null; }
+}
+
+/** The notice a panel shows instead of pretending. Comes back on its own; nobody is told to refresh. */
+function scanningNotice(p, again) {
+  const box = document.createElement('div');
+  box.className = 'vg-empty';
+  const line = document.createElement('p');
+  line.innerHTML = '<b>Still reading the chain</b>'
+    + (p && p.pct != null ? `, ${p.pct.toFixed(2)}% of the way.` : '.');
+  const say = document.createElement('p');
+  say.textContent = 'Everything found so far is shown. This fills in on its own, and nothing is '
+    + 'missing from the chain itself.';
+  box.append(line, say);
+  if (again) setTimeout(again, 15000);
+  return box;
+}
+
 // --- market tab: all Verginals currently for sale -------------------------------------------
 async function loadMarket() {
   const g = $('#market-gallery');
@@ -850,6 +894,10 @@ async function loadMarket() {
     if (!listings.length) {
       // An empty market is the screen most visitors see, so it makes an offer rather than an
       // apology, and it says where the button actually is.
+      // Empty and unfinished are different facts, and only one of them is this page's to claim.
+      const prog = await indexProgress();
+      g.innerHTML = '';
+      if (prog && prog.scanning) { g.append(scanningNotice(prog, loadMarket)); return; }
       g.innerHTML = '<div class="vg-empty">'
         + '<p><b>Nobody is selling right now.</b></p>'
         + '<p>Open one of your Verginals in My Wallet and list it. You set the price, the coin stays '

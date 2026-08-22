@@ -65,4 +65,39 @@ test('and it comes back on its own rather than telling somebody to refresh', () 
   assert.match(page, /setTimeout\(load,/, 'an unfinished scan schedules another look');
 });
 
+const app = fs.readFileSync(path.join(__dirname, '..', 'web', 'app.js'), 'utf8');
+
+test('THE APP ASKS THE SAME QUESTION, rather than drawing Loading for twenty minutes', () => {
+  // Every restart costs a full rescan. During it the market and the explore grid answer with
+  // partial lists, and both used to show a spinner or claim the chain was empty. The site looked
+  // broken after every deploy, and it was not broken: it was reading.
+  assert.match(app, /async function indexProgress\(\)/, 'the app needs one place that asks');
+  assert.match(app, /behind > 2/, 'with the same two blocks of slack the endpoint uses');
+  assert.match(app, /function scanningNotice\(/, 'and one notice it draws');
+});
+
+test('an unreachable node is null in the app too, not "finished"', () => {
+  assert.match(app, /catch \{ return null; \}/, 'indexProgress must answer null when it cannot ask');
+});
+
+test('the market checks before it claims nobody is selling', () => {
+  const at = app.indexOf('Nobody is selling right now');
+  assert.ok(at > 0, 'the sentence exists for the case where it is true');
+  const before = app.slice(Math.max(0, at - 500), at);
+  assert.match(before, /prog && prog\.scanning/, 'the scanning branch must come first');
+});
+
+test('and explore checks before it claims nothing is inscribed', () => {
+  const at = app.indexOf('Nothing inscribed in the indexed range yet');
+  assert.ok(at > 0);
+  const before = app.slice(Math.max(0, at - 400), at);
+  assert.match(before, /prog && prog\.scanning/);
+});
+
+test('both come back on their own', () => {
+  assert.match(app, /scanningNotice\(prog, loadMarket\)/);
+  assert.match(app, /scanningNotice\(prog, loadInscriptions\)/);
+  assert.match(app, /setTimeout\(again, 15000\)/, 'the notice reschedules the caller');
+});
+
 console.log(`\n${passed} scan honesty tests passed`);

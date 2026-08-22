@@ -2331,7 +2331,16 @@ async function handleRuneEtchStatus(req, res, url) {
     received = utxos.reduce((s, u) => s + toUnits(u.amount), 0);
   } catch (_) { return reply({}); }
 
-  if (received < job.total) return reply({ received, needed: job.total });
+  // ONCE THE SPLIT EXISTS THE PAYMENT IS ALREADY PROVEN BY IT, and re-asking is how a paid etching
+  // dies. The split spends the deposit and pays part of it back to the same address, so from that
+  // moment the address holds priceHolder + releaseHolder, which is always LESS than `total` by the
+  // commit outputs and the fee. This check could therefore never pass again, and the reveal, one
+  // call away and fully funded, was never attempted no matter how long anybody left the page open.
+  //
+  // Two real etchings sat like that: 101.9 XVG and 11.9 XVG paid, both splits confirmed, both sets
+  // of commit outputs untouched, neither coin in existence. It reads as "waiting for payment"
+  // because that is literally what the reply says, which is why nobody looked further.
+  if (!etchjob.isPaid(job, received)) return reply({ received, needed: job.total });
 
   etchDriving.add(job.id);
   job.driveAttempts = (job.driveAttempts || 0) + 1;

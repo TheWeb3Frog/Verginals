@@ -137,7 +137,26 @@ function payFor(quote, splitTxid, depositWif, depositAddress, lockAddress) {
  */
 const REF_IS_KNOWN_ONLY_AFTER_CONFIRMATION = true;
 
+/**
+ * Has this etching been paid for, given what the deposit address holds right now?
+ *
+ * The subtlety is the whole point of the function existing. Before the split, the answer is a
+ * balance comparison. AFTER the split it can only be `true`, because the split is itself the proof:
+ * it spent the deposit and paid part of it back to the same address, so from that moment the
+ * address holds priceHolder + releaseHolder, which is always less than `total` by the commit
+ * outputs and the fee.
+ *
+ * Asking the balance question a second time therefore answers "not paid" for ever, on an etching
+ * that is paid, confirmed, and one call short of existing. Two real coins were lost to that, and
+ * the polling reply said "waiting for payment" the whole time, which is why nobody looked.
+ */
+function isPaid(job, received) {
+  if (job && job.splitTxid) return true;
+  return Number(received) >= Number((job && job.total) || 0);
+}
+
 module.exports = {
+  isPaid,
   RELEASE_HOLDER, releaseFunding,
   PER_INPUT, SPLIT_FEE, REVEAL_FEE, PRICE_SLACK, CARRIER_VALUE,
   quoteEtch, splitOutputs, payFor,

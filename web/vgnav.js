@@ -99,12 +99,21 @@ function buildNav(active) {
         if (on) li.dataset.open = '1'; else delete li.dataset.open;
         btn.setAttribute('aria-expanded', on ? 'true' : 'false');
       };
-      btn.addEventListener('click', () => open(!li.dataset.open));
+      btn.addEventListener('click', () => { clearTimeout(shutTimer); open(!li.dataset.open); });
       // Hover only where there is a real pointer. On a touch screen a hover-open menu swallows the
       // first tap and the person thinks the link is broken.
+      //
+      // And it does not shut the instant the pointer leaves. Between the button and the panel there
+      // is a seam, and a menu that closes on the way across it cannot be used at all: you aim at a
+      // sub-item, cross the seam, and the thing you were aiming at is gone. The grace period is
+      // short enough to feel immediate and long enough to survive the crossing.
+      let shutTimer = null;
       if (window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
-        li.addEventListener('mouseenter', () => open(true));
-        li.addEventListener('mouseleave', () => open(false));
+        li.addEventListener('mouseenter', () => { clearTimeout(shutTimer); open(true); });
+        li.addEventListener('mouseleave', () => {
+          clearTimeout(shutTimer);
+          shutTimer = setTimeout(() => open(false), 220);
+        });
       }
       li.addEventListener('focusout', (e) => {
         if (!li.contains(e.relatedTarget)) open(false);

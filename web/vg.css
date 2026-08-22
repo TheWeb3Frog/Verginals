@@ -264,11 +264,20 @@
 .vg-top[aria-current], .vg-top.is-on { color: var(--txt); }
 .vg-top .caret { font-size: 9px; opacity: .6; }
 
+/* The panel sits 8px below the button, and that gap used to be a hole: moving the mouse toward a
+   sub-item crossed it, the pointer left the item, and the menu shut in your face. The panel is
+   pushed down by a transparent band that belongs to the item, so the travel never leaves it. */
 .vg-panel-menu {
-  position: absolute; top: calc(100% + 8px); left: 0; min-width: 220px; padding: 14px;
+  position: absolute; top: 100%; left: 0; min-width: 220px;
+  padding: 22px 14px 14px;
   background: var(--card); border: 1px solid var(--line); border-radius: var(--r-card);
   box-shadow: 0 18px 44px rgba(0, 0, 0, .55);
   display: none; flex-direction: column; gap: 2px;
+  background-clip: padding-box;
+}
+/* The bridge itself: invisible, part of the item, and exactly as tall as the gap it covers. */
+.vg-menu > li > .vg-panel-menu::before {
+  content: ''; position: absolute; left: 0; right: 0; top: -10px; height: 10px;
 }
 .vg-menu > li[data-open] > .vg-panel-menu { display: flex; }
 .vg-panel-menu .vg-label { margin: 0 0 8px 8px; }

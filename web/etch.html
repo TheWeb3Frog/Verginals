@@ -130,39 +130,14 @@
         </p>
         <label class="et-check"><input id="et-openmint" type="checkbox"> Let others mint</label>
         <div id="et-terms" class="et-terms" hidden>
-          <div class="et-row">
-            <div>
-              <label class="et-label" for="et-per">Coins per claim</label>
-              <input id="et-per" class="et-input" type="text" inputmode="numeric" value="1000">
-            </div>
-            <div>
-              <label class="et-label" for="et-cap">Total claims ever <span class="et-opt">optional</span></label>
-              <input id="et-cap" class="et-input" type="text" inputmode="numeric" placeholder="no limit">
-              <p class="et-hint">
-                Everyone put together, not per person. Leave it empty and claiming runs until the
-                supply is gone, which is what almost every coin wants.
-              </p>
-            </div>
+          <div>
+            <label class="et-label" for="et-per">Coins per claim</label>
+            <input id="et-per" class="et-input" type="text" inputmode="numeric" value="1000">
+            <p class="et-hint">
+              How many coins one claim hands over. Claiming runs until the supply is gone.
+            </p>
           </div>
           <div id="et-mint-out" class="et-readout"></div>
-          <!-- A hand on the arm, not a toast. A toast is dismissed by reflex and this stops
-               something that cannot be undone, so it shows the arithmetic in coins, cites the coin
-               this exact mistake already closed, and offers the cap that would fix it. -->
-          <div id="et-strand" class="vg-guard" hidden>
-            <p class="vg-label bad-label">Stop, read this in coins</p>
-            <div class="et-guard-sum" id="et-guard-sum"></div>
-            <div class="vg-bar" id="et-guard-bar"><span></span></div>
-            <p class="vg-guard-say" id="et-strand-say"></p>
-            <p class="vg-guard-why" id="et-guard-why"></p>
-            <label class="vg-ack">
-              <input id="et-strand-ok" type="checkbox">
-              <span id="et-ack-say">I understand these coins will be permanently unmintable.</span>
-            </label>
-            <div class="et-guard-acts">
-              <button type="button" class="vg-btn primary" id="et-guard-fix">Fix the cap</button>
-              <span class="vg-small" id="et-guard-note">Or tick the box to etch it as it stands.</span>
-            </div>
-          </div>
           <label class="et-label" for="et-price">Network fee per claim <span class="et-opt">in XVG</span></label>
           <input id="et-price" class="et-input" type="text" inputmode="decimal" value="1">
           <p class="et-note">

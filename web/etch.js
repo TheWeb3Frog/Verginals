@@ -265,7 +265,13 @@ function readForm() {
   const perMintTyped = open ? int('#et-per') : null;
   const perMint = open && Number.isInteger(perMintTyped) && perMintTyped > 0
     ? perMintTyped * scale : perMintTyped;
-  const cap = open ? int('#et-cap') : null;
+  // No cap. The field is gone, and with it a whole class of permanent mistake: a cap counts claims
+  // for the WHOLE coin, it was read as a limit per person, and the one etcher who read it that way
+  // closed a 21,000-supply coin after 25 coins existed. Nothing on this form can produce that
+  // outcome now, because claiming simply runs until the supply is gone.
+  //
+  // The protocol still has the field. This site does not set it.
+  const cap = null;
   const priceRaw = open ? $('#et-price').value.replace(/[\s,]/g, '') : '';
   const mintPrice = open && priceRaw !== '' ? Math.round(Number(priceRaw) * COIN) : 0;
 
@@ -284,7 +290,6 @@ function readForm() {
 
   if (open) {
     if (!Number.isInteger(perMint) || perMint <= 0) problems.push('units per claim must be a whole number above zero');
-    if (cap !== null && (!Number.isInteger(cap) || cap <= 0)) problems.push('the maximum number of claims must be a whole number');
     if (!Number.isFinite(mintPrice) || mintPrice < 0) problems.push('the fee per claim is not a number');
     else if (mintPrice > 49 * COIN) problems.push('the fee per claim cannot exceed 49 XVG');
     if (Number.isInteger(supply) && Number.isInteger(premine) && premine >= supply) {
@@ -292,21 +297,12 @@ function readForm() {
     }
   }
 
-  // The cap counts claims for the WHOLE COIN, and it was labelled in a way that reads as a limit per
-  // person. Somebody set it to 5 meaning "five each", and their coin closed for ever with 25 of a
-  // 21,000 supply in existence. Nothing on the page had told them the other 20,975 would never be
-  // mintable, because the readout stated the cap back to them rather than its consequence.
-  //
-  // So the consequence is computed here, in coins, and it takes a deliberate tick to etch anyway.
-  // A stranded supply is a legitimate design and is not forbidden; it just stops being an accident.
+  // Without a cap, an open mint always reaches the whole open supply, so nothing can be stranded by
+  // one. The figures stay because the card still reports what a mint releases, and because a CLOSED
+  // mint can still leave supply nobody can reach: that case is a verdict on the card, not a guard.
   const claimable = supplyOk && Number.isInteger(premine) ? supply - premine : 0;
-  const mintable = open && Number.isInteger(cap) && cap > 0 && Number.isInteger(perMint) && perMint > 0
-    ? Math.min(claimable, cap * perMint) : claimable;
-  const stranded = open && claimable > 0 ? claimable - mintable : 0;
-  const strandedOk = $('#et-strand-ok').checked;
-  if (stranded > 0 && !strandedOk) {
-    problems.push('the cap leaves coins nobody can ever mint: read the warning and tick the box, or clear the cap');
-  }
+  const mintable = claimable;
+  const stranded = 0;
   // Connecting a wallet fixes the address and the key at once, so listing them as two failures
   // reads as twice the work. They are one sentence until somebody opens the manual panel.
   if (!recipient) problems.push('connect your wallet');
@@ -327,79 +323,16 @@ function readForm() {
  */
 function paintMintTerms(f) {
   const out = $('#et-mint-out');
-  const alarm = $('#et-strand');
   out.textContent = '';
-  alarm.hidden = true;
   if (!f.open || !Number.isInteger(f.perMint) || f.perMint <= 0
     || !Number.isInteger(f.divisibility) || f.claimable <= 0) return;
 
   const scale = 10 ** f.divisibility;
   const claims = Math.floor(f.mintable / f.perMint);
-  kv(out, 'Claims available', fmt(claims) + ' in total, to everyone put together');
+  kv(out, 'Claims available', fmt(claims));
   kv(out, 'That releases', fmt(f.mintable / scale) + ' coins');
-  if (f.stranded > 0) {
-    kv(out, 'Nobody can ever mint', fmt(f.stranded / scale) + ' coins', 'warn');
-    paintGuard(f, scale);
-    alarm.hidden = false;
-  }
 }
 
-/**
- * The guard, when a cap would strand supply.
- *
- * It SHOWS the multiplication rather than describing it, because the mistake is the multiplication:
- * somebody reads 5 as five each and the chain reads it as five in total. Seeing 5 x 5 = 25 beside a
- * supply of 21,000 needs no sentence at all.
- *
- * It also offers the cap that would use the whole supply. "You got this wrong" without "here is the
- * right number" is how a person ticks the box just to get past it.
- */
-function paintGuard(f, scale) {
-  const sum = $('#et-guard-sum');
-  sum.textContent = '';
-  const cell = (label, value, cls) => {
-    const d = el('div', 'et-guard-cell' + (cls ? ' ' + cls : ''));
-    d.append(el('span', 'vg-label', label), el('b', 'vg-num vg-n-md', value));
-    sum.append(d);
-  };
-  const op = (glyph) => sum.append(el('span', 'et-guard-op', glyph));
-  cell('claims', fmt(f.cap));
-  op('\u00d7');
-  cell('per claim', fmt(f.perMint / scale));
-  op('=');
-  cell('mintable', fmt(f.mintable / scale));
-  cell('supply', fmt(f.claimable / scale), 'right');
-
-  const pct = f.claimable > 0 ? (f.mintable / f.claimable) * 100 : 0;
-  $('#et-guard-bar').firstElementChild.style.width = Math.max(0.6, Math.min(100, pct)).toFixed(2) + '%';
-
-  $('#et-strand-say').textContent = fmt(f.stranded / scale)
-    + ' coins would exist and could never be claimed by anyone, forever.';
-
-  $('#et-guard-why').textContent = `A cap of ${fmt(f.cap)} means ${fmt(f.cap)} claims in total, `
-    + 'not that many each. No chain can enforce a limit per person, and this field does not try. '
-    + 'This exact mistake closed a real 21,000-supply coin after 25 coins existed, and it cannot be '
-    + 'reopened.';
-
-  $('#et-ack-say').textContent = `I understand ${fmt(f.stranded / scale)} coins will be permanently `
-    + 'unmintable.';
-
-  // The cap that would hand out the whole open supply. Offered rather than applied: it is still
-  // their coin, and a form that edits itself is its own kind of surprise.
-  const fixed = Math.floor(f.claimable / f.perMint);
-  const fix = $('#et-guard-fix');
-  if (fixed > 0) {
-    fix.hidden = false;
-    fix.textContent = 'Fix the cap, set it to ' + fmt(fixed);
-    fix.dataset.cap = String(fixed);
-  } else {
-    // No cap can help: one claim is larger than the whole open supply.
-    fix.hidden = true;
-  }
-  $('#et-guard-note').textContent = fixed > 0
-    ? 'Or tick the box to etch it exactly as it stands.'
-    : 'One claim is larger than the whole open supply. Lower the coins per claim.';
-}
 
 // --- live readouts -------------------------------------------------------------------------------
 
@@ -642,21 +575,9 @@ $('#et-compose').addEventListener('click', async () => {
   }
 })();
 
-for (const id of ['#et-symbol', '#et-supply', '#et-div', '#et-keep', '#et-per', '#et-cap',
-  '#et-price', '#et-strand-ok']) {
+for (const id of ['#et-symbol', '#et-supply', '#et-div', '#et-keep', '#et-per', '#et-price']) {
   $(id).addEventListener('input', refresh);
 }
-
-// Applying the suggested cap is a normal edit: it writes the field and lets the form re-derive
-// everything, rather than reaching into the guard's own state.
-$('#et-guard-fix').addEventListener('click', (e) => {
-  const cap = e.currentTarget.dataset.cap;
-  if (!cap) return;
-  $('#et-cap').value = Number(cap).toLocaleString();
-  $('#et-strand-ok').checked = false;
-  refresh();
-  $('#et-cap').focus();
-});
 refresh();
 
 // --- paying for it, and watching it happen --------------------------------------------------------

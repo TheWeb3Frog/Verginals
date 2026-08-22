@@ -46,31 +46,6 @@ function readNumbers({ supply, div, per, cap, price, keep = 0, open = true }) {
   return run(int, $, COIN);
 }
 
-/**
- * Run the cap's consequence block, the same way: the source, executed, not matched.
- *
- * This is the second field on this form whose damage is silent, and it is worse than the first. A
- * wrong per-claim amount makes a coin unattractive; a cap read as a per-person limit makes most of
- * the supply impossible, and an etching cannot be revised.
- */
-function readStranding({ supply, div, per, cap, keep = 0, open = true, acknowledged = false }) {
-  const n = readNumbers({ supply, div, per, cap, price: 1, keep, open });
-  const src = fs.readFileSync(path.join(__dirname, '..', 'web', 'etch.js'), 'utf8');
-  const from = src.indexOf('  const claimable = supplyOk');
-  assert.ok(from > 0, 'the cap consequence block could not be located');
-  const to = src.indexOf('\n  }', src.indexOf('clear the cap')) + 4;
-  const block = src.slice(from, to);
-
-  const problems = [];
-  const $ = () => ({ checked: acknowledged });
-  // eslint-disable-next-line no-new-func
-  const run = new Function('supplyOk', 'supply', 'premine', 'open', 'cap', 'perMint', 'problems', '$',
-    block + '\nreturn { claimable, mintable, stranded };');
-  const r = run(Number.isInteger(n.supply) && n.supply > 0, n.supply, n.premine, open, n.cap,
-    n.perMint, problems, $);
-  return { ...r, problems, scale: n.scale };
-}
-
 test('THE ONE THAT COST A COIN: per-claim scales like supply', () => {
   // The exact values from the etching that went wrong: 9,420,420 supply, 2 decimals, 1000 per claim.
   const r = readNumbers({ supply: 9420420, div: 2, per: 1000, cap: null, price: 10 });
@@ -95,11 +70,6 @@ test('CONTROL: the harness would catch the old behaviour', () => {
   assert.strictEqual(r.perMint, old * r.scale);
 });
 
-test('a cap is a COUNT of claims and is never scaled', () => {
-  const r = readNumbers({ supply: 1000, div: 6, per: 10, cap: 50, price: 1 });
-  assert.strictEqual(r.cap, 50, 'fifty claims, not fifty million');
-});
-
 test('the premine is a share of the supply, so it is already in atomic units', () => {
   const r = readNumbers({ supply: 1000, div: 2, per: 10, cap: null, price: 1, keep: 10 });
   assert.strictEqual(r.premine, 10000, '10 percent of 100,000 atomic units');
@@ -111,62 +81,29 @@ test('the mint price is in XVG and scales by COIN, not by the divisibility', () 
   assert.strictEqual(r.mintPrice, 10000000, '10 XVG in atomic XVG units');
 });
 
-test('THE ONE THAT CLOSED A COIN: a cap of 5 strands a 21,000 supply', () => {
-  // SUNEROKTHEDEVGOAT, etched for real: 21,000 supply, no decimals, 5 coins a claim, cap 5. The
-  // etcher meant five claims per person. What they got was five claims in total, so the coin closed
-  // for ever with 25 coins in existence and the rest unreachable by anyone.
-  const r = readStranding({ supply: 21000, div: 0, per: 5, cap: 5, keep: 10 });
-  assert.strictEqual(r.claimable, 18900, 'the open supply after a 10 percent premine');
-  assert.strictEqual(r.mintable, 25, 'five claims of five coins is all the cap ever allows');
-  assert.strictEqual(r.stranded, 18875, 'and everything else is unreachable for ever');
-  assert.ok(r.problems.length > 0, 'the form must refuse to send this quietly');
+test('THE CAP FIELD IS GONE, so the mistake it caused is unreachable', () => {
+  // A cap counted claims for the WHOLE COIN and was read as a limit per person. The one etcher who
+  // read it that way closed a 21,000-supply coin after 25 coins existed, permanently.
+  //
+  // The guard that caught it worked, and this is better than a guard: the form cannot express the
+  // value at all, so claiming always runs until the supply is gone. The protocol still has the
+  // field; this site does not set it.
+  const src = fs.readFileSync(path.join(__dirname, '..', 'web', 'etch.js'), 'utf8');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'web', 'etch.html'), 'utf8');
+  assert.ok(!/id="et-cap"/.test(html), 'no cap input may exist on the form');
+  assert.match(src, /const cap = null;/, 'and the form must hard-code it as unset');
+  assert.ok(!/int\('#et-cap'\)/.test(src), 'nothing may read a cap out of the page');
 });
 
-test('the refusal names the cap, so it cannot be read as a supply problem', () => {
-  const r = readStranding({ supply: 21000, div: 0, per: 5, cap: 5 });
-  assert.match(r.problems.join(' '), /cap/);
-});
-
-test('no cap strands nothing, which is what almost every coin wants', () => {
-  const r = readStranding({ supply: 9420420, div: 2, per: 1000, cap: null });
-  assert.strictEqual(r.stranded, 0);
-  assert.strictEqual(r.mintable, r.claimable);
-  assert.strictEqual(r.problems.length, 0);
-});
-
-test('a cap larger than the supply needs is harmless and is not flagged', () => {
-  // 9,420,420 coins at 1000 a claim is 9,420 claims. A cap of 50,000 changes nothing, and warning
-  // about it would train people to tick the box without reading it.
-  const r = readStranding({ supply: 9420420, div: 2, per: 1000, cap: 50000 });
-  assert.strictEqual(r.stranded, 0);
-  assert.strictEqual(r.problems.length, 0);
-});
-
-test('a cap that lands exactly on the supply is not flagged either', () => {
-  const r = readStranding({ supply: 10000, div: 0, per: 100, cap: 100 });
-  assert.strictEqual(r.mintable, 10000);
-  assert.strictEqual(r.stranded, 0);
-  assert.strictEqual(r.problems.length, 0);
-});
-
-test('the stranded amount is counted in atomic units, like everything else on the wire', () => {
-  const r = readStranding({ supply: 100000, div: 2, per: 1000, cap: 10 });
-  assert.strictEqual(r.mintable, 1000000, 'atomic units');
-  assert.strictEqual(r.mintable / r.scale, 10000, 'which is ten thousand coins');
-  assert.strictEqual(r.stranded / r.scale, 90000, 'and ninety thousand that cannot exist');
-});
-
-test('ticking the box lets a deliberate stranding through', () => {
-  // A deliberately capped supply is a real design, so this is a confirmation and never a ban.
-  const r = readStranding({ supply: 21000, div: 0, per: 5, cap: 5, acknowledged: true });
-  assert.ok(r.stranded > 0, 'the stranding is still real and still reported');
-  assert.strictEqual(r.problems.length, 0, 'but it is no longer an accident');
-});
-
-test('a closed mint is not measured against a cap it does not have', () => {
-  const r = readStranding({ supply: 21000, div: 0, per: 5, cap: 5, keep: 100, open: false });
-  assert.strictEqual(r.stranded, 0);
-  assert.strictEqual(r.problems.length, 0);
+test('so an open mint always reaches the whole open supply', () => {
+  // The property that replaces the guard, checked by running the form rather than by reading it.
+  const r = readNumbers({ supply: 21000, div: 0, per: 5, cap: 5, price: 1, keep: 10 });
+  assert.strictEqual(r.cap, null, 'whatever was typed, no cap reaches the wire');
+  const claimable = r.supply - r.premine;
+  assert.strictEqual(claimable % 1, 0);
+  // Every coin of the open supply is reachable: claims run until it is gone.
+  assert.ok(Math.floor(claimable / r.perMint) * r.perMint > claimable - r.perMint,
+    'the last claim lands inside the supply, with less than one claim left over');
 });
 
 console.log(`\n${passed} passed`);

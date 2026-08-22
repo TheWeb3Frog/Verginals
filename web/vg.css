@@ -367,6 +367,10 @@
 
 @media (max-width: 860px) {
   .vg-menu, .vg-tip, .vg-nav-wallet { display: none; }
+  /* The strip's right-hand line is a subtitle, and at this width it collides with the trail it sits
+     beside. The trail is the part that says where you are, so the subtitle is the part that goes. */
+  .vg-context-in > span { display: none; }
+  .vg-context-in { justify-content: flex-start; }
   .vg-burger {
     display: inline-flex; align-items: center; justify-content: center;
     width: 38px; height: 38px; border-radius: var(--r-ctl);

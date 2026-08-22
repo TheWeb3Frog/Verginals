@@ -93,27 +93,70 @@ function render(ul, rows, canMint) {
       // transaction. Asking for ten means ten of them, chained, so the box is a count and the
       // button says what it will cost before it is pressed.
       const wrap = document.createElement('div');
-      wrap.className = 'rb-mintwrap';
+      wrap.className = 'rm-act';
+
+      // A stepper rather than a bare number box. The figure is a count of TRANSACTIONS, not an
+      // amount, so it is small, bounded and adjusted rather than typed, and the two ends of the
+      // range are one press away instead of a selection and a retype.
+      const step = document.createElement('div');
+      step.className = 'rm-step';
+      const less = document.createElement('button');
+      less.type = 'button'; less.className = 'rm-stepbtn'; less.textContent = '\u2212';
+      less.setAttribute('aria-label', 'one fewer');
       const count = document.createElement('input');
       count.type = 'text';
       count.inputMode = 'numeric';
       count.value = '1';
-      count.className = 'rb-count';
+      count.className = 'rm-count';
       count.setAttribute('aria-label', 'how many times');
+      const more = document.createElement('button');
+      more.type = 'button'; more.className = 'rm-stepbtn'; more.textContent = '+';
+      more.setAttribute('aria-label', 'one more');
+      step.append(less, count, more);
+
       const btn = document.createElement('button');
-      btn.className = 'btn primary';
-      const paint = () => {
-        const n = Math.max(1, Math.min(20, parseInt(count.value.replace(/[^0-9]/g, ''), 10) || 1));
-        btn.textContent = n === 1 ? 'Mint' : `Mint ${n}x`;
-        btn.title = `${fmtN(whole(m.amount * n, m.divisibility))} coins for ${fmtXvg(m.priceUnits * n)} XVG`;
+      btn.type = 'button';
+      btn.className = 'vg-btn primary rm-mint';
+
+      // Twenty is the ceiling because these are chained transactions and the mempool refuses a
+      // longer chain of unconfirmed ancestors. It is also bounded by what is left to claim.
+      const ceiling = Math.max(1, Math.min(20, m.remaining == null ? 20 : m.remaining));
+      const read = () => {
+        const n = parseInt(String(count.value).replace(/[^0-9]/g, ''), 10) || 1;
+        return Math.max(1, Math.min(ceiling, n));
       };
-      count.addEventListener('input', paint);
-      paint();
-      btn.addEventListener('click', () => {
-        const n = Math.max(1, Math.min(20, parseInt(count.value.replace(/[^0-9]/g, ''), 10) || 1));
-        mint(m, btn, n);
+      const paint = () => {
+        const n = read();
+        count.value = String(n);
+        less.disabled = n <= 1;
+        more.disabled = n >= ceiling;
+        // The cost goes ON the button. It is the number that decides the press, and it was in a
+        // tooltip nobody on a touch screen can ever open.
+        const label = document.createElement('span');
+        label.textContent = n === 1 ? 'Mint' : `Mint ${n}\u00d7`;
+        btn.textContent = '';
+        btn.append(label);
+        if (m.priceUnits) {
+          const cost = document.createElement('em');
+          cost.className = 'rm-cost';
+          cost.textContent = fmtXvg(m.priceUnits * n) + ' XVG';
+          btn.append(cost);
+        }
+        btn.title = `${fmtN(whole(m.amount * n, m.divisibility))} coins`;
+      };
+      const nudge = (by) => { count.value = String(read() + by); paint(); };
+      less.addEventListener('click', () => nudge(-1));
+      more.addEventListener('click', () => nudge(1));
+      count.addEventListener('input', () => {
+        less.disabled = false; more.disabled = false;   // never trap a half-typed value
+        const n = parseInt(String(count.value).replace(/[^0-9]/g, ''), 10);
+        if (Number.isInteger(n)) paint();
       });
-      wrap.append(count, btn);
+      count.addEventListener('blur', paint);
+      paint();
+
+      btn.addEventListener('click', () => mint(m, btn, read()));
+      wrap.append(step, btn);
       li.append(id, ask, wrap);
     } else {
       const why = document.createElement('div');

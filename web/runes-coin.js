@@ -67,9 +67,9 @@ async function load() {
     fact($('rc-mint'), 'Status', m.open ? 'open to anyone' : (m.closedBecause || []).join(', ') || 'closed',
       m.open ? 'warn' : null);
     fact($('rc-mint'), 'Per mint', fmtN(m.amount / (10 ** c.divisibility)));
-    fact($('rc-mint'), 'Price', m.priceUnits ? fmtXvg(m.priceUnits) + ' XVG' : 'free');
+    fact($('rc-mint'), 'Network fee per claim', m.priceUnits ? fmtXvg(m.priceUnits) + ' XVG' : 'free');
     // The line that stops somebody hunting for a rug that cannot exist.
-    fact($('rc-mint'), 'Paid to', 'the miner of the block, not the creator');
+    fact($('rc-mint'), 'Goes to', 'the miner of the block, not the creator, not this site');
     fact($('rc-mint'), 'Mints taken', fmtN(m.mintCount));
     if (m.remaining != null) fact($('rc-mint'), 'Mints left', fmtN(m.remaining));
     if (m.allowlisted) fact($('rc-mint'), 'Allowlist', 'yes, an entitlement is needed');

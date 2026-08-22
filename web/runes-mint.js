@@ -85,7 +85,10 @@ function render(ul, rows, canMint) {
     const price = document.createElement('b');
     price.textContent = m.priceUnits ? `${fmtXvg(m.priceUnits)} XVG` : 'free';
     const note = document.createElement('span');
-    note.textContent = m.priceUnits ? 'paid as the fee' : 'you pay only the network fee';
+    // "the fee" on its own reads as a fee somebody here is charging. It is the ordinary Verge
+    // network fee, it goes to whoever mines the block, and this site takes none of it, so the line
+    // says which fee it is every time the figure appears rather than once at the top of the page.
+    note.textContent = m.priceUnits ? 'network fee, to the miner' : 'network fee only';
     ask.append(price, note);
 
     if (canMint && !m.allowlisted) {

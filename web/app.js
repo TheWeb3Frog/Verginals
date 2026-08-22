@@ -812,6 +812,28 @@ function btn(label, cls, onClick) {
   return b;
 }
 
+/** The three figures a market is actually read for, from the listings themselves. */
+function paintMarketStats(listings) {
+  const box = $('#market-stats');
+  if (!box) return;
+  box.innerHTML = '';
+  const stat = (label, value, sub) => {
+    const d = document.createElement('div');
+    d.className = 'vg-stat';
+    const l = document.createElement('span'); l.className = 'vg-label'; l.textContent = label;
+    const b = document.createElement('b'); b.className = 'vg-num vg-n-md'; b.textContent = value;
+    d.append(l, b);
+    if (sub) { const x = document.createElement('span'); x.className = 'vg-stat-sub'; x.textContent = sub; d.append(x); }
+    box.append(d);
+  };
+  const prices = listings.map((l) => Number(l.priceUnits)).filter((n) => n > 0);
+  stat('Listed', fmt(listings.length));
+  // The floor is the lowest ask, and with nothing listed there is no floor. Reported as absent
+  // rather than as nought, which would read as somebody giving one away.
+  stat('Floor', prices.length ? fmt(Math.min(...prices) / 1e6) + ' XVG' : 'no asks');
+  stat('Fee', '0 XVG', 'we take nothing');
+}
+
 // --- market tab: all Verginals currently for sale -------------------------------------------
 async function loadMarket() {
   const g = $('#market-gallery');
@@ -820,14 +842,25 @@ async function loadMarket() {
       api('/api/market/listings'),
       lastList.length ? Promise.resolve(lastList) : loadInscriptions(),
     ]);
-    $('#market-meta').textContent = `${data.listings.length} for sale`;
-    if (!data.listings.length) {
-      g.innerHTML = '<div class="empty">Nothing listed yet. Open one of your Verginals in My Wallet and hit “List for sale”. 🏷️</div>';
+    // Guarded: an answer without a listings array used to throw here, and the throw took the
+    // whole market panel with it rather than showing an empty one.
+    const listings = (data && Array.isArray(data.listings)) ? data.listings : [];
+    $('#market-meta').textContent = `${listings.length} for sale`;
+    paintMarketStats(listings);
+    if (!listings.length) {
+      // An empty market is the screen most visitors see, so it makes an offer rather than an
+      // apology, and it says where the button actually is.
+      g.innerHTML = '<div class="vg-empty">'
+        + '<p><b>Nobody is selling right now.</b></p>'
+        + '<p>Open one of your Verginals in My Wallet and list it. You set the price, the coin stays '
+        + 'in your wallet until somebody takes it, and the sale settles in one transaction.</p>'
+        + '<a class="vg-btn primary" href="#wallet" data-goto="wallet">Open My Wallet</a>'
+        + '</div>';
       return;
     }
     const byLoc = new Map(list.map((i) => [i.location, i]));
     g.innerHTML = '';
-    data.listings.forEach((l) => {
+    listings.forEach((l) => {
       const ins = byLoc.get(l.carrier);
       const c = document.createElement('div');
       c.className = 'ins-card clickable';
@@ -1253,19 +1286,106 @@ function mintDone(j) {
   loadMintStatus(); // bump the live counter
 }
 
+/**
+ * The reveal.
+ *
+ * Ordered on purpose: the seal breaks, the art lands alone with nothing drawn over it, and the
+ * facts follow a beat later. A card that arrives complete is a database row. A card that arrives in
+ * that order is somebody opening something, and this is the one moment on the site that is supposed
+ * to feel like anything at all.
+ *
+ * Everything after the image is best-effort. The rank needs another request and the House is read
+ * off the traits, so both are added when they arrive and simply omitted when they do not: a reveal
+ * that waits for a rarity lookup before showing somebody their own art has its priorities backwards.
+ */
 function revealVerginal(v, j) {
   if (!v) return;
-  const traits = (v.attributes || [])
-    .map((a) => `<span class="trait"><b>${esc(a.trait_type)}</b>${esc(a.value)}</span>`).join('');
-  $('#reveal-back').innerHTML = `
-    <img class="reveal-img" src="${esc(v.imageUrl)}" alt="${esc(v.name)}" />
-    <div class="reveal-info">
-      <div class="reveal-name">${esc(v.name)} <span class="badge ok">#${esc(v.number)}</span></div>
-      <div class="traits">${traits}</div>
-      <div class="hint reveal-tx">reveal txid: <code>${esc(short(j.revealTxid))}</code></div>
-    </div>`;
-  // let the DOM settle, then flip
-  requestAnimationFrame(() => $('#reveal-box').classList.add('revealed'));
+  const stage = $('#rv-stage');
+  const chrome = $('#reveal-back');
+
+  const img = document.createElement('img');
+  img.className = 'rv-art';
+  img.alt = v.name || ('Verginal #' + v.number);
+  img.src = v.imageUrl;
+
+  const land = () => {
+    stage.innerHTML = '';
+    stage.append(img);
+    $('#reveal-box').classList.add('is-open');
+    // The beat. Long enough to read as a sequence, short enough that nobody waits for it.
+    setTimeout(() => chrome.classList.add('is-in'), 420);
+  };
+  // Wait for the bytes, but never for long: a seal that will not break is worse than a plain cut.
+  if (img.complete) land();
+  else {
+    img.addEventListener('load', land, { once: true });
+    img.addEventListener('error', land, { once: true });
+    setTimeout(land, 2500);
+  }
+
+  const house = (v.attributes || []).find((a) => /house/i.test(a.trait_type || ''));
+  chrome.innerHTML = '';
+  const head = document.createElement('div');
+  head.className = 'rv-head';
+  const name = document.createElement('h3');
+  name.className = 'vg-d3';
+  name.textContent = (v.name || 'Verginal') + ' #' + v.number;
+  head.append(name);
+  if (house) {
+    const chip = document.createElement('span');
+    chip.className = 'vg-chip rv-house ' + String(house.value).toLowerCase();
+    chip.textContent = 'House of ' + house.value;
+    head.append(chip);
+  }
+  chrome.append(head);
+
+  const facts = document.createElement('div');
+  facts.className = 'rv-facts';
+  const fact = (label, value, cls) => {
+    const d = document.createElement('div');
+    d.className = 'vg-stat';
+    const l = document.createElement('span'); l.className = 'vg-label'; l.textContent = label;
+    const b = document.createElement('b'); b.className = 'rv-fact ' + (cls || ''); b.textContent = value;
+    d.append(l, b);
+    facts.append(d);
+    return b;
+  };
+  const rankEl = fact('Rank', '...', 'vg-num');
+  const scoreEl = fact('Score', '...', 'vg-num');
+  chrome.append(facts);
+
+  api('/api/collection/rarity/' + v.number).then((r) => {
+    if (!r || r.rank == null) throw new Error('no rank');
+    rankEl.textContent = fmt(r.rank);
+    const of = document.createElement('span');
+    of.className = 'rv-of';
+    of.textContent = ' / ' + fmt(r.supply);
+    rankEl.append(of);
+    scoreEl.textContent = r.score != null ? fmt(r.score) : '-';
+  }).catch(() => {
+    // Omitted rather than shown as zero. A rank of nought would be a lie about a real object.
+    rankEl.closest('.vg-stat').remove();
+    scoreEl.closest('.vg-stat').remove();
+  });
+
+  const acts = document.createElement('div');
+  acts.className = 'rv-acts';
+  const arena = document.createElement('a');
+  arena.className = 'vg-btn primary'; arena.href = '/arena'; arena.textContent = 'Enter the Arena';
+  const again = document.createElement('button');
+  again.type = 'button'; again.className = 'vg-btn'; again.textContent = 'Mint another';
+  again.addEventListener('click', () => $('#btn-mint-again').click());
+  acts.append(arena, again);
+  chrome.append(acts);
+
+  const prov = document.createElement('p');
+  prov.className = 'rv-prov';
+  prov.textContent = 'Drawn by the commitment published before the first mint. Nobody steered it.';
+  const tx = document.createElement('span');
+  tx.className = 'rv-tx';
+  tx.textContent = ' reveal ' + short(j.revealTxid);
+  prov.append(tx);
+  chrome.append(prov);
 }
 
 $('#btn-mint-again').addEventListener('click', () => {

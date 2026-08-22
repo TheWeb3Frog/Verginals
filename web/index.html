@@ -8,7 +8,7 @@
   <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/vg.css" />
-  <link rel="stylesheet" href="/style.css?v=22" />
+  <link rel="stylesheet" href="/style.css?v=24" />
 </head>
 <body class="vg vg-hosted">
 
@@ -149,7 +149,7 @@
     </section>
 
     <!-- ============ MINT (Alpha Verginals) ============ -->
-    <section class="panel" id="panel-mint">
+<section class="panel" id="panel-mint">
       <!-- The front door. It carries the four things somebody decides on: what it is, how many are
            left, what it costs, and who decides which one you get. Everything else about the
            collection is below it. -->
@@ -240,14 +240,18 @@
       <!-- assigned verginal + payment -->
       <div class="card hidden" id="mint-active">
         <div class="reveal-stage">
-          <div class="reveal-box" id="reveal-box">
-            <div class="reveal-inner">
-              <div class="reveal-face reveal-front">
-                <div class="mystery">?</div>
-                <div class="hint">Your Verginal is reserved &amp; sealed.<br>It reveals the moment your payment confirms.</div>
+          <!-- The reveal. The art lands first and alone, with nothing drawn over it, and the facts
+               follow a beat later. A card that arrives complete is a database row; a card that
+               arrives in that order is somebody opening something. -->
+          <div class="rv" id="reveal-box">
+            <div class="rv-stage" id="rv-stage">
+              <div class="rv-sealed vg-grid-motif" id="rv-sealed">
+                <span class="vg-label">Sealed</span>
+                <span class="rv-diamond"></span>
+                <p class="vg-small">Reserved and sealed. It opens the moment your payment confirms.</p>
               </div>
-              <div class="reveal-face reveal-back" id="reveal-back"></div>
             </div>
+            <div class="rv-chrome" id="reveal-back"></div>
           </div>
         </div>
 
@@ -264,12 +268,52 @@
           </div>
         </div>
 
+        <!-- This wait is measured in minutes, not seconds, so it has to keep saying "still
+             working" without a countdown it cannot honour. The sweep does that and nothing else. -->
         <div class="paystatus" id="mint-paystatus">
-          <span class="spinner"></span> <span id="mint-paystatus-text">Waiting for your payment…</span>
+          <div class="pay-wait">
+            <span class="spinner"></span>
+            <span id="mint-paystatus-text">Waiting for your payment…</span>
+          </div>
+          <div class="pay-sweep" aria-hidden="true"></div>
+          <p class="vg-small">A Verge block lands roughly every 30 seconds. You can close this page:
+            the inscription happens on its own once the payment confirms.</p>
         </div>
         <div class="error" id="mint-pay-error"></div>
         <button class="link hidden" id="btn-mint-again">← mint another</button>
       </div>
+
+      <!-- The four things that are true here and true nowhere else, stated as claims rather than
+           argued in paragraphs. They were buried in prose and nobody read them. -->
+      <section class="tw">
+        <div class="tw-item">
+          <p class="vg-label">How a sale settles</p>
+          <p class="vg-d4">One transaction. Both sides, same instant.</p>
+          <p class="vg-small">The seller is paid and the buyer receives the Verginal in the same
+            Verge transaction. There is no moment where either of you has given something up and is
+            waiting.</p>
+        </div>
+        <div class="tw-item">
+          <p class="vg-label">Where a balance comes from</p>
+          <p class="vg-d4">Proven against the chain, not our server.</p>
+          <p class="vg-small">Your wallet checks what a coin really holds against a root published
+            on chain. If the check fails, nothing is signed. A lying server costs you a trade, never
+            a coin.</p>
+        </div>
+        <div class="tw-item">
+          <p class="vg-label">What we charge</p>
+          <p class="vg-d4">Nothing. The only cost is the network's.</p>
+          <p class="vg-small">No mint fee, no listing fee, no sale fee, no cut of anything. The fee
+            you pay goes to whoever mines the block.</p>
+        </div>
+        <div class="tw-item">
+          <p class="vg-label">What we hold</p>
+          <p class="vg-d4">Nothing of yours is on our side.</p>
+          <p class="vg-small">No account, no password, no balance. Keys stay in your wallet, and
+            this site could disappear tomorrow without touching a single thing you own.</p>
+        </div>
+      </section>
+
     </section>
 
     <!-- ============ EXPLORE ============ -->
@@ -293,14 +337,24 @@
 
     <!-- ============ MARKET ============ -->
     <section class="panel" id="panel-market">
-      <div class="explore-head">
-        <h2>Verginals for sale</h2>
+      <header class="mk-head">
         <div>
-          <span class="hint" id="market-meta"></span>
-          <button class="btn ghost" id="btn-market-refresh">Refresh</button>
+          <h2 class="vg-d2">Verginals for sale</h2>
+          <!-- The claim that actually distinguishes this market, said once and at size instead of
+               buried in a paragraph. Every other marketplace has a moment where one side has given
+               something up and is waiting. This one does not. -->
+          <p class="vg-d4 mk-claim">One transaction. The seller is paid and the buyer receives it in
+            the same instant.</p>
+          <p class="vg-say">No escrow, no middleman holding either side, and no moment where either
+            of you is exposed. This site is a notice board: your keys never leave your wallet, and we
+            take nothing.</p>
         </div>
-      </div>
-      <p class="hint">Trustless peer-to-peer trading. Every sale settles in a single Verge transaction: the seller is paid and the buyer receives the Verginal at the same instant, with no middleman ever holding either side. This site is only a notice board; your keys stay in your wallet. No service fee.</p>
+        <div class="mk-side">
+          <dl class="vg-stats mk-stats" id="market-stats"></dl>
+          <button class="vg-btn" id="btn-market-refresh">Refresh</button>
+        </div>
+      </header>
+      <span class="hint hidden" id="market-meta"></span>
       <div class="gallery" id="market-gallery"><div class="empty">Loading…</div></div>
     </section>
 
@@ -439,9 +493,20 @@
 
     <!-- ============ LAUNCHPAD ============ -->
     <section class="panel" id="panel-launchpad">
-      <div class="card" id="lp-browse">
-        <h2>Community launchpad</h2>
-        <p class="hint">Collections created by the community and minted the same provably fair way as the Alphas: a committed random draw assigns your piece, images stay sealed until they are minted, and everything lives on the Verge chain forever. Every collection here was reviewed before going live.</p>
+      <div id="lp-browse">
+        <header class="lp-hero">
+          <span class="vg-chip accent">slot 01 open</span>
+          <h2 class="vg-d2">Launch yours the way the Alphas were launched.</h2>
+          <p class="vg-say">
+            A committed random draw, images sealed until they are minted, everything on the Verge
+            chain forever, and no cut taken by anyone. Every collection here is reviewed before it
+            goes live, which is why there is nothing here yet rather than anything at all.
+          </p>
+          <div class="lp-acts">
+            <a class="vg-btn primary" href="#launchpad-submit" data-goto="launchpad">Submit a collection</a>
+            <a class="vg-btn" href="#mint" data-goto="mint">See how the Alphas did it</a>
+          </div>
+        </header>
         <div class="lp-grid" id="lp-list"><div class="empty">Loading…</div></div>
       </div>
 
@@ -758,7 +823,7 @@
 
   <script src="/vendor/qrcode.js"></script>
   <script type="module" src="/app-chrome.js"></script>
-<script src="/app.js?v=22"></script>
-  <script src="/wallet.js?v=22"></script>
+<script src="/app.js?v=24"></script>
+  <script src="/wallet.js?v=24"></script>
 </body>
 </html>

@@ -727,3 +727,128 @@ footer .hint { max-width: 980px; margin: 0 auto; }
   .mh-body { padding: 26px 22px; }
   .mh-counts { gap: 30px; }
 }
+
+
+/* ================================================================================================
+   The reveal. Art first and alone, facts a beat later.
+   ================================================================================================ */
+
+.rv {
+  border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden;
+  background: var(--card); max-width: 520px;
+}
+.rv-stage {
+  position: relative; aspect-ratio: 1 / 1; background: var(--bg);
+  display: grid; place-items: center;
+}
+.rv-sealed {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 16px; padding: 26px; text-align: center;
+  background-color: var(--bg);
+}
+.rv-sealed .vg-small { max-width: 30ch; margin: 0; }
+.rv-diamond {
+  width: 76px; height: 76px; transform: rotate(45deg);
+  border: 2px solid var(--accent); border-radius: 8px;
+  box-shadow: 0 0 40px -6px rgba(76, 194, 241, .5);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .rv-diamond { animation: rvBreathe 4s ease-in-out infinite; }
+  @keyframes rvBreathe {
+    0%, 100% { opacity: .7; transform: rotate(45deg) scale(1); }
+    50% { opacity: 1; transform: rotate(45deg) scale(1.06); }
+  }
+}
+
+/* Full bleed, nothing over it. The art is the whole point of the moment. */
+.rv-art { width: 100%; height: 100%; object-fit: cover; display: block; image-rendering: pixelated; }
+@media (prefers-reduced-motion: no-preference) {
+  .rv.is-open .rv-art { animation: rvLand .5s cubic-bezier(.2, .8, .2, 1) both; }
+  @keyframes rvLand { from { opacity: 0; transform: scale(1.04); } to { opacity: 1; transform: none; } }
+}
+
+.rv-chrome {
+  padding: 20px 22px 22px; display: flex; flex-direction: column; gap: 16px;
+  opacity: 0; transform: translateY(8px);
+  transition: opacity .34s ease, transform .34s cubic-bezier(.2, .8, .2, 1);
+}
+.rv-chrome.is-in { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) { .rv-chrome { opacity: 1; transform: none; } }
+
+.rv-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: space-between; }
+.rv-house.fire { border-color: rgba(255, 107, 107, .45); color: var(--danger); }
+.rv-house.water { border-color: rgba(76, 194, 241, .45); color: var(--accent); }
+.rv-house.earth { border-color: rgba(56, 211, 159, .45); color: var(--ok); }
+
+.rv-facts { display: flex; flex-wrap: wrap; gap: 30px; }
+.rv-fact { font-size: 20px; letter-spacing: -.02em; }
+.rv-of { font: 400 12px/1 var(--mono); color: var(--dim); letter-spacing: 0; }
+
+.rv-acts { display: flex; flex-wrap: wrap; gap: 10px; }
+.rv-prov { margin: 0; font-size: 11.5px; line-height: 1.55; color: var(--dim); }
+.rv-tx { font-family: var(--mono); }
+
+@media (max-width: 560px) {
+  .rv-acts .vg-btn { flex: 1 1 100%; }
+  .rv-facts { gap: 22px; }
+}
+
+
+/* ================================================================================================
+   Market head, launchpad hero, and the payment wait.
+   ================================================================================================ */
+
+.mk-head {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, .7fr);
+  gap: 32px; align-items: start; padding: 8px 0 26px;
+}
+.mk-head h2 { margin: 0 0 12px; }
+.mk-claim { margin: 0 0 12px; color: var(--accent); max-width: 26ch; }
+.mk-side { display: flex; flex-direction: column; gap: 12px; align-items: stretch; }
+.mk-stats { grid-template-columns: repeat(3, 1fr); }
+
+.lp-hero {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 16px;
+  padding: 34px 32px; margin-bottom: 20px;
+  border: 1px solid var(--line); border-radius: var(--r-card);
+  background:
+    radial-gradient(120% 140% at 8% 0%, #14344a 0%, transparent 58%),
+    var(--card);
+}
+.lp-hero h2 { margin: 0; max-width: 22ch; }
+.lp-acts { display: flex; flex-wrap: wrap; gap: 10px; }
+
+/* Waiting for a payment. Minutes, not seconds, and it must never look stuck: the sweep is the only
+   thing on the site that exists purely to say "still working". */
+.pay-wait { display: flex; align-items: center; gap: 14px; }
+.pay-sweep {
+  position: relative; flex: 1; height: 4px; border-radius: 2px;
+  background: var(--bg2); overflow: hidden;
+}
+.pay-sweep::after {
+  content: ''; position: absolute; inset: 0 auto 0 0; width: 34%;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pay-sweep::after { animation: paySweep 1.7s ease-in-out infinite; }
+  @keyframes paySweep { from { transform: translateX(-110%); } to { transform: translateX(310%); } }
+}
+
+@media (max-width: 860px) {
+  .mk-head { grid-template-columns: 1fr; gap: 22px; }
+  .lp-hero { padding: 26px 22px; }
+}
+
+#mint-paystatus { display: flex; flex-direction: column; gap: 10px; }
+#mint-paystatus .vg-small { margin: 0; max-width: 52ch; }
+
+/* The trust story. Four claims in one instrument panel, hairline-divided, so they read as a set of
+   facts rather than as four separate boasts. */
+.tw {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1px;
+  margin: 0 0 20px; background: var(--line);
+  border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden;
+}
+.tw-item { background: var(--card); padding: 20px 22px; display: flex; flex-direction: column; gap: 9px; }
+.tw-item p { margin: 0; }
+.tw-item .vg-d4 { color: var(--txt); }

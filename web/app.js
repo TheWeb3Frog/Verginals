@@ -881,6 +881,16 @@ function scanningNotice(p, again) {
 // --- market tab: all Verginals currently for sale -------------------------------------------
 async function loadMarket() {
   const g = $('#market-gallery');
+  // Say what is happening BEFORE the wait, not after it. This function needs the inscription list
+  // to match a listing to its art, and during a rescan that request is slow, so the panel sat on
+  // "Loading" for twenty minutes with listings it already had. The notice is drawn first and
+  // replaced by the grid the moment the data lands.
+  indexProgress().then((prog) => {
+    if (prog && prog.scanning && !g.querySelector('.ins-card')) {
+      g.innerHTML = '';
+      g.append(scanningNotice(prog, loadMarket));
+    }
+  });
   try {
     const [data, list] = await Promise.all([
       api('/api/market/listings'),

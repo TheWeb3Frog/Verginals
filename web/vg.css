@@ -1,0 +1,380 @@
+/* Verginals design system.
+ *
+ * One stylesheet every page inherits, so a component looks the same wherever it lands. The palette
+ * is unchanged from what the site already shipped: the work here is typography, density and
+ * structure, which is where the site was weakest.
+ *
+ * Two typefaces do all of it. Bricolage Grotesque carries every headline, tight and heavy, because
+ * the site's job is to make permanent things feel considered rather than casual. JetBrains Mono
+ * carries every label and every figure, because almost everything on this site is countable and a
+ * column of numbers that does not line up reads as an estimate.
+ *
+ * Both are SELF-HOSTED. The CSP is default-src 'self' and would block a font CDN anyway, but the
+ * real reason is that a page explaining that nothing about you leaves your device should not open a
+ * connection to a third party to draw its own headline.
+ */
+
+/* --- the faces ------------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: 'Bricolage Grotesque';
+  src: url('/fonts/bricolage-grotesque-latin.woff2') format('woff2');
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/jetbrains-mono-latin.woff2') format('woff2');
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* Unchanged. The design pass kept every one of these. */
+  --bg: #0b1017;
+  --bg2: #121a24;
+  --card: #16202c;
+  --line: #26323f;
+  --line2: #2f3d4c;
+  --hair: rgba(255, 255, 255, .08);
+  --txt: #e8eff6;
+  --muted: #8ea0b2;
+  --dim: rgba(232, 239, 246, .5);
+  --accent: #4cc2f1;
+  --accent2: #1aa3e0;
+  --ok: #38d39f;
+  --danger: #ff6b6b;
+  --warn: #e0906f;
+
+  --display: 'Bricolage Grotesque', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --r-pill: 999px;
+  --r-card: 12px;
+  --r-ctl: 8px;
+  --r-chip: 5px;
+
+  --nav-h: 60px;
+  --page: 1180px;
+}
+
+/* --- the ground ------------------------------------------------------------------------------ */
+
+.vg body, body.vg {
+  margin: 0;
+  background: var(--bg);
+  color: var(--txt);
+  font: 400 14px/1.6 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.vg-wrap { max-width: var(--page); margin: 0 auto; padding: 0 22px; }
+
+/* --- type ------------------------------------------------------------------------------------ */
+
+/* The display scale. Tight leading and negative tracking are the whole character of it: at these
+   weights and sizes, default spacing reads as a template. */
+.vg-d1, .vg-d2, .vg-d3, .vg-d4 {
+  font-family: var(--display);
+  font-weight: 700;
+  margin: 0;
+  text-wrap: balance;
+}
+.vg-d1 { font-size: clamp(34px, 5.2vw, 62px); line-height: .94; letter-spacing: -.035em; }
+.vg-d2 { font-size: clamp(27px, 3.4vw, 38px); line-height: 1.02; letter-spacing: -.03em; }
+.vg-d3 { font-size: clamp(21px, 2.2vw, 27px); line-height: 1.15; letter-spacing: -.02em; }
+.vg-d4 { font-size: 17px; line-height: 1.25; letter-spacing: -.01em; }
+
+/* The micro-label. Used above almost every figure on the site, and it is what makes a number read
+   as a measurement rather than as decoration. */
+.vg-label {
+  font: 700 10px/1 var(--mono);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.vg-label.dim { color: var(--dim); }
+
+.vg-say { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.65; max-width: 62ch; }
+.vg-say b, .vg-say strong { color: var(--txt); font-weight: 600; }
+.vg-small { font-size: 12.5px; line-height: 1.6; color: var(--muted); }
+
+/* Every figure on the site. Tabular by default: these sit in columns more often than not. */
+.vg-num {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em;
+}
+.vg-n-xl { font-size: 34px; }
+.vg-n-lg { font-size: 26px; }
+.vg-n-md { font-size: 20px; }
+.vg-n-sm { font-size: 14px; }
+.vg-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+.vg-accent { color: var(--accent); }
+.vg-ok { color: var(--ok); }
+.vg-bad { color: var(--danger); }
+.vg-warnc { color: var(--warn); }
+.vg-muted { color: var(--muted); }
+
+/* --- a stat: label above figure, the site's most repeated unit ------------------------------- */
+
+.vg-stat { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.vg-stat > .vg-label { order: -1; }
+.vg-stat-sub { font: 400 11.5px/1.4 var(--mono); color: var(--dim); }
+
+/* A row of stats divided by hairlines rather than boxed. Reads as one instrument panel. */
+.vg-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  overflow: hidden;
+}
+.vg-stats > * { background: var(--card); padding: 16px 18px; }
+
+/* --- surfaces -------------------------------------------------------------------------------- */
+
+.vg-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  padding: 18px 20px;
+}
+.vg-card.flush { padding: 0; overflow: hidden; }
+.vg-panel {
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  padding: 16px 18px;
+}
+.vg-hr { height: 1px; background: var(--hair); border: 0; margin: 0; }
+
+/* The sealed texture. Used for anything that exists but has not been revealed, and for the unminted
+   remainder of a progress bar, so "not yet" reads the same way everywhere. */
+.vg-hatch { background: repeating-linear-gradient(45deg, var(--bg) 0 5px, var(--card) 5px 10px); }
+.vg-hatch-lg { background: repeating-linear-gradient(45deg, var(--bg) 0 7px, var(--card) 7px 14px); }
+.vg-grid-motif {
+  background-image: linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 26px 26px;
+}
+
+/* --- controls -------------------------------------------------------------------------------- */
+
+.vg-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 11px 20px; border-radius: var(--r-pill); cursor: pointer;
+  border: 1px solid var(--line2); background: transparent; color: var(--txt);
+  font: 600 13.5px/1 var(--sans); text-decoration: none; white-space: nowrap;
+  transition: background .13s ease, border-color .13s ease, color .13s ease;
+}
+.vg-btn:hover { border-color: var(--accent); color: var(--accent); }
+.vg-btn.primary { background: var(--accent); border-color: var(--accent); color: #06121b; }
+.vg-btn.primary:hover { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+.vg-btn.block { display: flex; width: 100%; padding: 13px 20px; font-size: 14.5px; }
+.vg-btn[disabled], .vg-btn.is-off { opacity: .4; cursor: not-allowed; pointer-events: none; }
+.vg-btn:focus-visible, .vg-pill:focus-visible, .vg-input:focus-visible,
+.vg-nav a:focus-visible, .vg-nav button:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+
+.vg-pill {
+  padding: 7px 13px; border-radius: var(--r-pill); cursor: pointer;
+  border: 1px solid var(--line); background: transparent; color: var(--muted);
+  font: 500 12.5px/1 var(--sans); white-space: nowrap;
+}
+.vg-pill:hover { color: var(--txt); border-color: var(--line2); }
+.vg-pill.is-on { background: var(--accent); border-color: var(--accent); color: #06121b; font-weight: 600; }
+
+.vg-input {
+  width: 100%; padding: 12px 14px; border-radius: var(--r-ctl);
+  border: 1px solid var(--line); background: var(--bg); color: var(--txt);
+  font: 400 15px/1.3 var(--mono);
+}
+.vg-input::placeholder { color: var(--dim); }
+.vg-field { display: flex; flex-direction: column; gap: 7px; }
+
+/* A chip carrying a fact, not a decoration: "permanent", "verified", "sealed". */
+.vg-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 9px; border-radius: var(--r-chip);
+  font: 700 10px/1.4 var(--mono); letter-spacing: .14em; text-transform: uppercase;
+  border: 1px solid var(--line2); color: var(--muted);
+}
+.vg-chip.ok { border-color: rgba(56, 211, 159, .4); color: var(--ok); }
+.vg-chip.bad { border-color: rgba(255, 107, 107, .45); color: var(--danger); }
+.vg-chip.warn { border-color: rgba(224, 144, 111, .45); color: var(--warn); }
+.vg-chip.accent { background: var(--accent); border-color: var(--accent); color: #06121b; }
+
+/* --- progress -------------------------------------------------------------------------------- */
+
+/* The remainder is hatched rather than empty, because on this site the unfilled part is not nothing:
+   it is the art that has not been revealed, or the coins nobody has claimed. */
+.vg-bar { height: 8px; border-radius: 2px; overflow: hidden; background: repeating-linear-gradient(45deg, var(--card) 0 6px, var(--bg) 6px 12px); }
+.vg-bar > span { display: block; height: 100%; background: var(--accent); border-radius: 2px 0 0 2px; }
+.vg-bar.thin { height: 5px; }
+.vg-bar > span.done { background: var(--ok); }
+.vg-bar > span.fire { background: var(--danger); }
+.vg-bar > span.water { background: var(--accent); }
+.vg-bar > span.earth { background: var(--ok); }
+
+/* --- the one bar ----------------------------------------------------------------------------- */
+
+/* One bar, five intents, on every page. The site used to stack a shared bar, a second bar and a
+   twelve-item tab strip before any content, and only three of those twelve were reachable from the
+   shared one. This replaces all of it.
+   The panels open on hover with a pointer and on click or focus without one, so it works on a phone
+   and from a keyboard. */
+.vg-nav {
+  position: sticky; top: 0; z-index: 60;
+  background: rgba(11, 16, 23, .92);
+  backdrop-filter: saturate(1.4) blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.vg-nav-in {
+  max-width: var(--page); margin: 0 auto; padding: 0 22px; height: var(--nav-h);
+  display: flex; align-items: center; gap: 28px;
+}
+.vg-brand {
+  display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--txt);
+  font: 700 15px/1 var(--display); letter-spacing: .02em;
+}
+.vg-brand i {
+  width: 20px; height: 20px; border-radius: 5px; display: block;
+  background: linear-gradient(150deg, var(--accent), var(--accent2));
+}
+.vg-menu { display: flex; align-items: center; gap: 4px; margin-left: 4px; }
+.vg-menu > li { list-style: none; position: relative; }
+.vg-top {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 13px; border-radius: var(--r-pill); border: 1px solid transparent;
+  background: transparent; color: var(--muted); cursor: pointer;
+  font: 500 13.5px/1 var(--sans); text-decoration: none;
+}
+.vg-top:hover, .vg-menu > li[data-open] > .vg-top { color: var(--txt); background: var(--card); }
+.vg-top[aria-current], .vg-top.is-on { color: var(--txt); }
+.vg-top .caret { font-size: 9px; opacity: .6; }
+
+.vg-panel-menu {
+  position: absolute; top: calc(100% + 8px); left: 0; min-width: 220px; padding: 14px;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-card);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, .55);
+  display: none; flex-direction: column; gap: 2px;
+}
+.vg-menu > li[data-open] > .vg-panel-menu { display: flex; }
+.vg-panel-menu .vg-label { margin: 0 0 8px 8px; }
+.vg-panel-menu a {
+  display: flex; align-items: baseline; gap: 8px; justify-content: space-between;
+  padding: 8px; border-radius: var(--r-ctl); color: var(--txt); text-decoration: none;
+  font-size: 13.5px;
+}
+.vg-panel-menu a:hover { background: var(--bg2); color: var(--accent); }
+.vg-panel-menu a em { font: 400 11px/1 var(--mono); font-style: normal; color: var(--dim); }
+
+.vg-nav-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+.vg-tip { font: 400 11px/1 var(--mono); color: var(--dim); white-space: nowrap; }
+.vg-tip b { color: var(--muted); font-weight: 500; }
+.vg-burger { display: none; }
+
+/* The strip under the bar: where you are, and nothing else. */
+.vg-context {
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+.vg-context-in {
+  max-width: var(--page); margin: 0 auto; padding: 11px 22px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  font: 700 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim);
+}
+.vg-context-in a { color: var(--muted); text-decoration: none; }
+.vg-context-in a:hover { color: var(--accent); }
+
+/* --- the footer ------------------------------------------------------------------------------ */
+
+.vg-foot { margin-top: 72px; border-top: 1px solid var(--line); background: var(--bg); }
+.vg-foot-in {
+  max-width: var(--page); margin: 0 auto; padding: 22px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px;
+  font-size: 12.5px; color: var(--muted);
+}
+.vg-foot-in a { color: var(--muted); text-decoration: none; }
+.vg-foot-in a:hover { color: var(--accent); }
+.vg-foot-claim {
+  margin-left: auto; font: 700 10px/1 var(--mono); letter-spacing: .16em;
+  text-transform: uppercase; color: var(--dim);
+}
+
+/* --- states ---------------------------------------------------------------------------------- */
+
+/* An empty list is the screen most visitors actually see here, so it is a component rather than an
+   afterthought, and it is built to make an offer rather than an apology. */
+.vg-empty {
+  padding: 40px 26px; border: 1px dashed var(--line); border-radius: var(--r-card);
+  display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center;
+}
+.vg-empty p { margin: 0; max-width: 46ch; color: var(--muted); font-size: 14px; line-height: 1.65; }
+
+.vg-note {
+  padding: 12px 15px; border-radius: var(--r-ctl);
+  border-left: 3px solid var(--accent); background: var(--bg2);
+  font-size: 13px; line-height: 1.6; color: var(--muted);
+}
+.vg-note b { color: var(--txt); }
+.vg-note.bad { border-left-color: var(--danger); }
+.vg-note.warn { border-left-color: var(--warn); }
+.vg-note.ok { border-left-color: var(--ok); }
+
+/* A blocking guard. Not a toast: a toast is dismissed by reflex, and the things this stops are
+   permanent. It states the consequence in the units the person is thinking in and offers the fix. */
+.vg-guard {
+  border: 1px solid rgba(255, 107, 107, .45); border-radius: var(--r-card);
+  background: linear-gradient(rgba(255, 107, 107, .07), rgba(255, 107, 107, .02));
+  padding: 18px 20px; display: flex; flex-direction: column; gap: 14px;
+}
+.vg-guard-say { margin: 0; font: 700 21px/1.22 var(--display); letter-spacing: -.02em; color: var(--danger); }
+.vg-guard-why { margin: 0; font-size: 13px; line-height: 1.65; color: var(--muted); }
+.vg-guard-why b { color: var(--txt); }
+.vg-ack {
+  display: flex; align-items: flex-start; gap: 10px; padding: 11px 13px;
+  border: 1px solid var(--line2); border-radius: var(--r-ctl); background: var(--bg);
+  font-size: 13px; line-height: 1.5; color: var(--txt); cursor: pointer;
+}
+.vg-ack input { margin: 2px 0 0; accent-color: var(--accent); width: 15px; height: 15px; }
+
+/* Wide content scrolls inside its own box; the page never scrolls sideways. */
+.vg-scroll { overflow-x: auto; }
+
+/* --- phone ----------------------------------------------------------------------------------- */
+
+@media (max-width: 860px) {
+  .vg-menu, .vg-tip { display: none; }
+  .vg-burger {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 38px; height: 38px; border-radius: var(--r-ctl);
+    border: 1px solid var(--line); background: transparent; color: var(--txt);
+    font-size: 15px; cursor: pointer;
+  }
+  .vg-nav.is-open .vg-menu {
+    display: flex; position: absolute; top: var(--nav-h); left: 0; right: 0;
+    flex-direction: column; align-items: stretch; gap: 0; padding: 10px 14px 18px;
+    background: var(--bg); border-bottom: 1px solid var(--line);
+  }
+  .vg-nav.is-open .vg-menu > li { position: static; }
+  .vg-nav.is-open .vg-top { width: 100%; justify-content: space-between; border-radius: var(--r-ctl); }
+  .vg-nav.is-open .vg-panel-menu {
+    position: static; min-width: 0; box-shadow: none; border: 0; padding: 2px 0 10px 10px;
+    background: transparent;
+  }
+  .vg-foot-claim { margin-left: 0; width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

@@ -5,55 +5,64 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Etch a Verge Rune</title>
 <link rel="icon" href="/favicon.svg">
-<link rel="stylesheet" href="/style.css">
+<link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/vg.css">
 <link rel="stylesheet" href="/etch.css">
-<link rel="stylesheet" href="/sitenav.css">
 </head>
-<body>
-  <nav class="sitenav" aria-label="Site">
-    <a class="sn-brand" href="/"><span class="sn-logo">V</span>Verginals</a>
-    <div class="sn-group">
-      <span class="sn-label">Verginals</span>
-      <a href="/#inscribe">Inscribe</a>
-      <a href="/#market">Market</a>
-      <a href="/#arena">Arena</a>
-    </div>
-    <div class="sn-group">
-      <span class="sn-label">Runes</span>
-      <a href="/etch" aria-current="page">Etch a coin</a>
-      <a href="/runes/mint">Mint</a>
-      <a href="/runes/market">Market</a>
-      <a href="/runes">How it works</a>
-    </div>
-  </nav>
+<body class="vg">
 <main class="et-wrap">
 
   <header class="et-head">
-    <p class="et-eyebrow">VERGE RUNES</p>
-    <h1>Etch a coin</h1>
-    <p class="et-lede">
-      Three things to decide, and none of it can be changed afterwards. The name is not bought, it is
-      held: you lock XVG against it and you get all of it back.
-      Nothing is broadcast until you say so, and the total is shown before anything is signed.
-      <a href="/runes">How the protocol works</a>.
-    </p>
-    <div id="et-status" class="et-status">Checking what this server reports…</div>
+    <div class="et-head-say">
+      <div class="et-head-line">
+        <h1 class="vg-d2">Etch a coin</h1>
+        <span class="vg-chip bad">every choice here is permanent</span>
+      </div>
+      <p class="vg-say">
+        The name is not bought, it is held: you lock XVG against it and you get all of it back in
+        four years. Nothing is broadcast until you say so, and the total is shown before anything is
+        signed. <a href="/runes">How the protocol works</a>.
+      </p>
+    </div>
+    <span class="vg-label" id="et-step">step 1 of 5</span>
   </header>
+  <div id="et-status" class="vg-note">Checking what this server reports…</div>
 
   <!-- The coin, as it will be. It is the first thing on the page because it is the only thing
        anybody is actually here for, and because a form that shows you what you are making is a
        different experience from a form that asks you questions. -->
+  <div class="et-cols">
+
   <aside class="et-card" id="et-card" aria-live="polite">
+    <p class="vg-label">What you are about to write</p>
+
     <div class="et-card-face">
       <span class="et-card-sym" id="card-sym"></span>
       <span class="et-card-name" id="card-name">YOUR COIN</span>
     </div>
-    <dl class="et-card-facts">
-      <div><dt>Supply</dt><dd id="card-supply">21,000,000</dd></div>
-      <div><dt>You keep</dt><dd id="card-keep">none</dd></div>
-      <div><dt>You lock</dt><dd id="card-price">pick a name</dd></div>
-      <div><dt>Yours again</dt><dd id="card-back">in four years</dd></div>
-    </dl>
+
+    <!-- Sentences rather than a fact list. A row saying "cap: 5" is read as a setting; a line
+         saying "25 coins would ever exist" is read as a consequence, and only one of those two
+         stops somebody making a mistake they cannot undo. -->
+    <div class="et-card-say" id="card-say"></div>
+
+    <!-- The verdict. Green when every coin is accounted for, amber when some can never be minted,
+         red when the terms promise more coins than exist. -->
+    <div class="et-card-verdicts" id="card-verdicts"></div>
+
+    <div class="et-card-pay">
+      <p class="vg-label">You pay now</p>
+      <dl class="et-card-facts">
+        <div><dt>Locked for the name</dt><dd id="card-price">pick a name</dd></div>
+        <div><dt>Network fee</dt><dd id="card-netfee">-</dd></div>
+        <div><dt>Our fee</dt><dd class="vg-ok" id="card-ourfee">0 XVG</dd></div>
+      </dl>
+      <p class="et-card-back">Locked XVG comes back in full on <b id="card-back">a date set now</b>.
+        Nobody is paid it and none of it is burned.</p>
+    </div>
+
+    <p class="et-card-final">None of this can be edited later, by anyone. Including us.</p>
   </aside>
 
   <form id="et-form" class="et-form" autocomplete="off">
@@ -136,13 +145,23 @@
             </div>
           </div>
           <div id="et-mint-out" class="et-readout"></div>
-          <div id="et-strand" class="et-alarm" hidden>
-            <p class="et-alarm-head">This cap strands most of your supply</p>
-            <p id="et-strand-say" class="et-alarm-say"></p>
-            <label class="et-check">
+          <!-- A hand on the arm, not a toast. A toast is dismissed by reflex and this stops
+               something that cannot be undone, so it shows the arithmetic in coins, cites the coin
+               this exact mistake already closed, and offers the cap that would fix it. -->
+          <div id="et-strand" class="vg-guard" hidden>
+            <p class="vg-label bad-label">Stop, read this in coins</p>
+            <div class="et-guard-sum" id="et-guard-sum"></div>
+            <div class="vg-bar" id="et-guard-bar"><span></span></div>
+            <p class="vg-guard-say" id="et-strand-say"></p>
+            <p class="vg-guard-why" id="et-guard-why"></p>
+            <label class="vg-ack">
               <input id="et-strand-ok" type="checkbox">
-              I understand, and I want those coins to be unmintable for ever
+              <span id="et-ack-say">I understand these coins will be permanently unmintable.</span>
             </label>
+            <div class="et-guard-acts">
+              <button type="button" class="vg-btn primary" id="et-guard-fix">Fix the cap</button>
+              <span class="vg-small" id="et-guard-note">Or tick the box to etch it as it stands.</span>
+            </div>
           </div>
           <label class="et-label" for="et-price">Network fee per claim <span class="et-opt">in XVG</span></label>
           <input id="et-price" class="et-input" type="text" inputmode="decimal" value="1">
@@ -199,6 +218,8 @@
       </div>
     </section>
   </form>
+
+  </div>
 
   <footer class="et-foot">
     <p>Nothing has been signed or sent. The next screen shows the total and the address to pay it to.

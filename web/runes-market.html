@@ -3,60 +3,47 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Coin market on Verge</title>
+<title>Coins on Verge</title>
 <link rel="icon" href="/favicon.svg">
-<link rel="stylesheet" href="/style.css">
-<link rel="stylesheet" href="/verge-runes.css">
+<link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/vg.css">
 <link rel="stylesheet" href="/runes-market.css">
-<link rel="stylesheet" href="/sitenav.css">
 </head>
-<body>
-  <nav class="sitenav" aria-label="Site">
-    <a class="sn-brand" href="/"><span class="sn-logo">V</span>Verginals</a>
-    <div class="sn-group">
-      <span class="sn-label">Verginals</span>
-      <a href="/#inscribe">Inscribe</a>
-      <a href="/#market">Market</a>
-      <a href="/#arena">Arena</a>
-    </div>
-    <div class="sn-group">
-      <span class="sn-label">Runes</span>
-      <a href="/etch">Etch a coin</a>
-      <a href="/runes/mint">Mint</a>
-      <a href="/runes/market" aria-current="page">Market</a>
-      <a href="/runes">How it works</a>
-    </div>
-  </nav>
-
-<main class="rm-wrap">
+<body class="vg">
+<main class="vg-wrap">
 
   <header class="rm-head">
-    <div>
-      <p class="vr-kicker">VERGE RUNES</p>
-      <h1>Every coin on Verge</h1>
-      <p class="rm-lede">
+    <div class="rm-head-say">
+      <h1 class="vg-d1">Every coin<br>on Verge.</h1>
+      <p class="vg-say">
         Etched on chain, counted by an indexer anyone can rerun, and traded without a custodian.
-        Open a coin to buy it, sell yours, or claim from an open mint.
+        Open a coin to claim from its mint, buy some, or sell what you hold.
       </p>
+      <div class="rm-head-acts">
+        <a class="vg-btn primary" href="/etch">Etch a coin</a>
+        <a class="vg-btn" href="/runes">How it works</a>
+      </div>
     </div>
-    <dl class="rm-stats" id="rm-stats"></dl>
+    <dl class="vg-stats rm-head-stats" id="rm-stats"></dl>
   </header>
 
   <div class="rm-bar">
     <div class="rm-search">
-      <input id="q" type="search" autocomplete="off" spellcheck="false" placeholder="Search by ticker">
+      <input id="q" class="vg-input" type="search" autocomplete="off" spellcheck="false"
+             placeholder="search ticker" aria-label="Search by ticker">
     </div>
     <div class="rm-sorts" id="rm-sorts" role="group" aria-label="Sort">
-      <button type="button" class="rm-sort is-on" data-sort="new">Newest</button>
-      <button type="button" class="rm-sort" data-sort="price">Cheapest</button>
-      <button type="button" class="rm-sort" data-sort="minted">Most minted</button>
-      <button type="button" class="rm-sort" data-sort="holders">Most held</button>
+      <button type="button" class="vg-pill is-on" data-sort="new">Newest</button>
+      <button type="button" class="vg-pill" data-sort="price">Cheapest</button>
+      <button type="button" class="vg-pill" data-sort="minted">Most minted</button>
+      <button type="button" class="vg-pill" data-sort="holders">Most held</button>
     </div>
   </div>
 
-  <div id="status" class="vr-status">Reading the chain…</div>
+  <div id="status" class="vg-note">Reading the chain…</div>
 
-  <div class="rm-table" id="rm-table" hidden>
+  <div class="rm-table vg-scroll" id="rm-table" hidden>
     <div class="rm-thead" aria-hidden="true">
       <span>Coin</span>
       <span class="rm-num">Cheapest ask</span>
@@ -68,21 +55,29 @@
     <ul id="rm-list" class="rm-list"></ul>
   </div>
 
-  <section class="rm-foot">
-    <div class="rm-foot-card">
-      <h2>Nothing here is held for you</h2>
-      <p>
-        A listing is a signed price, not a deposit. Your coins stay in your wallet until you accept
-        an offer yourself, and you can take a listing down at any time. This site never holds a key
-        and cannot move anything.
+  <section class="rm-claims">
+    <div class="rm-claim">
+      <p class="vg-label">How a listing works</p>
+      <p class="vg-d4">A price, published. Not a deposit.</p>
+      <p class="vg-small">
+        Your coins stay in your wallet. Nothing moves until you accept an offer yourself, and a
+        listing comes down whenever you say so.
       </p>
     </div>
-    <div class="rm-foot-card">
-      <h2>Every balance is proven</h2>
-      <p>
+    <div class="rm-claim">
+      <p class="vg-label">Where the balance comes from</p>
+      <p class="vg-d4">Proven against the chain, not our server.</p>
+      <p class="vg-small">
         Your wallet checks what a seller's coins really hold against the merkle root published on
-        chain before it signs anything, rather than believing this page. If that check fails, no
-        offer is built.
+        chain before it signs. If that check fails, no offer is built.
+      </p>
+    </div>
+    <div class="rm-claim">
+      <p class="vg-label">What we take</p>
+      <p class="vg-d4">Nothing. The only cost is the network's.</p>
+      <p class="vg-small">
+        No listing fee, no sale fee, no cut of a mint. The fee a claim pays goes to whoever mines
+        the block.
       </p>
     </div>
   </section>

@@ -327,6 +327,9 @@ const STATIC_TYPES = {
   '.svg': 'image/svg+xml',
   '.webp': 'image/webp',
   '.png': 'image/png',
+  // Without this a face is served as application/octet-stream, which every browser refuses
+  // to use as a font, silently, and the page falls back looking almost right.
+  '.woff2': 'font/woff2',
 };
 
 // Modest CSP for the app shell: scripts/styles are same-origin files (no inline JS); the QR widget
@@ -3508,6 +3511,11 @@ const server = http.createServer(async (req, res) => {
       return serveStatic(res, 'index.html');
     }
     if (req.method === 'GET' && (p === '/app.js' || p === '/wallet.js' || p === '/style.css' || p === '/sitenav.css')) return serveStatic(res, p.slice(1));
+    // The design system, and the one definition of the site bar. Every page pulls both.
+    if (req.method === 'GET' && (p === '/vg.css' || p === '/vgnav.js')) return serveStatic(res, p.slice(1));
+    // Self-hosted faces. The CSP is default-src 'self', and a page that promises nothing about you
+    // leaves your device should not open a connection to a font CDN to draw its own headline.
+    if (req.method === 'GET' && /^\/fonts\/[a-z0-9-]+\.woff2$/.test(p)) return serveStatic(res, p.slice(1));
     // The old design preview is RETIRED. It demonstrated a merkle tree the protocol no longer
     // builds and a ticker rule that no longer allows what it accepted, so anybody who still had the
     // link would have been shown two things that are now wrong. Its URL redirects to the page that

@@ -13,6 +13,11 @@
 // supplies the address it already holds and derives the lock key from the same recovery phrase, so
 // the private half never reaches this page and there is nothing new for anybody to save.
 
+import { mountChrome } from '/vgnav.js';
+
+mountChrome({ active: 'create', where: [{ text: 'Create' }, { text: 'Etch a coin' }],
+  right: 'permanent the moment it confirms' });
+
 const $ = (s) => document.querySelector(s);
 const COIN = 1e6;
 const SEP = '•';
@@ -334,18 +339,152 @@ function paintMintTerms(f) {
   kv(out, 'That releases', fmt(f.mintable / scale) + ' coins');
   if (f.stranded > 0) {
     kv(out, 'Nobody can ever mint', fmt(f.stranded / scale) + ' coins', 'warn');
-    $('#et-strand-say').textContent = `A cap of ${fmt(f.cap)} claims at `
-      + `${fmt(f.perMint / scale)} coins each releases ${fmt(f.mintable / scale)} coins. `
-      + `The remaining ${fmt(f.stranded / scale)} of your ${fmt(f.claimable / scale)} `
-      + 'can never be minted by anyone, and an etching cannot be changed afterwards. '
-      + 'If you meant "each person may claim this many times", that is not something any chain '
-      + 'can enforce, and it is not what this field does. Clear it to let claiming run until the '
-      + 'supply is gone.';
+    paintGuard(f, scale);
     alarm.hidden = false;
   }
 }
 
+/**
+ * The guard, when a cap would strand supply.
+ *
+ * It SHOWS the multiplication rather than describing it, because the mistake is the multiplication:
+ * somebody reads 5 as five each and the chain reads it as five in total. Seeing 5 x 5 = 25 beside a
+ * supply of 21,000 needs no sentence at all.
+ *
+ * It also offers the cap that would use the whole supply. "You got this wrong" without "here is the
+ * right number" is how a person ticks the box just to get past it.
+ */
+function paintGuard(f, scale) {
+  const sum = $('#et-guard-sum');
+  sum.textContent = '';
+  const cell = (label, value, cls) => {
+    const d = el('div', 'et-guard-cell' + (cls ? ' ' + cls : ''));
+    d.append(el('span', 'vg-label', label), el('b', 'vg-num vg-n-md', value));
+    sum.append(d);
+  };
+  const op = (glyph) => sum.append(el('span', 'et-guard-op', glyph));
+  cell('claims', fmt(f.cap));
+  op('\u00d7');
+  cell('per claim', fmt(f.perMint / scale));
+  op('=');
+  cell('mintable', fmt(f.mintable / scale));
+  cell('supply', fmt(f.claimable / scale), 'right');
+
+  const pct = f.claimable > 0 ? (f.mintable / f.claimable) * 100 : 0;
+  $('#et-guard-bar').firstElementChild.style.width = Math.max(0.6, Math.min(100, pct)).toFixed(2) + '%';
+
+  $('#et-strand-say').textContent = fmt(f.stranded / scale)
+    + ' coins would exist and could never be claimed by anyone, forever.';
+
+  $('#et-guard-why').textContent = `A cap of ${fmt(f.cap)} means ${fmt(f.cap)} claims in total, `
+    + 'not that many each. No chain can enforce a limit per person, and this field does not try. '
+    + 'This exact mistake closed a real 21,000-supply coin after 25 coins existed, and it cannot be '
+    + 'reopened.';
+
+  $('#et-ack-say').textContent = `I understand ${fmt(f.stranded / scale)} coins will be permanently `
+    + 'unmintable.';
+
+  // The cap that would hand out the whole open supply. Offered rather than applied: it is still
+  // their coin, and a form that edits itself is its own kind of surprise.
+  const fixed = Math.floor(f.claimable / f.perMint);
+  const fix = $('#et-guard-fix');
+  if (fixed > 0) {
+    fix.hidden = false;
+    fix.textContent = 'Fix the cap, set it to ' + fmt(fixed);
+    fix.dataset.cap = String(fixed);
+  } else {
+    // No cap can help: one claim is larger than the whole open supply.
+    fix.hidden = true;
+  }
+  $('#et-guard-note').textContent = fixed > 0
+    ? 'Or tick the box to etch it exactly as it stands.'
+    : 'One claim is larger than the whole open supply. Lower the coins per claim.';
+}
+
 // --- live readouts -------------------------------------------------------------------------------
+
+/**
+ * The coin, as it will be, written as sentences.
+ *
+ * A fact list says "cap: 5" and reads as a setting. A sentence says "25 coins would ever exist" and
+ * reads as a consequence, and only one of those two has ever stopped somebody making a permanent
+ * mistake. Both of this form's real accidents were legible in its own readout at the time, and
+ * neither was legible AS A CONSEQUENCE, which is the whole argument for this card.
+ */
+function paintCard(f) {
+  const scale = Number.isInteger(f.divisibility) ? 10 ** f.divisibility : 1;
+  $('#card-sym').textContent = f.symbol || '\u00a4';
+  $('#card-sym').classList.toggle('et-card-sym-default', !f.symbol);
+  const shown = f.typed.trim() ? f.typed.trim() : 'YOUR COIN';
+  $('#card-name').textContent = shown;
+  $('#card-name').classList.toggle('et-card-empty', !f.typed.trim());
+  // A ticker runs to 26 letters and the card is a fixed column, so the name is stepped down rather
+  // than allowed to break mid-word. SUNEROKTHEDEVGOAT split as SUNEROKTHED and EVGOAT, which reads
+  // as a different name.
+  $('#card-name').classList.toggle('is-long', shown.length > 11);
+  $('#card-name').classList.toggle('is-longer', shown.length > 17);
+
+  const say = $('#card-say');
+  say.textContent = '';
+  // Not `p`: in this file `p` is the wallet provider, and a paragraph borrowing the name reads as
+  // a call into the wallet to anybody skimming, including the check that scans for exactly that.
+  const line = (parts) => {
+    const row = el('p', 'et-say-line');
+    for (const [text, cls] of parts) row.append(cls ? el('b', cls, text) : document.createTextNode(text));
+    say.append(row);
+  };
+  const supplyOk = Number.isInteger(f.supply) && f.supply > 0;
+  if (!supplyOk) {
+    line([['Set a supply to see what this makes.', 'quiet']]);
+  } else {
+    line([[fmt(f.whole), 'hot'], [' coins exist, ever.']]);
+    line([['You keep '], [f.premine === 0 ? 'none of them' : fmt(f.premine / scale), 'hot'], ['.']]);
+    if (!f.open) {
+      line([['Nobody else can claim any: there is no open mint.', 'quiet']]);
+    } else if (Number.isInteger(f.perMint) && f.perMint > 0) {
+      // The line that would have caught the etching that shipped at a hundredth of its intended
+      // size: what ONE CLAIMER RECEIVES, in coins, at the divisibility set above.
+      line([['Each claim hands over '], [fmt(f.perMint / scale), 'hot'],
+        [', for ' + (f.mintPrice ? xvg(f.mintPrice) + ' XVG' : 'nothing') + '.']]);
+    }
+  }
+
+  const v = $('#card-verdicts');
+  v.textContent = '';
+  const verdict = (kind, text) => {
+    const row = el('p', 'et-verdict ' + kind);
+    row.append(el('span', 'mark', kind === 'ok' ? '\u2713' : (kind === 'bad' ? '\u25a0' : '!')),
+      el('span', '', text));
+    v.append(row);
+  };
+  if (supplyOk && f.open && Number.isInteger(f.perMint) && f.perMint > 0) {
+    if (f.stranded > 0) {
+      verdict('warn', fmt(f.stranded / scale) + ' coins would exist and could never be claimed. '
+        + 'They would be finished the moment its mint opened.');
+    } else {
+      verdict('ok', 'Every coin is accounted for.');
+    }
+  } else if (supplyOk && !f.open && f.keepPct < 100) {
+    verdict('warn', fmt((f.supply - f.premine) / scale) + ' coins would exist and could never reach '
+      + 'anybody: no mint is open and you did not keep them.');
+  } else if (supplyOk) {
+    verdict('ok', 'Every coin is accounted for.');
+  }
+
+  $('#card-price').textContent = f.name ? xvg(priceOf(f.name.length)) + ' XVG' : 'pick a name';
+  $('#card-netfee').textContent = f.name ? '~2.1 XVG' : '-';
+  $('#card-back').textContent = f.name
+    ? new Date(Date.now() + 1460 * 86400e3).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+    : 'a date set now';
+
+  // Which step somebody is on, judged by what they have filled rather than by scroll position.
+  let step = 1;
+  if (f.name) step = 2;
+  if (supplyOk && f.name) step = 3;
+  if (step === 3 && (!f.open || (Number.isInteger(f.perMint) && f.perMint > 0))) step = 4;
+  if (step === 4 && f.recipient) step = 5;
+  $('#et-step').textContent = 'step ' + step + ' of 5';
+}
 
 function refresh() {
   const f = readForm();
@@ -375,20 +514,7 @@ function refresh() {
 
   paintMintTerms(f);
 
-  // The card. It is the only thing on the page anybody is here for, so it updates on every
-  // keystroke and never shows a number the form does not actually hold.
-  // The generic currency sign when none was picked, the way a Runes wallet does it.
-  $('#card-sym').textContent = f.symbol || '\u00a4';
-  $('#card-sym').classList.toggle('et-card-sym-default', !f.symbol);
-  $('#card-name').textContent = f.typed.trim() ? f.typed.trim() : 'YOUR COIN';
-  $('#card-name').classList.toggle('et-card-empty', !f.typed.trim());
-  $('#card-supply').textContent = Number.isInteger(f.whole) && f.whole > 0 ? fmt(f.whole) : '-';
-  $('#card-keep').textContent = !Number.isInteger(f.supply) || f.supply <= 0 ? '-'
-    : (f.keepPct === 0 ? 'none' : (f.keepPct === 100 ? 'all of it' : f.keepPct + '%'));
-  $('#card-price').textContent = f.name ? xvg(priceOf(f.name.length)) + ' XVG' : 'pick a name';
-  $('#card-back').textContent = f.name
-    ? new Date(Date.now() + 1460 * 86400e3).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
-    : 'in four years';
+  paintCard(f);
 
   const review = $('#et-review');
   review.textContent = '';
@@ -520,6 +646,17 @@ for (const id of ['#et-symbol', '#et-supply', '#et-div', '#et-keep', '#et-per', 
   '#et-price', '#et-strand-ok']) {
   $(id).addEventListener('input', refresh);
 }
+
+// Applying the suggested cap is a normal edit: it writes the field and lets the form re-derive
+// everything, rather than reaching into the guard's own state.
+$('#et-guard-fix').addEventListener('click', (e) => {
+  const cap = e.currentTarget.dataset.cap;
+  if (!cap) return;
+  $('#et-cap').value = Number(cap).toLocaleString();
+  $('#et-strand-ok').checked = false;
+  refresh();
+  $('#et-cap').focus();
+});
 refresh();
 
 // --- paying for it, and watching it happen --------------------------------------------------------

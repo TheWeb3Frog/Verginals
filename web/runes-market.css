@@ -1,152 +1,110 @@
-/* The coin market. Built on the site's own tokens in style.css so it reads as part of Verginals.
-   A table on a desk, a stack of cards on a phone, one set of rules for both. */
-
-.rm-wrap { max-width: 1120px; margin: 0 auto; padding: 36px 22px 90px; }
+/* The coin market. Layout only: every colour, face and control comes from vg.css. */
 
 /* --- head -------------------------------------------------------------------------------------- */
 
 .rm-head {
-  display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-end; justify-content: space-between;
-  padding-bottom: 26px; border-bottom: 1px solid var(--line);
+  display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(300px, .85fr);
+  gap: 44px; align-items: end;
+  padding: 52px 0 40px;
 }
-.rm-head h1 { margin: 0 0 10px; font-size: 38px; line-height: 1.05; letter-spacing: -0.6px; }
-.rm-lede { margin: 0; max-width: 56ch; font-size: 15px; line-height: 1.65; color: var(--muted); }
+.rm-head-say { display: flex; flex-direction: column; gap: 18px; align-items: flex-start; }
+.rm-head-acts { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 2px; }
+/* Three figures, not four: the fourth was always the one nobody read. */
+.rm-head-stats { grid-template-columns: repeat(3, 1fr); }
 
-.rm-stats { display: flex; gap: 26px; margin: 0; }
-.rm-stats div { display: flex; flex-direction: column; gap: 4px; }
-.rm-stats dt {
-  order: 2; font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
-  letter-spacing: 1.6px; text-transform: uppercase; color: var(--muted);
-}
-.rm-stats dd {
-  order: 1; margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.5px;
-  font-variant-numeric: tabular-nums;
-}
-
-/* --- search and sort --------------------------------------------------------------------------- */
+/* --- search and sort ---------------------------------------------------------------------------- */
 
 .rm-bar {
   display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
-  margin: 22px 0 16px;
+  margin: 0 0 18px;
 }
-.rm-search { flex: 1 1 220px; max-width: 320px; }
-.rm-search input {
-  width: 100%; padding: 10px 13px; border-radius: 9px;
-  border: 1px solid var(--line); background: var(--bg2); color: var(--txt);
-  font: 14px/1.3 inherit;
-}
-.rm-search input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.rm-search input::placeholder { color: var(--muted); }
-
+.rm-search { flex: 1 1 200px; max-width: 260px; }
+.rm-search .vg-input { padding: 9px 13px; font-size: 13px; }
 .rm-sorts { display: flex; flex-wrap: wrap; gap: 6px; }
-.rm-sort {
-  padding: 7px 12px; border-radius: 999px; cursor: pointer;
-  border: 1px solid var(--line); background: transparent; color: var(--muted);
-  font: 500 12.5px/1 inherit;
-}
-.rm-sort:hover { color: var(--txt); border-color: #3a4b5c; }
-.rm-sort.is-on { color: var(--bg); background: var(--accent); border-color: var(--accent); font-weight: 600; }
-.rm-sort:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* --- the table ---------------------------------------------------------------------------------- */
+/* --- the table ----------------------------------------------------------------------------------- */
 
-/* One grid definition, used by the header and by every row, so a column never drifts from its
-   own heading. */
+/* One grid definition shared by the header and every row, so a column cannot drift from its own
+   heading. */
 .rm-thead, .rm-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.9fr) minmax(92px, 0.9fr) minmax(80px, 0.7fr) minmax(160px, 1.6fr) minmax(56px, 0.5fr) auto;
+  grid-template-columns: minmax(0, 1.9fr) minmax(92px, .9fr) minmax(80px, .7fr) minmax(160px, 1.6fr) minmax(56px, .5fr) auto;
   gap: 26px; align-items: center;
 }
 .rm-thead {
-  padding: 0 16px 10px;
-  font: 600 10.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
-  letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted);
+  padding: 0 18px 11px;
+  font: 700 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim);
 }
 .rm-thead span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rm-num { text-align: right; }
 
 .rm-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .rm-row {
-  padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 15px 18px; border: 1px solid var(--line); border-radius: var(--r-card);
   background: var(--card); transition: border-color .12s ease, background .12s ease;
 }
-.rm-row:hover { border-color: #3a4b5c; background: #18232f; }
+.rm-row:hover { border-color: var(--line2); background: #18232f; }
 
-.rm-id { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.rm-id { display: flex; align-items: center; gap: 13px; min-width: 0; }
 .rm-mark {
   flex: none; width: 38px; height: 38px; border-radius: 10px;
   display: grid; place-items: center;
   background: linear-gradient(150deg, var(--accent2), #123a52);
-  color: #fff; font-size: 17px; font-weight: 600;
+  color: #fff; font: 700 15px/1 var(--mono);
 }
 .rm-names { min-width: 0; }
 .rm-name {
-  display: block; font-size: 15px; font-weight: 600; letter-spacing: -0.2px; color: var(--txt);
-  text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.rm-name:hover { color: var(--accent); }
-.rm-ref {
-  display: block; margin-top: 2px;
-  font: 11.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted);
-}
-
-.rm-val { text-align: right; font-variant-numeric: tabular-nums; min-width: 0; }
-.rm-val b { display: block; font-size: 14.5px; font-weight: 600; }
-/* Each figure carries its own label for the phone, where there is no column heading above it. On a
-   desk the heading is right there, so printing it again under every number is noise. */
-.rm-val span { display: none; margin-top: 2px; font-size: 11.5px; color: var(--muted); }
-.rm-val.quiet b { color: var(--muted); font-weight: 500; }
-.rm-val .sub { display: block; margin-top: 2px; font-size: 11.5px; color: var(--muted); }
-
-/* Mint progress. The bar carries the number rather than decorating it, so a glance is enough. */
-.rm-prog { min-width: 0; }
-/* Darker than the row it sits on, not lighter. --bg2 and --card are two steps apart on a dark
-   ground, so a track painted in --bg2 vanished into the card and a 2% fill read as a stray dot. */
-.rm-track { height: 6px; border-radius: 3px; background: rgba(0, 0, 0, .38); overflow: hidden; }
-.rm-fill { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
-.rm-fill.done { background: var(--ok); }
-.rm-pct {
-  display: block; margin-top: 5px; font-size: 11.5px; color: var(--muted);
-  font-variant-numeric: tabular-nums;
+  display: block; color: var(--txt); text-decoration: none;
+  font: 700 15px/1.2 var(--display); letter-spacing: -.015em;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.rm-pct.closed { color: #e0906f; }
+.rm-name:hover { color: var(--accent); }
+.rm-ref { display: block; margin-top: 3px; font: 400 11px/1 var(--mono); color: var(--dim); }
 
-.rm-go {
-  padding: 8px 14px; border-radius: 8px; cursor: pointer; text-decoration: none;
-  border: 1px solid var(--accent); background: transparent; color: var(--accent);
-  font: 600 12.5px/1 inherit; white-space: nowrap;
+.rm-val { text-align: right; font-variant-numeric: tabular-nums; min-width: 0; }
+.rm-val b { display: block; font: 700 14.5px/1.2 var(--mono); letter-spacing: -.02em; }
+/* Each figure carries its own label for the phone, where no column heading sits above it. On a desk
+   the heading is right there and repeating it under every number is noise. */
+.rm-val span { display: none; margin-top: 3px; font-size: 11.5px; color: var(--muted); }
+.rm-val.quiet b { color: var(--dim); font-weight: 500; }
+.rm-val .sub { display: block; margin-top: 3px; font: 400 11px/1 var(--mono); color: var(--dim); }
+
+.rm-prog { min-width: 0; }
+.rm-pct {
+  display: block; margin-top: 6px; font: 400 11px/1 var(--mono); color: var(--dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.rm-go:hover { background: var(--accent); color: var(--bg); }
-.rm-go:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rm-pct.closed { color: var(--warn); }
 
-.rm-empty {
-  padding: 34px 20px; border: 1px dashed var(--line); border-radius: var(--radius);
-  text-align: center; color: var(--muted); font-size: 14.5px; line-height: 1.6;
+.rm-go { padding: 8px 15px; font-size: 12.5px; }
+
+/* --- the claims strip ------------------------------------------------------------------------------ */
+
+.rm-claims {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1px;
+  margin-top: 52px; background: var(--line);
+  border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden;
 }
-.rm-empty a { color: var(--accent); }
+.rm-claim { background: var(--card); padding: 20px 22px; display: flex; flex-direction: column; gap: 9px; }
+.rm-claim .vg-d4 { color: var(--txt); }
+.rm-claim .vg-small { margin: 0; }
+.rm-claim p { margin: 0; }
 
-/* --- footer cards -------------------------------------------------------------------------------- */
+/* --- phone ------------------------------------------------------------------------------------------ */
 
-.rm-foot { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-top: 40px; }
-.rm-foot-card { padding: 18px 20px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg2); }
-.rm-foot-card h2 { margin: 0 0 8px; font-size: 15px; letter-spacing: -0.2px; }
-.rm-foot-card p { margin: 0; font-size: 13.5px; line-height: 1.65; color: var(--muted); }
-
-/* --- phone --------------------------------------------------------------------------------------- */
+@media (max-width: 900px) {
+  .rm-head { grid-template-columns: 1fr; gap: 30px; padding: 34px 0 30px; align-items: start; }
+  .rm-head-stats { grid-template-columns: repeat(3, 1fr); }
+}
 
 @media (max-width: 760px) {
-  .rm-head h1 { font-size: 30px; }
-  .rm-stats { gap: 20px; }
-  .rm-stats dd { font-size: 21px; }
   .rm-thead { display: none; }
-  /* The row stops being a table row and becomes a card: identity across the top, the figures in a
-     line under it, the action full width. Labels come back because there is no header to carry
-     them, and they are written into the row by the script for exactly this reason. */
-  .rm-row { grid-template-columns: 1fr 1fr; gap: 12px 14px; }
+  /* The row stops being a table row and becomes a card: identity across the top, figures in a line
+     under it, the action full width. Labels come back because no heading carries them here. */
+  .rm-row { grid-template-columns: 1fr 1fr; gap: 14px 16px; }
   .rm-id { grid-column: 1 / -1; }
   .rm-val { text-align: left; }
-  .rm-val span { display: block; color: var(--muted); }
+  .rm-val span { display: block; }
   .rm-prog { grid-column: 1 / -1; }
-  .rm-go { grid-column: 1 / -1; text-align: center; padding: 10px; }
+  .rm-go { grid-column: 1 / -1; width: 100%; padding: 11px; }
 }

@@ -4,9 +4,26 @@
    reads. */
 
 .et-wrap {
-  max-width: 780px;
+  max-width: 1180px;
   margin: 0 auto;
-  padding: 56px 22px 96px;
+  padding: 0 22px 96px;
+}
+
+/* The form on the left, the consequence on the right, and the consequence STICKS. It used to sit
+   above the fields, which meant that by the time somebody was typing the number that mattered the
+   card telling them what that number does had scrolled off the top of the screen. */
+.et-cols {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(330px, 400px);
+  gap: 34px; align-items: start;
+}
+.et-cols .et-form { order: 1; }
+.et-cols .et-card { order: 2; position: sticky; top: calc(var(--nav-h) + 18px); }
+
+@media (max-width: 980px) {
+  .et-cols { grid-template-columns: 1fr; gap: 26px; }
+  /* Stacked, the card goes back on top: it is still the only reason anybody opened the page. */
+  .et-cols .et-card { order: 0; position: static; }
+  .et-cols .et-form { order: 1; }
 }
 
 /* --- header ------------------------------------------------------------------------------- */
@@ -302,7 +319,7 @@
    ------------------------------------------------------------------------------------------------ */
 
 .et-card {
-  margin: 30px 0 8px;
+  margin: 0;
   border: 1px solid var(--line);
   border-radius: 18px;
   background:
@@ -376,3 +393,69 @@
 .et-alarm-head { margin: 0; font-size: 13px; font-weight: 600; color: #e0906f; }
 .et-alarm-say { margin: 6px 0 10px; font-size: 12.5px; line-height: 1.55; color: var(--txt); }
 .et-alarm .et-check { color: var(--txt); }
+
+
+/* ============================================================================================
+   The design-system pass. Layout and the pieces the system does not own; every colour, face and
+   control comes from vg.css.
+   ============================================================================================ */
+
+.et-head {
+  display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; justify-content: space-between;
+  padding: 40px 0 20px;
+}
+.et-head-say { display: flex; flex-direction: column; gap: 12px; max-width: 62ch; }
+.et-head-line { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+
+/* --- the card ---------------------------------------------------------------------------------- */
+
+.et-card { display: flex; flex-direction: column; gap: 16px; }
+.et-card-say { display: flex; flex-direction: column; gap: 6px; }
+.et-say-line {
+  margin: 0; font: 700 20px/1.3 var(--display); letter-spacing: -.02em; color: var(--txt);
+}
+.et-say-line b { font-weight: 700; }
+.et-say-line b.hot { color: var(--accent); font-family: var(--mono); font-size: .92em; letter-spacing: -.03em; }
+.et-say-line b.quiet { font: 400 14px/1.6 var(--sans); color: var(--muted); letter-spacing: 0; }
+
+.et-card-verdicts { display: flex; flex-direction: column; gap: 9px; }
+.et-verdict {
+  margin: 0; display: flex; gap: 9px; align-items: flex-start;
+  font-size: 12.5px; line-height: 1.55;
+}
+.et-verdict .mark { font: 700 11px/1.5 var(--mono); flex: none; }
+.et-verdict.ok { color: var(--ok); }
+.et-verdict.warn { color: var(--warn); }
+.et-verdict.bad { color: var(--danger); }
+
+.et-card-pay { display: flex; flex-direction: column; gap: 10px; padding-top: 15px; border-top: 1px solid var(--hair); }
+.et-card-back { margin: 0; font-size: 11.5px; line-height: 1.55; color: var(--dim); }
+.et-card-back b { color: var(--muted); font-weight: 500; }
+.et-card-final {
+  margin: 0; padding-top: 14px; border-top: 1px solid var(--hair);
+  font: 700 11px/1.5 var(--mono); letter-spacing: .04em; color: var(--danger);
+}
+
+/* --- the guard ---------------------------------------------------------------------------------- */
+
+.vg-label.bad-label { color: var(--danger); }
+
+/* The multiplication, shown rather than described. The mistake IS the multiplication, so seeing
+   5 x 5 = 25 beside a supply of 21,000 needs no sentence. */
+.et-guard-sum { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px; }
+.et-guard-cell { display: flex; flex-direction: column; gap: 6px; }
+.et-guard-cell.right { margin-left: auto; text-align: right; }
+.et-guard-op { font: 700 15px/2.2 var(--mono); color: var(--dim); }
+.et-guard-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.et-guard-acts .vg-small { margin: 0; }
+
+@media (max-width: 640px) {
+  .et-guard-cell.right { margin-left: 0; text-align: left; }
+  .et-guard-acts .vg-btn { width: 100%; }
+}
+
+/* The name is stepped down by length rather than wrapped: a ticker broken mid-word reads as a
+   different ticker, which is the one thing this card must never do. */
+.et-card-name.is-long { font-size: 27px; }
+.et-card-name.is-longer { font-size: 21px; letter-spacing: -.01em; }
+.et-card-name { overflow-wrap: anywhere; }

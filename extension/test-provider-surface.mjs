@@ -44,7 +44,14 @@ for (const f of ['web/etch.js', 'web/runes-trade.js', 'web/runes-market.js',
   }
 }
 
-const IGNORE = new Set(['then', 'catch', 'request', 'isVerginals', 'on', 'off', 'version']);
+// DOM methods too. The scan is file-scoped rather than scope-aware, so a local named like the
+// provider gets its method calls attributed to the provider. Renaming the local is the real fix and
+// was the right call the one time this fired, but a built-in should never be reported as a missing
+// wallet method, because a check that cries wolf gets switched off.
+const IGNORE = new Set(['then', 'catch', 'request', 'isVerginals', 'on', 'off', 'version',
+  'append', 'appendChild', 'prepend', 'remove', 'replaceWith', 'querySelector', 'querySelectorAll',
+  'addEventListener', 'removeEventListener', 'setAttribute', 'getAttribute', 'closest', 'focus',
+  'scrollIntoView', 'toggle', 'add', 'contains', 'insertBefore', 'after', 'before']);
 
 console.log('what the site asks for, and whether the wallet offers it');
 const missing = [...pageCalls].filter((m) => !IGNORE.has(m) && !exposed.has(m) && !m.startsWith('request:'));

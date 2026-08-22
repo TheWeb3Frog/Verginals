@@ -9,6 +9,11 @@
 // two places it has already been got wrong: a balance shown a hundred times too big, and a price
 // shown a hundred times too small, on the same afternoon.
 
+import { mountChrome } from '/vgnav.js';
+
+mountChrome({ active: 'coins', where: [{ text: 'Coins', href: '/runes' }, { text: 'Market' }],
+  right: 'a directory first, an order book second' });
+
 const $ = (id) => document.getElementById(id);
 const COIN = 1_000_000;
 
@@ -75,16 +80,17 @@ function paintStats(res) {
   box.textContent = '';
   const listed = coins.filter((c) => c.market.asks > 0).length;
   const minting = coins.filter((c) => c.mint && c.mint.open).length;
-  const stat = (label, value) => {
-    const d = document.createElement('div');
-    d.append(el('dd', '', value), el('dt', '', label));
+  const stat = (label, value, sub, cls) => {
+    const d = el('div', 'vg-stat');
+    d.append(el('span', 'vg-label', label), el('b', 'vg-num vg-n-lg' + (cls ? ' ' + cls : ''), value));
+    if (sub) d.append(el('span', 'vg-stat-sub', sub));
     box.append(d);
   };
-  stat('Coins', fmtN(coins.length));
-  stat('Minting now', fmtN(minting));
-  // Listed is the honest headline number for a market, and on day one it is zero. Saying so is
-  // better than dressing the page up with a figure that measures nothing.
-  stat('Listed', fmtN(listed));
+  stat('Coins', fmtN(coins.length), 'etched so far');
+  stat('Minting now', fmtN(minting), minting ? 'open to anyone' : 'none open', minting ? 'vg-accent' : '');
+  // Listed is the honest headline for a market, and today it is zero. Saying so beats dressing the
+  // page with a figure that measures nothing.
+  stat('Listed', fmtN(listed), listed ? 'on the book' : 'nobody selling yet', listed ? '' : 'vg-muted');
 }
 
 function sorted() {
@@ -115,7 +121,7 @@ function render() {
 
   if (!rows.length) {
     const li = document.createElement('li');
-    const box = el('div', 'rm-empty');
+    const box = el('div', 'vg-empty');
     if (coins.length && query) {
       box.textContent = `No coin matches "${query}".`;
     } else {
@@ -147,8 +153,8 @@ function progressFor(c) {
   }
 
   const pct = (c.mintedShare || 0) * 100;
-  const track = el('div', 'rm-track');
-  const fill = el('span', 'rm-fill');
+  const track = el('div', 'vg-bar thin');
+  const fill = el('span');
   // A sliver for anything above zero, so a coin that has genuinely started does not read as
   // untouched. Nought stays nought.
   fill.style.width = Math.min(100, pct > 0 ? Math.max(2, pct) : 0).toFixed(2) + '%';
@@ -201,7 +207,7 @@ function rowFor(c) {
 
   val(li, 'coins holding it', fmtN(c.carriers), c.carriers === 0);
 
-  const go = el('a', 'rm-go', c.market.asks > 0 ? 'Buy' : (c.mint && c.mint.open ? 'Mint' : 'Open'));
+  const go = el('a', 'vg-btn rm-go', c.market.asks > 0 ? 'Buy' : (c.mint && c.mint.open ? 'Mint' : 'Open'));
   go.href = href;
   li.append(go);
   return li;

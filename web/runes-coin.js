@@ -5,6 +5,11 @@
 // page rather than in a footnote nobody reaches: the holder count counts coins and not people, and
 // the mint progress is measured against what CAN be minted rather than the whole supply.
 
+import { mountChrome } from '/vgnav.js';
+
+mountChrome({ active: 'coins', where: [{ text: 'Coins', href: '/runes/market' }, { text: 'Market', href: '/runes/market' }, { text: 'Coin' }],
+  right: 'one coin, and where it trades' });
+
 import { mountTrade } from '/runes-trade.js';
 
 const $ = (id) => document.getElementById(id);
@@ -95,11 +100,11 @@ async function load() {
   const acts = $('rc-actions');
   if (m && m.open && !m.allowlisted) {
     const a = document.createElement('a');
-    a.className = 'btn primary'; a.href = '/runes/mint'; a.textContent = 'Mint';
+    a.className = 'vg-btn primary'; a.href = '/runes/mint'; a.textContent = 'Mint';
     acts.append(a);
   }
   const b = document.createElement('a');
-  b.className = 'btn'; b.href = '/runes/market'; b.textContent = 'All coins';
+  b.className = 'vg-btn'; b.href = '/runes/market'; b.textContent = 'All coins';
   acts.append(b);
 
   // Trading goes below the identity and above the detail, because it is what somebody arriving here

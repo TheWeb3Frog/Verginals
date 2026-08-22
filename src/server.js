@@ -1850,7 +1850,21 @@ async function handleRuneCoins(req, res, url) {
   const coins = directory(service.runes, { height, ordersByRune });
   const q = (url.searchParams.get('q') || '').trim().toUpperCase();
   const filtered = q ? coins.filter((c) => c.ticker.includes(q) || c.runeRef === q) : coins;
-  return sendJSON(res, 200, { height, bookOpen: !!(RUNES_ENABLED && runebook), coins: filtered });
+
+  // WHETHER THE ANSWER IS FINISHED, which is a different fact from what is in it.
+  //
+  // A restart costs a full rescan, and during it this endpoint answers with an empty list that is
+  // perfectly true and reads as "nobody has ever etched a coin". It said exactly that on a live
+  // site with five coins on the chain. An empty list and an unfinished scan have to be
+  // distinguishable, or the page cannot tell the difference either.
+  const tip = await chain.getBlockCount().catch(() => null);
+  const scanned = service.scannedThrough || 0;
+  return sendJSON(res, 200, {
+    height, tip, scannedThrough: scanned,
+    scanning: tip === null ? null : tip - scanned > 2,
+    bookOpen: !!(RUNES_ENABLED && runebook),
+    coins: filtered,
+  });
 }
 
 function handleRuneMintable(req, res, url) {

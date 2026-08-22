@@ -39,6 +39,8 @@ function compact(n) {
 let coins = [];
 let sort = 'new';
 let query = '';
+let scanning = false;
+let scanTimer = null;
 
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
@@ -69,10 +71,25 @@ async function load() {
   }
 
   coins = res.coins;
+  scanning = res.scanning === true;
   $('status').hidden = true;
   $('rm-table').hidden = false;
   paintStats(res);
   render();
+
+  // While the index is catching up the figures are real but incomplete, so the page says so rather
+  // than letting somebody read a partial count as the whole truth. It also comes back on its own:
+  // being told to refresh is a worse answer than refreshing.
+  if (scanning) {
+    $('status').hidden = false;
+    $('status').classList.remove('bad');
+    const done = res.tip ? Math.min(100, (res.scannedThrough / res.tip) * 100) : null;
+    $('status').textContent = 'Still reading the chain'
+      + (done !== null ? `, ${done.toFixed(2)}% of the way` : '')
+      + '. Coins already found are shown; more may appear.';
+    clearTimeout(scanTimer);
+    scanTimer = setTimeout(load, 15000);
+  }
 }
 
 function paintStats(res) {
@@ -124,11 +141,16 @@ function render() {
     const box = el('div', 'vg-empty');
     if (coins.length && query) {
       box.textContent = `No coin matches "${query}".`;
+    } else if (scanning) {
+      // Never "nobody has etched a coin" while the scan is unfinished. That sentence appeared on a
+      // live site with five coins on the chain, and it was the page's own words, not the data's.
+      box.append(el('p', '', 'Nothing found yet, and the index has not finished reading the chain. '
+        + 'This page will fill in on its own.'));
     } else {
-      box.append(document.createTextNode('No coin has been etched yet. '));
-      const a = el('a', '', 'Etch the first one');
+      box.append(el('p', '', 'No coin has been etched yet.'));
+      const a = el('a', 'vg-btn primary', 'Etch the first one');
       a.href = '/etch';
-      box.append(a, document.createTextNode('.'));
+      box.append(a);
     }
     li.append(box);
     list.append(li);

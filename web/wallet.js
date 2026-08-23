@@ -4,10 +4,27 @@
 // straight from the wallet, and the "My Wallet" tab (list your Verginals and transfer them).
 // All signing happens on-device in the extension; this page never sees a key.
 //
-// It reuses the helpers defined in app.js ($ , $$, fmt, short, esc) since both run as classic
-// scripts in the same global scope. app.js loads first.
+// IT DEFINES ITS OWN HELPERS, and that is not a style choice.
+//
+// $, $$, fmt, short and esc used to be borrowed from app.js, which works only because both are
+// classic scripts sharing one global scope and app.js is loaded first. On any page that does NOT
+// load app.js, the very first line of the boot block threw "$ is not defined", and everything
+// after it in this file never ran: reflect(), the vg:chrome listener that wires the site bar's
+// connect button, the provider hookup, and the window.VerginalsArena bridge at the bottom. So the
+// Connect Wallet button was inert on the airdrop page and nothing in the console explained why
+// unless you already knew to look here.
+//
+// A file that is loaded by more than one page cannot depend on what another page's script happens
+// to leave lying in the global scope.
 
 (function () {
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+  const fmt = (n) => Number(n).toLocaleString('en-US', { maximumFractionDigits: 6 });
+  const short = (h) => (h && h.length > 16 ? h.slice(0, 8) + '\u2026' + h.slice(-6) : h);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
   const COIN = 1_000_000; // atomic units per XVG
   // Chrome Web Store listing for the Verginals Wallet extension.
   const STORE_URL = 'https://chromewebstore.google.com/detail/ficjfnjaiopghnpohemapfbilflfflip';
@@ -291,7 +308,10 @@
 
   function activateWalletTab() {
     const tab = document.querySelector('.tab[data-tab="wallet"]');
-    if (tab) { tab.click(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    if (tab) { tab.click(); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+    // The wallet tab is part of the home page. Pressing a connected button on any other page used
+    // to do nothing at all, which reads as a broken button rather than as "not here".
+    window.location.href = '/#wallet';
   }
 
   function wire() {

@@ -36,6 +36,41 @@ function revealTx(txid, from, to, contentType, body, parent = null) {
   return { txid, vin: [{ txid: from.txid, vout: from.vout, scriptSig: scriptSigOf(redeem) }], vout: [out(to)] };
 }
 
+// The operator's parent carrier: one utxo, spent and re-emitted unchanged on every mint.
+const OP = 'Vop';
+const TIP_VALUE = 3000000;
+
+/**
+ * A collection mint, shaped the way the real one is: it spends a commit output AND the operator's
+ * parent tip, pays the buyer, and carries the tip forward unchanged as the LAST output.
+ *
+ * Modelled this closely on purpose. The first version of this harness had each mint spend the
+ * previous mint's only output, which made the tip indistinguishable from the buyer's carrier and
+ * would have passed whatever the code did.
+ */
+function mintTx(txid, commit, tip, to) {
+  const redeem = buildInscriptionScript({
+    pubkey: PUBKEY, contentType: 'image/webp', body: Buffer.from('art' + txid), parent: parentIdToBuffer(ROOT_ID),
+  });
+  return {
+    txid,
+    vin: [
+      { txid: commit.txid, vout: commit.vout, scriptSig: scriptSigOf(redeem) },
+      { txid: tip.txid, vout: tip.vout, scriptSig: { hex: '' } },
+    ],
+    vout: [out(to, 330000), out(OP, TIP_VALUE)],
+  };
+}
+
+/** The root reveal, landing on the operator and starting the tip chain. */
+const rootTx = (from) => ({
+  txid: ROOT,
+  vin: [{ txid: from, vout: 0, scriptSig: scriptSigOf(buildInscriptionScript({
+    pubkey: PUBKEY, contentType: 'text/plain', body: Buffer.from('collection'),
+  })) }],
+  vout: [out(OP, TIP_VALUE)],
+});
+
 /**
  * An etching, landing on `to`. `extra` overrides the CBOR body; `pays` overrides what the lock
  * output is worth, which is the one way to build an etching that is well formed and still refused.
@@ -159,40 +194,92 @@ test('a mint the rune indexer REFUSED earns nothing', async () => {
   assert.deepStrictEqual(did(svc, 'Vell'), [], 'the second was over the cap and earns nothing');
 });
 
-test('a reveal parented to the Alpha root earns an alpha, not an inscription', async () => {
-  const chain = new FakeChain()
-    .add(100, [revealTx(ROOT, { txid: 'c0', vout: 0 }, 'Vteam', 'text/plain', Buffer.from('collection'))]);
+test('a mint that claims the root AND spends the tip earns an alpha', async () => {
+  const chain = new FakeChain().add(100, [rootTx('c0')]);
   const svc = service(chain, ROOT_ID);
   await svc.sync();
-  // The child must SPEND the parent for the claim to be verified, which is the same rule the
-  // inscription indexer already enforces.
-  chain.add(101, [revealTx('a1', { txid: ROOT, vout: 0 }, 'Vfay', 'image/webp', Buffer.from('art'),
-    parentIdToBuffer(ROOT_ID))]);
+  assert.strictEqual(svc.alphaTip.outpoint, `${ROOT}:0`, 'the chain has to start somewhere');
+  chain.add(101, [mintTx('a1', { txid: 'commit1', vout: 0 }, { txid: ROOT, vout: 0 }, 'Vfay')]);
   await svc.sync();
-  assert.strictEqual(svc.inscriptions.inscriptions.get('a1i0').parent, ROOT_ID, 'the parent must be verified');
   assert.deepStrictEqual(did(svc, 'Vfay'), ['alpha']);
+  assert.strictEqual(svc.alphaTip.outpoint, 'a1:1', 'and the tip follows the carry-forward');
 });
 
-test('with no collection configured, the same reveal is simply an inscription', async () => {
-  const chain = new FakeChain()
-    .add(100, [revealTx(ROOT, { txid: 'c0', vout: 0 }, 'Vteam', 'text/plain', Buffer.from('collection'))]);
-  const svc = service(chain, null);
+test('CLAIMING the root without spending the tip earns only an inscription', async () => {
+  // The forgery this guards against: the tag-3 claim is a string anybody can write into a cheap
+  // inscription, and on its own it would buy three of the eight shares for the price of one reveal.
+  const chain = new FakeChain().add(100, [rootTx('c0')]);
+  const svc = service(chain, ROOT_ID);
   await svc.sync();
-  chain.add(101, [revealTx('a1', { txid: ROOT, vout: 0 }, 'Vfay', 'image/webp', Buffer.from('art'),
+  chain.add(101, [revealTx('fake', { txid: 'mine', vout: 0 }, 'Vliar', 'image/webp', Buffer.from('art'),
     parentIdToBuffer(ROOT_ID))]);
   await svc.sync();
+  assert.deepStrictEqual(did(svc, 'Vliar'), ['inscribe'], 'a claim nobody backed is not an Alpha');
+  assert.strictEqual(svc.alphaTip.outpoint, `${ROOT}:0`, 'and the tip did not move');
+});
+
+test('spending the tip without claiming the root is not an alpha either', async () => {
+  const chain = new FakeChain().add(100, [rootTx('c0')]);
+  const svc = service(chain, ROOT_ID);
+  await svc.sync();
+  // The operator refreshing their own carrier, revealing nothing.
+  chain.add(101, [{ txid: 'refresh', vin: [{ txid: ROOT, vout: 0, scriptSig: { hex: '' } }],
+    vout: [out(OP, TIP_VALUE)] }]);
+  await svc.sync();
+  assert.deepStrictEqual(did(svc, OP), ['inscribe'], 'only the root reveal itself');
+  assert.strictEqual(svc.alphaTip.outpoint, 'refresh:0', 'the tip moved with the carrier');
+});
+
+test('THE REGRESSION: an alpha still counts after the root inscription is burned', async () => {
+  // What actually happened on mainnet at height 9,304,347. The inscription's offset inside the
+  // carrier creeps forward by the fee on every carry-forward until it walks off the end, and the
+  // ordinal rules then say it was paid to the miner. Reading the VERIFIED parent reported nothing
+  // for 1,290 mints. The utxo chain is untouched by any of it.
+  const chain = new FakeChain().add(100, [rootTx('c0')]);
+  const svc = service(chain, ROOT_ID);
+  await svc.sync();
+
+  let tip = { txid: ROOT, vout: 0 };
+  for (let i = 0; i < 3; i++) {
+    chain.add(101 + i, [mintTx('m' + i, { txid: 'commit' + i, vout: 0 }, tip, 'Vbuy' + i)]);
+    tip = { txid: 'm' + i, vout: 1 };
+  }
+  await svc.sync();
+
+  const root = svc.inscriptions.inscriptions.get(ROOT_ID);
+  assert.strictEqual(root.location, 'burned', 'the harness must reproduce the burn, or this proves nothing');
+
+  // The first mint still verifies: the claim is checked against the inscriptions the transaction
+  // SPENDS, and the burn happens later in that same transaction. Mainnet did exactly this, which is
+  // why inscriptions 5 and 6 have a parent and everything from 7 does not.
+  assert.strictEqual(svc.inscriptions.inscriptions.get('m0i0').parent, ROOT_ID);
+  for (let i = 1; i < 3; i++) {
+    assert.strictEqual(svc.inscriptions.inscriptions.get(`m${i}i0`).parent, null,
+      `mint ${i} must have NO verified parent, which is the whole point`);
+  }
+  for (let i = 0; i < 3; i++) {
+    assert.deepStrictEqual(did(svc, 'Vbuy' + i), ['alpha'], `mint ${i} must still count as an Alpha`);
+  }
+});
+
+test('with no collection configured, the same mint is simply an inscription', async () => {
+  const chain = new FakeChain().add(100, [rootTx('c0')]);
+  const svc = service(chain, null);
+  await svc.sync();
+  chain.add(101, [mintTx('a1', { txid: 'commit1', vout: 0 }, { txid: ROOT, vout: 0 }, 'Vfay')]);
+  await svc.sync();
   assert.deepStrictEqual(did(svc, 'Vfay'), ['inscribe']);
+  assert.strictEqual(svc.alphaTip, null, 'and no chain is followed at all');
 });
 
 // --- adding up --------------------------------------------------------------------------------------
 
 test('four different actions by one address are four shares', async () => {
-  const chain = new FakeChain()
-    .add(100, [revealTx(ROOT, { txid: 'c0', vout: 0 }, 'Vteam', 'text/plain', Buffer.from('c'))]);
+  const chain = new FakeChain().add(100, [rootTx('c0')]);
   const svc = service(chain, ROOT_ID);
   await svc.sync();
   chain
-    .add(101, [revealTx('a1', { txid: ROOT, vout: 0 }, 'Vzoe', 'image/webp', Buffer.from('art'), parentIdToBuffer(ROOT_ID))])
+    .add(101, [mintTx('a1', { txid: 'commit1', vout: 0 }, { txid: ROOT, vout: 0 }, 'Vzoe')])
     .add(102, [revealTx('i1', { txid: 'c9', vout: 0 }, 'Vzoe', 'text/plain', Buffer.from('gm'))])
     .add(103, [etchTx('e1', { txid: 'c8', vout: 0 }, 'Vzoe', 'OPEN', { p: 0, m: { a: 1000 } })])
     .add(104, [{ txid: 'm1', vin: [{ txid: 'funder', vout: 0, scriptSig: { hex: '' } }],
@@ -202,19 +289,14 @@ test('four different actions by one address are four shares', async () => {
   assert.strictEqual(sharesOf(svc.actions.at('Vzoe')), 4, 'one of each is four of the eight');
 });
 
-test('minting three Alphas off the real chain earns three shares, and a fourth earns none', async () => {
-  const chain = new FakeChain()
-    .add(100, [revealTx(ROOT, { txid: 'c0', vout: 0 }, 'Vteam', 'text/plain', Buffer.from('c'))]);
+test('minting three Alphas earns three shares, and a fourth earns none', async () => {
+  const chain = new FakeChain().add(100, [rootTx('c0')]);
   const svc = service(chain, ROOT_ID);
   await svc.sync();
-  // Each mint spends the parent tip and re-emits it, the way the live mint really serialises, so
-  // all four are verified children rather than four unparented reveals.
   let tip = { txid: ROOT, vout: 0 };
   for (let i = 0; i < 4; i++) {
-    const txid = 'mint' + i;
-    chain.add(101 + i, [revealTx(txid, tip, 'Vmax', 'image/webp', Buffer.from('art' + i),
-      parentIdToBuffer(ROOT_ID))]);
-    tip = { txid, vout: 0 };
+    chain.add(101 + i, [mintTx('mint' + i, { txid: 'commit' + i, vout: 0 }, tip, 'Vmax')]);
+    tip = { txid: 'mint' + i, vout: 1 };
   }
   await svc.sync();
   assert.strictEqual(times(svc, 'Vmax', 'alpha'), 3, 'the fourth Alpha is over the ceiling');
@@ -222,15 +304,13 @@ test('minting three Alphas off the real chain earns three shares, and a fourth e
 });
 
 test('a full bar is reachable, and nothing beyond it is', async () => {
-  const chain = new FakeChain()
-    .add(100, [revealTx(ROOT, { txid: 'c0', vout: 0 }, 'Vteam', 'text/plain', Buffer.from('c'))]);
+  const chain = new FakeChain().add(100, [rootTx('c0')]);
   const svc = service(chain, ROOT_ID);
   await svc.sync();
   let tip = { txid: ROOT, vout: 0 };
   for (let i = 0; i < 3; i++) {
-    const txid = 'a' + i;
-    chain.add(101 + i, [revealTx(txid, tip, 'Vall', 'image/webp', Buffer.from('art' + i), parentIdToBuffer(ROOT_ID))]);
-    tip = { txid, vout: 0 };
+    chain.add(101 + i, [mintTx('a' + i, { txid: 'commit' + i, vout: 0 }, tip, 'Vall')]);
+    tip = { txid: 'a' + i, vout: 1 };
   }
   chain.add(104, [revealTx('ins', { txid: 'c7', vout: 0 }, 'Vall', 'text/plain', Buffer.from('gm'))]);
   chain.add(105, [etchTx('e1', { txid: 'c8', vout: 0 }, 'Vall', 'OPEN', { p: 0, m: { a: 1000 } })]);

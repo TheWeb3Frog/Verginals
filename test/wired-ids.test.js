@@ -121,4 +121,65 @@ test('the mint form can be filled without pasting anything', () => {
     'connecting must still fill the address in');
 });
 
+// --- helpers borrowed across files ------------------------------------------------------------
+//
+// The other half of the same problem. app.js declares $, $$, fmt, short and esc at top level, and
+// wallet.js used them because both are classic scripts in one global scope and app.js loads first
+// on the home page. On the airdrop page, which has no reason to load app.js, the first line of
+// wallet.js's boot block threw "$ is not defined" and silently took the rest of the file with it:
+// the site bar's Connect Wallet button was never wired and window.VerginalsArena never existed.
+//
+// Nothing failed loudly. The page rendered, the button was there, and pressing it did nothing.
+
+/** Names a script declares at top level, which any other script in the same scope could lean on. */
+function topLevelNames(src) {
+  const out = new Set();
+  for (const m of src.matchAll(/^(?:const|let|var)\s+(\$\$|\$|[A-Za-z_][\w]*)\s*=/gm)) out.add(m[1]);
+  for (const m of src.matchAll(/^function\s+(\$\$|\$|[A-Za-z_][\w]*)\s*\(/gm)) out.add(m[1]);
+  return out;
+}
+
+/** Does `src` call or read `name` anywhere? */
+function uses(src, name) {
+  const esc = name.replace(/[$]/g, '\\$');
+  return new RegExp(`(^|[^\\w$.])${esc}\\s*\\(`, 'm').test(src);
+}
+
+/** Does `src` declare `name` itself, at any nesting? */
+function declares(src, name) {
+  const esc = name.replace(/[$]/g, '\\$');
+  return new RegExp(`(?:const|let|var|function)\\s+${esc}\\s*[=(]`).test(src);
+}
+
+const appGlobals = topLevelNames(app);
+
+test('the harness found app.js top-level names, so an empty check is not a pass', () => {
+  for (const n of ['$', '$$', 'fmt', 'short', 'esc']) {
+    assert.ok(appGlobals.has(n), `app.js should declare ${n} at top level`);
+  }
+});
+
+test('NO SHARED SCRIPT LEANS ON A HELPER ANOTHER PAGE HAPPENS TO LOAD', () => {
+  const problems = [];
+  for (const script of ['wallet.js', 'vgnav.js', 'airdrop.js']) {
+    const src = read(script);
+    const pages = pagesLoading(script);
+    // Only pages that do NOT also load app.js can be caught out by this.
+    const bare = pages.filter((f) => !/src="\/app\.js/.test(read(f)));
+    if (!bare.length) continue;
+    for (const name of appGlobals) {
+      if (uses(src, name) && !declares(src, name)) {
+        problems.push(`${script} uses ${name} from app.js but is loaded by ${bare.join(', ')}`);
+      }
+    }
+  }
+  assert.deepStrictEqual(problems, [], 'scripts leaning on another page\'s globals:\n  ' + problems.join('\n  '));
+});
+
+test('CONTROL: a script that borrows a helper it does not define is reported', () => {
+  const borrowed = [...appGlobals].filter((n) => uses("x = fmt(1); $('#a');", n) && !declares("x = fmt(1); $('#a');", n));
+  assert.ok(borrowed.includes('fmt') && borrowed.includes('$'),
+    `the check missed a borrowed helper, found only ${JSON.stringify(borrowed)}`);
+});
+
 console.log(`\n${passed} wired-id tests passed`);

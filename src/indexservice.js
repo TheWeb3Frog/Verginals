@@ -82,6 +82,24 @@ class IndexService {
     // is not a failure: with no collection configured every reveal is simply an inscription, which
     // is the right answer for a server that is not running the Alpha mint.
     this.alphaParent = alphaParent || null;
+    // WHERE THE COLLECTION'S PARENT CARRIER IS NOW, as a utxo rather than as an inscription.
+    //
+    // The obvious way to recognise an Alpha mint is the verified tag-3 parent the inscription
+    // indexer already computes, and that is what this used to read. It reported nothing, because
+    // the root inscription was BURNED on chain at height 9,304,347, on the third mint ever.
+    //
+    // The mint re-emits its parent carrier at a constant 3 XVG, but an inscription sits at an
+    // OFFSET inside its output, and that offset creeps forward by the fee every time the carrier
+    // is carried forward: 0, then 800,000, then 1,800,000, then past the end of a 3,000,000
+    // output, at which point the ordinal rules say it was paid to the miner. Every Alpha minted
+    // since then claims a parent that no longer exists, and no claim can ever verify again.
+    //
+    // THE UTXO CHAIN SURVIVED ALL OF THAT. The operator still spends one carrier and re-emits it
+    // unchanged to the same address on every mint, and nobody else can spend it. So the tip is
+    // followed as an outpoint here, and an Alpha is a reveal that claims the root AND spends the
+    // tip. The second half is what makes it unforgeable: the claim on its own is a string anybody
+    // can write into one cheap inscription.
+    this.alphaTip = null; // { outpoint, address, value }
     // A third reading of the same blocks, kept beside the two state machines rather than inside
     // either. Neither of them has any business knowing what a community drop is, and runes/indexer.js
     // in particular has to stay a pure function of (state, tx) for the conformance harness.
@@ -132,6 +150,8 @@ class IndexService {
       // Read before, so what this transaction changed can be told from what was already there.
       const numberBefore = this.inscriptions.nextNumber;
       const mintsBefore = extra ? this.mintCount() : 0;
+      const spendsAlphaTip = !!(this.alphaTip
+        && (decoded.ins || []).some((v) => `${v.txid}:${v.vout}` === this.alphaTip.outpoint));
 
       this.inscriptions.processTx(decoded, height);
       if (extra) applyTx(this.runes, toIndexerTx(rawTx, height, i, extra), this.runeOpts);
@@ -140,7 +160,9 @@ class IndexService {
         revealed: this.inscriptions.nextNumber > numberBefore,
         etched: !!(extra && extra.etching),
         minted: extra ? this.mintCount() > mintsBefore : false,
+        spendsAlphaTip,
       });
+      this.followAlphaTip(decoded, spendsAlphaTip);
     }
 
     // Mirrors Indexer.processBlock, which this method replaces: the digest is taken AFTER the block
@@ -166,7 +188,7 @@ class IndexService {
    * too, so without this the same transaction would be counted twice and a wallet with one etch
    * would out-earn a wallet that had inscribed and minted separately.
    */
-  noteActions(txid, height, txIndex, outs, { revealed, etched, minted }) {
+  noteActions(txid, height, txIndex, outs, { revealed, etched, minted, spendsAlphaTip }) {
     if (revealed) {
       const rec = this.inscriptions.inscriptions.get(`${txid}i0`);
       const to = rec && rec.ownerAddress;
@@ -174,13 +196,56 @@ class IndexService {
       // unlocked ticker or a height below activation all leave the reveal a plain inscription, and
       // that is what it should be paid as.
       const took = etched && this.runes.runes.has(runeRefOf(height, txIndex));
+      // Both halves are required. The CLAIM says this reveal means to be an Alpha; SPENDING THE TIP
+      // says the operator's mint is what produced it. Either alone is wrong: a claim is a string
+      // anybody can write, and the tip is spent by transactions that reveal nothing.
+      const claimsRoot = !!(rec && this.alphaParent && (rec.parents || []).includes(this.alphaParent));
       if (took) this.actions.record(to, 'etch', height);
-      else if (rec && this.alphaParent && rec.parent === this.alphaParent) this.actions.record(to, 'alpha', height);
+      else if (claimsRoot && spendsAlphaTip) this.actions.record(to, 'alpha', height);
       else this.actions.record(to, 'inscribe', height);
     }
     // A mint is not a reveal, so there is no inscription to read the address off. The coins
     // themselves say where they went: whichever output the rune indexer credited.
     if (minted) this.actions.record(this.creditedTo(txid, outs), 'coin', height);
+  }
+
+  /**
+   * Keep up with the collection's parent carrier.
+   *
+   * Seeded from the root's own reveal, then moved on every transaction that spends it. The
+   * successor is the output paying the SAME ADDRESS the SAME VALUE, which is the mint's documented
+   * invariant (re-emitted unchanged in value to the same operator address, so the tip never
+   * depletes) and the only part of it still true after the root inscription burned.
+   *
+   * Searched from the END, because the carry-forward is appended after the buyer's outputs and a
+   * buyer who happened to be the operator would otherwise capture the tip.
+   */
+  followAlphaTip(tx, spent) {
+    if (!this.alphaParent) return;
+
+    if (!this.alphaTip) {
+      // Only the root's own reveal can start the chain, so it is matched by id rather than by
+      // looking for an operator address nobody has told us.
+      if (!this.alphaParent.startsWith(`${tx.txid}i`)) return;
+      const rec = this.inscriptions.inscriptions.get(this.alphaParent);
+      if (!rec || !rec.location || rec.location === 'burned') return;
+      const vout = Number(rec.location.slice(rec.location.lastIndexOf(':') + 1));
+      const o = (tx.outs || [])[vout];
+      if (o) this.alphaTip = { outpoint: rec.location, address: o.address || null, value: o.value };
+      return;
+    }
+
+    if (!spent) return;
+    const outs = tx.outs || [];
+    let at = -1;
+    for (let i = outs.length - 1; i >= 0; i--) {
+      if (outs[i].address === this.alphaTip.address && outs[i].value === this.alphaTip.value) { at = i; break; }
+    }
+    // No successor means the operator spent the carrier without re-emitting it. The chain is over,
+    // and saying so beats following whatever output happened to be nearby: from here nothing can be
+    // shown to be an Alpha, which is the honest answer rather than a wrong one.
+    this.alphaTip = at < 0 ? null
+      : { outpoint: `${tx.txid}:${at}`, address: this.alphaTip.address, value: this.alphaTip.value };
   }
 
   /** Every mint the rune index has accepted, across every coin. */
@@ -336,6 +401,7 @@ class IndexService {
       // an etch that got re-mined out of existence, and the address would stay eligible for ever on
       // the strength of a transaction no longer in the chain.
       actions: this.actions.toJSON(),
+      alphaTip: this.alphaTip,
     };
   }
 
@@ -351,6 +417,7 @@ class IndexService {
     this.inscriptions.checkpoints = new Map(i.checkpoints || []);
     this.runes = RuneState.fromJSON(obj.runes);
     this.actions = ActionLedger.fromJSON(obj.actions || []);
+    this.alphaTip = obj.alphaTip ? Object.assign({}, obj.alphaTip) : null;
     return this;
   }
 

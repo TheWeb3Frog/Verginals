@@ -24,6 +24,22 @@ const wallet = read('wallet.js');
 const app = read('app.js');
 const nav = read('vgnav.js');
 
+// One script now runs on several pages. wallet.js is loaded by the home page and by the airdrop
+// checker, and it fills in whichever address field it finds, so an id that exists on one of them
+// and not the other is not a fault -- that is the point of a guarded lookup.
+//
+// What is still a fault, and what this file was written for, is an id that NO page it runs on
+// provides. That was the connect button: it lived in a header, the header went, and nothing
+// anywhere offered it again. So the question is asked across every page a script is loaded on,
+// which is narrower than "somewhere in web/" and wider than "index.html".
+const PAGES = fs.readdirSync(WEB).filter((f) => f.endsWith('.html'));
+
+/** The pages whose markup loads `script`, by <script src>. Cache keys are allowed on the end. */
+function pagesLoading(script) {
+  const re = new RegExp(`src="/${script.replace(/\./g, '\\.')}(\\?[^"]*)?"`);
+  return PAGES.filter((f) => re.test(read(f)));
+}
+
 /** Ids a script asks the document for, by `$('#x')` or `getElementById('x')`. */
 function idsAskedFor(src) {
   const out = new Set();
@@ -33,9 +49,11 @@ function idsAskedFor(src) {
 }
 
 /** Ids that exist somewhere a page can get them: in the markup, or built by the bar. */
-function idsProvided() {
+function idsProvided(pages = ['index.html']) {
   const out = new Set();
-  for (const m of html.matchAll(/id="([a-zA-Z][\w-]*)"/g)) out.add(m[1]);
+  for (const page of pages) {
+    for (const m of read(page).matchAll(/id="([a-zA-Z][\w-]*)"/g)) out.add(m[1]);
+  }
   for (const m of nav.matchAll(/\.id = '([a-zA-Z][\w-]*)'/g)) out.add(m[1]);
   // Ids the scripts create themselves as they render.
   for (const src of [app, wallet]) {
@@ -66,14 +84,33 @@ test('and the bar tells the scripts once it has been mounted', () => {
   assert.match(wallet, /addEventListener\('vg:chrome'/);
 });
 
-test('every id wallet.js reaches for is one something provides', () => {
-  const missing = [...idsAskedFor(wallet)].filter((id) => !provided.has(id));
-  assert.deepStrictEqual(missing, [], 'wallet.js asks for ids nothing provides:\n  ' + missing.join('\n  '));
+/** Every id `script` reaches for, checked against every page that loads it. */
+function unprovided(script, src) {
+  const pages = pagesLoading(script);
+  assert.ok(pages.length > 0, `no page loads ${script}, so this check would prove nothing`);
+  const have = idsProvided(pages);
+  return [...idsAskedFor(src)].filter((id) => !have.has(id));
+}
+
+test('every id wallet.js reaches for exists on a page that loads it', () => {
+  const missing = unprovided('wallet.js', wallet);
+  assert.deepStrictEqual(missing, [], 'wallet.js asks for ids no page provides:\n  ' + missing.join('\n  '));
 });
 
-test('every id app.js reaches for is one something provides', () => {
-  const missing = [...idsAskedFor(app)].filter((id) => !provided.has(id));
-  assert.deepStrictEqual(missing, [], 'app.js asks for ids nothing provides:\n  ' + missing.join('\n  '));
+test('every id app.js reaches for exists on a page that loads it', () => {
+  const missing = unprovided('app.js', app);
+  assert.deepStrictEqual(missing, [], 'app.js asks for ids no page provides:\n  ' + missing.join('\n  '));
+});
+
+test('every id the airdrop checker reaches for is on the airdrop page', () => {
+  const missing = unprovided('airdrop.js', read('airdrop.js'));
+  assert.deepStrictEqual(missing, [], 'airdrop.js asks for ids the page does not have:\n  ' + missing.join('\n  '));
+});
+
+test('CONTROL: an id no page provides is reported', () => {
+  const missing = unprovided('wallet.js', wallet + "\n$('#not-a-real-control');");
+  assert.deepStrictEqual(missing, ['not-a-real-control'],
+    'the check passed a script asking for something that does not exist');
 });
 
 test('the mint form can be filled without pasting anything', () => {

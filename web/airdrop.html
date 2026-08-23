@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ALPHA GO BRRRR airdrop</title>
+<meta name="description" content="The first Verginals community coin. One billion, all of it to the people who built the chain's first year, none of it to the team.">
+<link rel="icon" href="/favicon.svg">
+<link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/vg.css">
+<link rel="stylesheet" href="/airdrop.css">
+</head>
+<body class="vg">
+<main class="vg-wrap">
+
+  <header class="ad-hero">
+    <div class="ad-hero-say">
+      <span class="vg-chip accent" id="ad-state">the first community coin</span>
+      <h1 class="vg-d1" id="ad-name">ALPHA<span class="ad-dot">•</span>GO<span class="ad-dot">•</span>BRRRR</h1>
+      <p class="vg-say">
+        One billion coins, etched in a single transaction with the whole supply already made. There
+        was never a mint to be first to, never a presale, and never a wallet held back for the
+        people who built it. All of it goes to the people who were here.
+      </p>
+      <div class="ad-hero-acts">
+        <a class="vg-btn primary" href="#check">Check an address</a>
+        <a class="vg-btn" href="/runes/market">See it on the market</a>
+      </div>
+    </div>
+
+    <!-- The three claims, as figures rather than adjectives. "Fair launch" is a phrase anyone can
+         type; 0% is a number that can be checked against the chain. -->
+    <dl class="vg-stats ad-claims">
+      <div class="vg-stat">
+        <p class="vg-label">Total supply</p>
+        <b class="vg-num vg-n-lg" id="ad-supply">1,000,000,000</b>
+        <span class="vg-stat-sub">premined in one etch, never again</span>
+      </div>
+      <div class="vg-stat">
+        <p class="vg-label">To the community</p>
+        <b class="vg-num vg-n-lg vg-ok">100%</b>
+        <span class="vg-stat-sub">by airdrop, at no cost</span>
+      </div>
+      <div class="vg-stat">
+        <p class="vg-label">Team, presale, VC</p>
+        <b class="vg-num vg-n-lg">0%</b>
+        <span class="vg-stat-sub">no allocation of any kind</span>
+      </div>
+    </dl>
+  </header>
+
+  <!-- --- the checker ------------------------------------------------------------------------ -->
+
+  <section class="ad-check" id="check">
+    <div class="ad-check-head">
+      <p class="vg-label">Eligibility</p>
+      <h2 class="vg-d2">Did you help build the first year?</h2>
+      <p class="vg-say">
+        Four things earn a share, and they are things you <b>did</b>, not things you hold. Nobody can
+        buy their way onto this list after the fact, and nobody drops off it by selling.
+      </p>
+    </div>
+
+    <div class="vg-card ad-form">
+      <div class="ad-connect" id="ad-connect-row">
+        <button type="button" class="vg-btn primary" id="ad-connect">Connect your wallet</button>
+        <p class="vg-small">Your address fills itself in and you never paste anything.</p>
+      </div>
+      <div class="ad-or" id="ad-or"><span>or paste one</span></div>
+      <form class="ad-input" id="ad-form">
+        <label class="vg-field">
+          <span class="vg-label">Verge address</span>
+          <input class="vg-input" id="airdrop-address" name="address" type="text" spellcheck="false"
+                 autocomplete="off" placeholder="D..." aria-describedby="ad-hint">
+        </label>
+        <button class="vg-btn" type="submit" id="ad-go">Check</button>
+      </form>
+      <p class="vg-small" id="ad-hint">Read only. Checking an address asks the chain a question and signs nothing.</p>
+    </div>
+
+    <div id="ad-out" class="ad-out" hidden></div>
+    <div id="ad-note" class="vg-note" hidden></div>
+  </section>
+
+  <!-- --- how a share is worked out ----------------------------------------------------------- -->
+
+  <section class="ad-rules">
+    <div class="ad-rules-say">
+      <p class="vg-label">How the split works</p>
+      <h2 class="vg-d3">Every action is worth exactly one share.</h2>
+      <p class="vg-say">
+        Not weighted by how much you spent, how early you were, or how many times you did it. One
+        person who inscribed once and one person who inscribed four hundred times hold the same
+        single share, and somebody who did all four holds four.
+      </p>
+      <p class="vg-say">
+        The billion is then divided by every share that exists, so your allocation depends on how
+        many people qualify. That number is still moving, and the figure this page shows you is
+        today's, not a promise.
+      </p>
+    </div>
+    <ol class="ad-steps">
+      <li><span class="ad-step-n">1</span><div><b>Do a qualifying thing</b><p class="vg-small">Any one of the four is enough to be eligible.</p></div></li>
+      <li><span class="ad-step-n">2</span><div><b>A snapshot is taken at a block</b><p class="vg-small" id="ad-snap">The height has not been announced yet. Until it is, there is still time.</p></div></li>
+      <li><span class="ad-step-n">3</span><div><b>The coins are sent</b><p class="vg-small">Straight to the address that did the work. Nothing to claim, no gas to pay, no site to come back to.</p></div></li>
+    </ol>
+  </section>
+
+  <!-- --- the promises, stated flatly --------------------------------------------------------- -->
+
+  <section class="ad-claims-strip">
+    <div class="ad-claim">
+      <p class="vg-label">What it costs you</p>
+      <p class="vg-d4">Nothing, and there is nothing to claim.</p>
+      <p class="vg-small">
+        No claim transaction, no approval, no fee. The coins arrive in the wallet that earned them,
+        and a wallet that does nothing still receives them.
+      </p>
+    </div>
+    <div class="ad-claim">
+      <p class="vg-label">Where the list comes from</p>
+      <p class="vg-d4">The chain, not our database.</p>
+      <p class="vg-small">
+        Every action counted here left a transaction on Verge. The index is rebuilt from those blocks
+        on every restart, so anyone running the same code arrives at the same list.
+      </p>
+    </div>
+    <div class="ad-claim">
+      <p class="vg-label">What we kept</p>
+      <p class="vg-d4">None of it.</p>
+      <p class="vg-small">
+        No founder wallet, no treasury, no marketing bag, no vesting cliff quietly unlocking in a
+        year. The supply is fixed at a billion and the mint is closed for ever.
+      </p>
+    </div>
+  </section>
+
+</main>
+<script src="/wallet.js"></script>
+<script type="module" src="/airdrop.js"></script>
+</body>
+</html>

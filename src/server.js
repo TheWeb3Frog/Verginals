@@ -216,11 +216,17 @@ function loadJob(id) {
  * the only thing protecting this index from a reorg, since a scan that walks heights cannot tell
  * that a block it already counted was replaced. It can tell now, so the accident is a choice.
  */
+// Read here rather than beside the rest of the collection config below, because the scan needs it:
+// a reveal parented to this root is an Alpha mint, and anything else is somebody's own inscription.
+// The two are different actions in the community drop, and the difference is only visible here.
+const PARENT_ID = (process.env.VERGINALS_PARENT_ID || '').trim();
+
 const service = new IndexService({
   chain,
   from: INDEX_FROM,
   runes: RUNES_ENABLED,
   runesFrom: RUNES_FROM,
+  alphaParent: PARENT_ID || null,
 });
 const indexer = service.inscriptions;
 
@@ -233,7 +239,7 @@ async function syncIndex() {
       // to ask anyone to delete a file.
       console.error(`[index] ${e.message} Rebuilding from ${INDEX_FROM}.`);
       service.restore(new IndexService({ chain, from: INDEX_FROM, runes: RUNES_ENABLED,
-        runesFrom: RUNES_FROM }).toJSON());
+        runesFrom: RUNES_FROM, alphaParent: PARENT_ID || null }).toJSON());
       return service.scannedThrough;
     }
     throw e;
@@ -780,7 +786,6 @@ function initMint() {
 // the tip never depletes. Mints serialize through a single parent utxo, so only ONE reveal may
 // spend the tip at a time (see withParentLock). Parenting stays OFF unless BOTH the root id and its
 // key are configured, in which case mints are "genesis" items (no tag 3), exactly as before.
-const PARENT_ID = (process.env.VERGINALS_PARENT_ID || '').trim();
 const PARENT_TIP_PATH = path.join(DATA_DIR, 'mint', 'parent-tip.json');
 let parentCfg = null; // { id, wif, key, address, parentBuf } when parenting is enabled
 
@@ -1819,6 +1824,102 @@ function handleRuneCoin(req, res, url) {
   const c = coin(service.runes, ref, height);
   if (!c) return sendJSON(res, 404, { error: 'no coin of that name has been etched', runeRef: ref });
   return sendJSON(res, 200, c);
+}
+
+// --- the community drop -------------------------------------------------------------------------
+//
+// ALPHA GO BRRRR premined its whole supply and opened no mint, so the only way it reaches anybody is
+// by being sent. Who it gets sent to is decided by src/airdrop.js from the chain, and this endpoint
+// is a window onto that ledger: it decides nothing and stores nothing.
+//
+// The coin and the snapshot height are configuration, not constants, because the snapshot is a
+// decision that has not been made yet and hard-coding a date would be pretending otherwise.
+const AIRDROP_REF = (process.env.VERGINALS_AIRDROP_REF || '9424402:1').trim();
+const AIRDROP_SNAPSHOT = Number(process.env.VERGINALS_AIRDROP_SNAPSHOT || 0) || null;
+
+// The roll and its split, recomputed only when the scan has moved.
+//
+// Both are functions of the ledger alone, and the ledger only changes when a block is applied. A
+// checker page asks this question once per visitor, and sorting five thousand addresses for each of
+// them would be work done to produce an answer that had not changed.
+let rollCache = null; // { at, supply, roll, shareTotal, parts }
+
+function airdropRoll(supply) {
+  const at = service.scannedThrough;
+  if (rollCache && rollCache.at === at && rollCache.supply === supply) return rollCache;
+  const { allocate } = require('./airdrop');
+  const roll = service.actions.roll(AIRDROP_SNAPSHOT);
+  rollCache = {
+    at,
+    supply,
+    roll,
+    shareTotal: roll.reduce((s, r) => s + r.shares, 0),
+    parts: new Map(allocate(roll, supply).map((r) => [r.address, r.amount])),
+  };
+  return rollCache;
+}
+
+/**
+ * GET /api/airdrop[?address=...]
+ *
+ * Without an address: the terms and the totals. With one: what that address did, and what its share
+ * currently works out to.
+ *
+ * The allocation is a DIVISION BY A MOVING NUMBER until the snapshot is taken, and the answer says
+ * so rather than leaving the reader to infer it. Quoting a figure that quietly shrinks every time
+ * somebody else qualifies is how an airdrop page becomes a complaint.
+ */
+async function handleAirdrop(req, res, url) {
+  const { ACTIONS, sharesOf } = require('./airdrop');
+  const tickers = require('./runes/tickers');
+  const rune = service.runes.runes.get(AIRDROP_REF) || null;
+  const asOf = AIRDROP_SNAPSHOT;
+
+  const { roll, shareTotal, parts } = airdropRoll(rune ? rune.supply : 0);
+
+  const tip = await chain.getBlockCount().catch(() => null);
+  const scanned = service.scannedThrough || 0;
+  // An unfinished scan and a genuinely empty roll look identical from here, and one of them means
+  // "you are not eligible" while the other means "we have not looked yet". The page needs both.
+  const scanning = tip === null ? null : tip - scanned > 2;
+
+  const supply = rune ? rune.supply : 0;
+  const body = {
+    coin: rune ? {
+      runeRef: AIRDROP_REF,
+      ticker: rune.ticker,
+      display: tickers.displayTicker(rune.ticker, rune.spacers || 0),
+      divisibility: rune.divisibility,
+      supply,
+      whole: supply / 10 ** rune.divisibility,
+    } : null,
+    actions: ACTIONS.map((a) => ({ key: a.key, label: a.label })),
+    snapshotHeight: asOf,
+    settled: asOf != null && scanned >= asOf,
+    scanning, scannedThrough: scanned, tip,
+    indexFrom: INDEX_FROM,
+    totals: { wallets: roll.length, shares: shareTotal },
+  };
+
+  const address = (url.searchParams.get('address') || '').trim();
+  if (address) {
+    const done = service.actions.at(address, asOf);
+    const shares = sharesOf(done);
+    // Allocated through the same function that will build the real transactions, rather than by a
+    // percentage worked out here. Two ways of dividing one supply is two answers, and the one on
+    // the screen would be the one nobody could reproduce.
+    const mine = shares > 0 ? parts.get(address) : null;
+    const amount = mine == null ? 0 : mine;
+    body.you = {
+      address,
+      done,
+      shares,
+      eligible: shares > 0,
+      amount,
+      whole: rune ? amount / 10 ** rune.divisibility : 0,
+    };
+  }
+  return sendJSON(res, 200, body);
 }
 
 /**
@@ -3618,6 +3719,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && /^\/runes-coin\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
     if (req.method === 'GET' && /^\/runes-mint\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
     if (req.method === 'GET' && /^\/runes-market\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
+    if (req.method === 'GET' && p === '/airdrop') return serveStatic(res, 'airdrop.html');
+    if (req.method === 'GET' && /^\/airdrop\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
     if (req.method === 'GET' && /^\/runes-trade\.(js|css)$/.test(p)) return serveStatic(res, p.slice(1));
     // The page is gone; the stylesheet stays, because the coin page and the mint page draw their
     // supply bar from it. Only the css half is still routed.
@@ -3743,6 +3846,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/runes/depth') return await handleRuneDepth(req, res, url);
     if (req.method === 'GET' && p === '/api/runes/mintable') return handleRuneMintable(req, res, url);
     if (req.method === 'GET' && p === '/api/runes/coins') return await handleRuneCoins(req, res, url);
+    if (req.method === 'GET' && p === '/api/airdrop') return await handleAirdrop(req, res, url);
     if (req.method === 'GET' && p === '/api/runes/coin') return handleRuneCoin(req, res, url);
     if (req.method === 'GET' && p === '/api/runes/locks') return handleRuneLocks(req, res);
     if (req.method === 'POST' && p === '/api/runes/release') return await handleRuneRelease(req, res);

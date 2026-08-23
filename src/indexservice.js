@@ -30,7 +30,8 @@
 const { Indexer, CHECKPOINT_INTERVAL } = require('./indexer');
 const { xvgToUnits } = require('./rpc');
 const { BlockTrail, findFork, TRAIL_DEPTH } = require('./reorg');
-const { RuneState, applyTx } = require('./runes/indexer');
+const { RuneState, applyTx, runeRefOf } = require('./runes/indexer');
+const { ActionLedger } = require('./airdrop');
 const { toIndexerTx, detectEtching } = require('./runes/scanner');
 
 // How often a full copy of the state is kept so a reorg can be repaired by rewinding instead of
@@ -60,7 +61,8 @@ class IndexService {
    * @param {boolean} [p.runes]     index runes at all
    */
   constructor({ chain, from, runesFrom = null, runes = true, trailDepth = TRAIL_DEPTH,
-    snapshotInterval = SNAPSHOT_INTERVAL, onSnapshot = null, runeOpts = null } = {}) {
+    snapshotInterval = SNAPSHOT_INTERVAL, onSnapshot = null, runeOpts = null,
+    alphaParent = null } = {}) {
     this.chain = chain;
     this.from = from;
     // The rune rules that a different chain needs different numbers for: the activation height and
@@ -76,6 +78,14 @@ class IndexService {
 
     this.inscriptions = new Indexer();
     this.runes = new RuneState();
+    // Which parent inscription makes a reveal an Alpha rather than somebody's own inscription. Null
+    // is not a failure: with no collection configured every reveal is simply an inscription, which
+    // is the right answer for a server that is not running the Alpha mint.
+    this.alphaParent = alphaParent || null;
+    // A third reading of the same blocks, kept beside the two state machines rather than inside
+    // either. Neither of them has any business knowing what a community drop is, and runes/indexer.js
+    // in particular has to stay a pure function of (state, tx) for the conformance harness.
+    this.actions = new ActionLedger();
     this.trail = new BlockTrail(trailDepth);
     this.scannedThrough = from - 1;
     this.snapshots = [];       // [{ height, state }] oldest first
@@ -119,8 +129,18 @@ class IndexService {
         if (fee !== null) extra.fee = fee;
       }
 
+      // Read before, so what this transaction changed can be told from what was already there.
+      const numberBefore = this.inscriptions.nextNumber;
+      const mintsBefore = extra ? this.mintCount() : 0;
+
       this.inscriptions.processTx(decoded, height);
       if (extra) applyTx(this.runes, toIndexerTx(rawTx, height, i, extra), this.runeOpts);
+
+      this.noteActions(decoded.txid, height, i, decoded.outs || [], {
+        revealed: this.inscriptions.nextNumber > numberBefore,
+        etched: !!(extra && extra.etching),
+        minted: extra ? this.mintCount() > mintsBefore : false,
+      });
     }
 
     // Mirrors Indexer.processBlock, which this method replaces: the digest is taken AFTER the block
@@ -132,6 +152,57 @@ class IndexService {
     this.trail.record(height, block.hash);
     this.scannedThrough = height;
     if (this.snapshotInterval > 0 && height % this.snapshotInterval === 0) this.snapshot();
+  }
+
+  /**
+   * Record what this transaction earned its sender towards the community drop.
+   *
+   * Called AFTER both state machines have run, and it re-derives nothing: whether an etch took the
+   * ticker, whether a mint was allowed, and where an inscription landed are all questions the two
+   * of them have already answered, and asking them again here is how two implementations of one
+   * rule drift apart. So this reads their conclusions.
+   *
+   * A transaction earns at most one action. An etching IS an inscription reveal and an Alpha mint is
+   * too, so without this the same transaction would be counted twice and a wallet with one etch
+   * would out-earn a wallet that had inscribed and minted separately.
+   */
+  noteActions(txid, height, txIndex, outs, { revealed, etched, minted }) {
+    if (revealed) {
+      const rec = this.inscriptions.inscriptions.get(`${txid}i0`);
+      const to = rec && rec.ownerAddress;
+      // An etching only counts once the rune indexer has accepted it. A malformed payload, an
+      // unlocked ticker or a height below activation all leave the reveal a plain inscription, and
+      // that is what it should be paid as.
+      const took = etched && this.runes.runes.has(runeRefOf(height, txIndex));
+      if (took) this.actions.record(to, 'etch', height);
+      else if (rec && this.alphaParent && rec.parent === this.alphaParent) this.actions.record(to, 'alpha', height);
+      else this.actions.record(to, 'inscribe', height);
+    }
+    // A mint is not a reveal, so there is no inscription to read the address off. The coins
+    // themselves say where they went: whichever output the rune indexer credited.
+    if (minted) this.actions.record(this.creditedTo(txid, outs), 'coin', height);
+  }
+
+  /** Every mint the rune index has accepted, across every coin. */
+  mintCount() {
+    let n = 0;
+    for (const r of this.runes.runes.values()) n += r.mintCount || 0;
+    return n;
+  }
+
+  /**
+   * The address of the lowest output of this transaction that came out of it holding a rune.
+   *
+   * Walks the transaction's own outputs rather than the balance map, which holds every unspent
+   * rune outpoint on the chain: scanning that per mint would make the cost of indexing a block
+   * depend on how much of the supply is in circulation.
+   */
+  creditedTo(txid, outs) {
+    for (let vout = 0; vout < outs.length; vout++) {
+      if (!this.runes.balances.has(`${txid}:${vout}`)) continue;
+      return outs[vout].address || null;
+    }
+    return null;
   }
 
   /** The inscriptions this transaction's inputs carry, before it is applied. */
@@ -261,6 +332,10 @@ class IndexService {
         checkpoints: [...this.inscriptions.checkpoints.entries()],
       },
       runes: this.runes.toJSON(),
+      // Rewound with everything else. An action ledger that survived a reorg would keep crediting
+      // an etch that got re-mined out of existence, and the address would stay eligible for ever on
+      // the strength of a transaction no longer in the chain.
+      actions: this.actions.toJSON(),
     };
   }
 
@@ -275,6 +350,7 @@ class IndexService {
     this.inscriptions.locations = new Map(i.locations || []);
     this.inscriptions.checkpoints = new Map(i.checkpoints || []);
     this.runes = RuneState.fromJSON(obj.runes);
+    this.actions = ActionLedger.fromJSON(obj.actions || []);
     return this;
   }
 
@@ -304,6 +380,7 @@ class IndexService {
       scannedThrough: this.scannedThrough,
       inscriptions: this.inscriptions.inscriptions.size,
       runes: this.runes.runes.size,
+      actors: this.actions.actors.size,
       reorgsRepaired: this.reorgs,
       trailDepth: this.trail.depth,
       snapshots: this.snapshots.map((s) => s.height),

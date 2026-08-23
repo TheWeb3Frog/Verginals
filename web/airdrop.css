@@ -1,0 +1,135 @@
+/* The community drop. Layout only: every colour, face and control comes from vg.css. */
+
+/* --- hero ---------------------------------------------------------------------------------------- */
+
+/* The pitch reads across a comfortable measure and the three figures run full width beneath it.
+   They were beside it at first, which squeezed each one into a 132px column: a ten-digit supply is
+   the single most persuasive thing on this page and it was rendering as "1,000,000,". A number too
+   narrow to finish is worse than no number. */
+.ad-hero { padding: 56px 0 20px; }
+.ad-hero-say { display: flex; flex-direction: column; gap: 20px; align-items: flex-start; max-width: 68ch; }
+.ad-hero-acts { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+/* The separator in a rune name is part of the name, not punctuation between words, so it is dimmed
+   rather than removed: the ticker reads as one thing while the words stay legible. */
+.ad-dot { color: var(--accent); opacity: .55; padding: 0 .04em; }
+.ad-claims { grid-template-columns: repeat(3, 1fr); margin-top: 34px; }
+.ad-claims .vg-num { font-size: clamp(21px, 2.5vw, 30px); }
+
+/* --- the checker ----------------------------------------------------------------------------------- */
+
+.ad-check { padding: 20px 0 0; }
+.ad-check-head { display: flex; flex-direction: column; gap: 12px; margin-bottom: 22px; max-width: 62ch; }
+
+.ad-form { display: flex; flex-direction: column; gap: 16px; }
+.ad-connect { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.ad-connect .vg-small { margin: 0; }
+.ad-connect.hidden, .ad-or.hidden { display: none; }
+
+/* A rule with the word sitting in it, so the paste field reads as the fallback it is rather than as
+   a second, equal option. */
+.ad-or { display: flex; align-items: center; gap: 14px; color: var(--dim); }
+.ad-or::before, .ad-or::after { content: ''; flex: 1; height: 1px; background: var(--hair); }
+.ad-or span { font: 400 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+
+.ad-input { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.ad-input .vg-field { flex: 1 1 260px; min-width: 0; }
+.ad-input .vg-input { font-family: var(--mono); font-size: 13px; }
+.ad-input .vg-btn { padding: 11px 22px; }
+
+/* --- the answer -------------------------------------------------------------------------------------- */
+
+.ad-out { margin-top: 22px; display: flex; flex-direction: column; gap: 14px; }
+
+.ad-verdict {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 28px; align-items: center;
+  padding: 26px 28px; border: 1px solid var(--line); border-radius: var(--r-card); background: var(--card);
+}
+.ad-verdict.is-in { border-color: rgba(56, 211, 159, .42); }
+.ad-verdict-say { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ad-verdict-say h3 { margin: 0; font: 700 25px/1.1 var(--display); letter-spacing: -.025em; }
+.ad-verdict-say p { margin: 0; }
+.ad-who { font: 400 11.5px/1 var(--mono); color: var(--dim); word-break: break-all; }
+
+.ad-amount { text-align: right; }
+.ad-amount b {
+  display: block; font: 700 32px/1 var(--mono); letter-spacing: -.03em;
+  font-variant-numeric: tabular-nums; color: var(--accent);
+}
+.ad-amount.none b { color: var(--dim); }
+.ad-amount span { display: block; margin-top: 6px; font-size: 11.5px; color: var(--muted); }
+
+/* --- the four actions ----------------------------------------------------------------------------------- */
+
+.ad-acts { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; background: var(--line);
+  border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden; }
+.ad-act {
+  display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 16px; align-items: center;
+  padding: 15px 20px; background: var(--card);
+}
+.ad-act-mark {
+  width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+  border: 1px solid var(--line2); color: var(--dim); font: 700 11px/1 var(--mono);
+}
+.ad-act.done .ad-act-mark { border-color: var(--ok); background: rgba(56, 211, 159, .13); color: var(--ok); }
+.ad-act-say { min-width: 0; }
+.ad-act-say b { display: block; font: 600 14px/1.3 var(--sans); color: var(--muted); }
+.ad-act.done .ad-act-say b { color: var(--txt); }
+.ad-act-say span { display: block; margin-top: 3px; font: 400 11.5px/1.4 var(--mono); color: var(--dim); }
+/* The unmet ones carry the way to meet them. A checker that only tells you no is a dead end. */
+.ad-act-go { padding: 7px 14px; font-size: 12px; white-space: nowrap; }
+.ad-act.done .ad-act-go { display: none; }
+
+.ad-totals { display: flex; flex-wrap: wrap; gap: 22px; padding: 0 4px; }
+.ad-totals div { display: flex; align-items: baseline; gap: 7px; }
+.ad-totals b { font: 600 13px/1 var(--mono); color: var(--txt); font-variant-numeric: tabular-nums; }
+.ad-totals span { font-size: 12px; color: var(--dim); }
+
+/* --- how it works ------------------------------------------------------------------------------------------ */
+
+.ad-rules {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .8fr);
+  gap: 48px; align-items: start; padding: 64px 0 12px;
+}
+.ad-rules-say { display: flex; flex-direction: column; gap: 14px; }
+.ad-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.ad-steps li {
+  display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 15px; align-items: start;
+  padding: 16px 18px; border: 1px solid var(--line); border-radius: var(--r-card); background: var(--card);
+}
+.ad-steps b { display: block; font: 600 14px/1.3 var(--sans); margin-bottom: 4px; }
+.ad-steps p { margin: 0; }
+/* Numbered because these really are a sequence: nothing is sent before a snapshot, and no snapshot
+   counts an action that has not happened. */
+.ad-step-n {
+  width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--bg2); border: 1px solid var(--line2);
+  font: 700 11px/1 var(--mono); color: var(--accent);
+}
+
+/* --- the promises ------------------------------------------------------------------------------------------- */
+
+.ad-claims-strip {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1px;
+  margin-top: 56px; background: var(--line);
+  border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden;
+}
+.ad-claim { background: var(--card); padding: 22px 24px; display: flex; flex-direction: column; gap: 9px; }
+.ad-claim .vg-d4 { color: var(--txt); }
+.ad-claim p { margin: 0; }
+
+/* --- phone -------------------------------------------------------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .ad-hero { padding: 34px 0 12px; }
+  .ad-rules { grid-template-columns: 1fr; gap: 28px; padding-top: 48px; }
+}
+
+@media (max-width: 620px) {
+  .ad-claims { grid-template-columns: 1fr; }
+  .ad-verdict { grid-template-columns: 1fr; gap: 18px; }
+  .ad-amount { text-align: left; }
+  /* The action rows lose their trailing button to a second line rather than squeezing the label. */
+  .ad-act { grid-template-columns: 26px minmax(0, 1fr); }
+  .ad-act-go { grid-column: 2; justify-self: start; }
+  .ad-input .vg-btn { width: 100%; }
+}

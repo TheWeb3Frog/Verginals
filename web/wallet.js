@@ -33,7 +33,17 @@
   function hasProvider() { return !!(provider || (window.verge && window.verge.isVerginals)); }
 
   // --- connection state ------------------------------------------------------------------
-  function setAddress(addr) { address = addr || null; reflect(); }
+  function setAddress(addr) {
+    const was = address;
+    address = addr || null;
+    reflect();
+    // Say so out loud. Everything in this file reaches its own controls by id, which works because
+    // it knows them all; a page with a control of its own has no way to hear that a wallet arrived
+    // and would have to poll for it. One event, once, only when the answer actually changed.
+    if (was !== address) {
+      document.dispatchEvent(new CustomEvent('vg:wallet', { detail: { address } }));
+    }
+  }
 
   async function connect() {
     if (!provider) throw new Error('Verginals Wallet not detected. Install the extension and reload this page.');
@@ -70,6 +80,7 @@
     if (address) {
       const t = $('#to-address'); if (t && !t.value.trim()) t.value = address;
       const m = $('#mint-address'); if (m && !m.value.trim()) m.value = address;
+      const a = $('#airdrop-address'); if (a && !a.value.trim()) a.value = address;
     }
     // Once connected there is nothing to connect and nothing to paste, so the whole choice goes and
     // the form is one button.

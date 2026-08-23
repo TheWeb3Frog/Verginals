@@ -30,6 +30,7 @@ const NAV = [
     items: [
       { href: '/runes/mint', text: 'Mint', key: 'open' },
       { href: '/runes/market', text: 'Market', key: 'coins' },
+      { href: '/airdrop', text: 'Airdrop', note: 'free' },
       { href: '/runes', text: 'How it works' },
       { href: '/unlock', text: 'Recover a deposit' },
     ],

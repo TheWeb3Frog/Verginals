@@ -1837,25 +1837,18 @@ function handleRuneCoin(req, res, url) {
 const AIRDROP_REF = (process.env.VERGINALS_AIRDROP_REF || '9424402:1').trim();
 const AIRDROP_SNAPSHOT = Number(process.env.VERGINALS_AIRDROP_SNAPSHOT || 0) || null;
 
-// The roll and its split, recomputed only when the scan has moved.
+// The roll, recomputed only when the scan has moved.
 //
-// Both are functions of the ledger alone, and the ledger only changes when a block is applied. A
-// checker page asks this question once per visitor, and sorting five thousand addresses for each of
-// them would be work done to produce an answer that had not changed.
-let rollCache = null; // { at, supply, roll, shareTotal, parts }
+// It is a function of the ledger alone, and the ledger only changes when a block is applied. A
+// checker page asks this question once per visitor, and sorting every address for each of them
+// would be work done to produce an answer that had not changed.
+let rollCache = null; // { at, roll, shareTotal }
 
-function airdropRoll(supply) {
+function airdropRoll() {
   const at = service.scannedThrough;
-  if (rollCache && rollCache.at === at && rollCache.supply === supply) return rollCache;
-  const { allocate } = require('./airdrop');
+  if (rollCache && rollCache.at === at) return rollCache;
   const roll = service.actions.roll(AIRDROP_SNAPSHOT);
-  rollCache = {
-    at,
-    supply,
-    roll,
-    shareTotal: roll.reduce((s, r) => s + r.shares, 0),
-    parts: new Map(allocate(roll, supply).map((r) => [r.address, r.amount])),
-  };
+  rollCache = { at, roll, shareTotal: roll.reduce((s, r) => s + r.shares, 0) };
   return rollCache;
 }
 
@@ -1865,17 +1858,22 @@ function airdropRoll(supply) {
  * Without an address: the terms and the totals. With one: what that address did, and what its share
  * currently works out to.
  *
- * The allocation is a DIVISION BY A MOVING NUMBER until the snapshot is taken, and the answer says
- * so rather than leaving the reader to infer it. Quoting a figure that quietly shrinks every time
- * somebody else qualifies is how an airdrop page becomes a complaint.
+ * NO COIN FIGURE IS RETURNED, deliberately. What an address ends up holding is the supply divided
+ * by every share that exists, and shares are still being earned, so any number quoted now shrinks
+ * every time somebody else qualifies. A visitor who reads "10,000,000 coins" and later sees
+ * 3,000,000 has been misled by us, however carefully the first one was labelled an estimate.
+ *
+ * What is returned instead is a FRACTION OF THE MAXIMUM ANYBODY CAN HOLD. That number cannot go
+ * down, it goes up only when you do something, and it is the honest thing to put in front of
+ * somebody deciding whether to do one more.
  */
 async function handleAirdrop(req, res, url) {
-  const { ACTIONS, sharesOf } = require('./airdrop');
+  const { ACTIONS, MAX_SHARES, sharesOf } = require('./airdrop');
   const tickers = require('./runes/tickers');
   const rune = service.runes.runes.get(AIRDROP_REF) || null;
   const asOf = AIRDROP_SNAPSHOT;
 
-  const { roll, shareTotal, parts } = airdropRoll(rune ? rune.supply : 0);
+  const { roll, shareTotal } = airdropRoll();
 
   const tip = await chain.getBlockCount().catch(() => null);
   const scanned = service.scannedThrough || 0;
@@ -1893,7 +1891,8 @@ async function handleAirdrop(req, res, url) {
       supply,
       whole: supply / 10 ** rune.divisibility,
     } : null,
-    actions: ACTIONS.map((a) => ({ key: a.key, label: a.label })),
+    actions: ACTIONS.map((a) => ({ key: a.key, label: a.label, max: a.max, one: a.one })),
+    maxShares: MAX_SHARES,
     snapshotHeight: asOf,
     settled: asOf != null && scanned >= asOf,
     scanning, scannedThrough: scanned, tip,
@@ -1905,18 +1904,12 @@ async function handleAirdrop(req, res, url) {
   if (address) {
     const done = service.actions.at(address, asOf);
     const shares = sharesOf(done);
-    // Allocated through the same function that will build the real transactions, rather than by a
-    // percentage worked out here. Two ways of dividing one supply is two answers, and the one on
-    // the screen would be the one nobody could reproduce.
-    const mine = shares > 0 ? parts.get(address) : null;
-    const amount = mine == null ? 0 : mine;
     body.you = {
       address,
       done,
       shares,
       eligible: shares > 0,
-      amount,
-      whole: rune ? amount / 10 ** rune.divisibility : 0,
+      fill: shares / MAX_SHARES,
     };
   }
   return sendJSON(res, 200, body);

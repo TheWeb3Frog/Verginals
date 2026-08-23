@@ -33,14 +33,16 @@ const el = (tag, cls, text) => {
 };
 const fmt = (n) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 8 });
 
-// Where somebody goes to earn the share they have not got. The whole point of showing an unmet
-// action is that it can still be met.
+// Where somebody goes to earn a share they have not got yet. The whole point of showing an action
+// short of its ceiling is that it can still be topped up, so the way to do it sits on the row.
 const HOW = {
-  inscribe: { href: '/#inscribe', text: 'Inscribe something' },
-  alpha: { href: '/#mint', text: 'Mint an Alpha' },
-  etch: { href: '/etch', text: 'Etch a coin' },
-  coin: { href: '/runes/mint', text: 'Mint a coin' },
+  inscribe: '/#inscribe',
+  alpha: '/#mint',
+  etch: '/etch',
+  coin: '/runes/mint',
 };
+
+const pct = (f) => Number((f * 100).toFixed(1));
 
 let terms = null;       // the last /api/airdrop answer, without an address
 let pending = null;     // an address typed before the terms arrived
@@ -132,40 +134,59 @@ function paintAnswer(d) {
   out.textContent = '';
   const you = d.you;
   const eligible = you.eligible;
+  const full = you.shares >= d.maxShares;
+  const short = d.maxShares - you.shares;
 
-  const card = el('div', 'ad-verdict' + (eligible ? ' is-in' : ''));
+  const card = el('div', 'ad-verdict' + (eligible ? ' is-in' : '') + (full ? ' is-full' : ''));
   const say = el('div', 'ad-verdict-say');
-  say.append(el('h3', '', eligible
-    ? (you.shares === 4 ? 'Everything. Maximum allocation.' : `On the list, with ${you.shares} of 4 shares.`)
-    : 'Not on the list yet.'));
-  say.append(el('p', 'vg-say', eligible
-    ? (d.settled
-      ? 'This is your final allocation. Nothing to claim: it will be sent to this address.'
-      : "An estimate at today's numbers. It moves as more wallets qualify, and settles when the snapshot is taken.")
-    : 'This address has not done any of the four yet. Any one of them is enough, and there is still time.'));
+  say.append(el('h3', '', full ? 'Eligible, and maxed out.' : eligible ? 'Eligible.' : 'Not on the list yet.'));
+  say.append(el('p', 'vg-say', full
+    ? 'Every share there is. Nothing left to do but wait for it to land.'
+    : eligible
+      ? `You hold ${you.shares} of ${d.maxShares} shares. ${short} more ${short === 1 ? 'is' : 'are'} still on the table below.`
+      : 'Any one of the four below puts you on the list, and there is still time to do it.'));
   say.append(el('p', 'ad-who', you.address));
   card.append(say);
 
-  const amount = el('div', 'ad-amount' + (eligible ? '' : ' none'));
-  amount.append(el('b', '', eligible ? fmt(you.whole) : '0'));
-  amount.append(el('span', '', eligible && !d.settled ? 'estimated ALPHA GO BRRRR' : 'ALPHA GO BRRRR'));
-  card.append(amount);
+  // A fraction of the maximum anybody can hold, never a coin figure. What an address ends up with
+  // is the supply divided by every share that exists, and that shrinks each time somebody else
+  // qualifies; showing it would mean showing a number that gets smaller while you read the page.
+  const meter = el('div', 'ad-meter' + (eligible ? '' : ' none'));
+  meter.append(el('b', '', pct(you.fill) + '%'));
+  meter.append(el('span', '', 'of the maximum allocation'));
+  card.append(meter);
+
+  const bar = el('div', 'vg-bar ad-bar');
+  const fill = el('span');
+  fill.style.width = `${you.fill * 100}%`; // the exact fraction, not the figure rounded for reading
+  if (full) fill.className = 'done';
+  bar.append(fill);
+  card.append(bar);
   out.append(card);
 
-  // The four, met and unmet alike. Showing only what you earned hides what is still on the table.
+  // The four, met and unmet alike. Showing only what you earned hides what is still on the table,
+  // and what is still on the table is the only reason somebody reads this list twice.
   const list = el('ul', 'ad-acts');
   for (const a of d.actions) {
-    const at = you.done[a.key];
-    const row = el('li', 'ad-act' + (at ? ' done' : ''));
-    row.append(el('span', 'ad-act-mark', at ? '✓' : ''));
+    const at = you.done[a.key] || { count: 0, max: a.max, first: null };
+    const maxed = at.count >= at.max;
+    const row = el('li', 'ad-act' + (at.count ? ' done' : '') + (maxed ? ' full' : ''));
+    // A tick once the ceiling is reached, the running count while there is more to get. A tick on
+    // one Alpha out of three would say "finished" about something half done.
+    row.append(el('span', 'ad-act-mark', maxed ? '✓' : at.count ? String(at.count) : ''));
+
     const s = el('div', 'ad-act-say');
     s.append(el('b', '', a.label));
-    s.append(el('span', '', at ? `first at block ${fmt(at)}` : 'not yet'));
+    const tally = a.max > 1 ? `${at.count} of ${a.max}` : (at.count ? 'done' : 'not yet');
+    s.append(el('span', '', at.first ? `${tally}, first at block ${fmt(at.first)}` : tally));
     row.append(s);
-    const how = HOW[a.key];
-    if (how) {
-      const go = el('a', 'vg-btn ad-act-go', how.text);
-      go.href = how.href;
+
+    // The way to top it up, on every row that is not finished. Four buttons rather than one,
+    // because the row somebody is looking at is the row they want to act on.
+    const href = HOW[a.key];
+    if (href && !maxed) {
+      const go = el('a', 'vg-btn ad-act-go' + (at.count ? '' : ' primary'), at.count ? `${a.one} again` : a.one);
+      go.href = href;
       row.append(go);
     }
     list.append(row);
@@ -181,6 +202,7 @@ function paintAnswer(d) {
   stat(fmt(d.totals.wallets), 'wallets qualify so far');
   stat(fmt(d.totals.shares), 'shares between them');
   stat(fmt(d.coin ? d.coin.whole : 0), 'coins to share out');
+  stat(String(d.maxShares), 'shares is the most anyone can hold');
   out.append(totals);
 
   out.hidden = false;

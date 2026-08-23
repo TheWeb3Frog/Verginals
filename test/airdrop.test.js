@@ -15,7 +15,7 @@
 const assert = require('assert');
 const codec = require('../src/runes/codec');
 const { RuneState, applyTx, runeRefOf } = require('../src/runes/indexer');
-const { ACTIONS, ActionLedger, sharesOf, allocate } = require('../src/airdrop');
+const { ACTIONS, MAX_SHARES, ActionLedger, sharesOf, isEligible, fillOf, allocate } = require('../src/airdrop');
 const { plan, batch, CHANGE_OUTPUT, FIRST_RECIPIENT, DUST_UNITS } = require('../src/runes/airdropplan');
 
 let passed = 0;
@@ -30,31 +30,76 @@ const addr = (i) => `VaDdR${String(i).padStart(28, '0')}`;
 test('an address that did nothing has no shares and is not on the roll', () => {
   const l = new ActionLedger();
   assert.strictEqual(sharesOf(l.at(addr(1))), 0);
+  assert.strictEqual(isEligible(l.at(addr(1))), false);
   assert.deepStrictEqual(l.roll(), []);
 });
 
-test('one action is one share, four actions are four', () => {
-  const l = new ActionLedger();
-  l.record(addr(1), 'inscribe', 100);
-  assert.strictEqual(sharesOf(l.at(addr(1))), 1);
-  for (const a of ACTIONS) l.record(addr(2), a.key, 100);
-  assert.strictEqual(sharesOf(l.at(addr(2))), 4);
+test('ONE occurrence of ONE action puts you on the list', () => {
+  // The whole point of the eligibility rule: doing the least thing once is enough to be paid.
+  for (const a of ACTIONS) {
+    const l = new ActionLedger();
+    l.record(addr(1), a.key, 100);
+    assert.strictEqual(isEligible(l.at(addr(1))), true, `${a.key} alone should qualify`);
+    assert.strictEqual(l.roll().length, 1);
+  }
 });
 
-test('the same action twice is still one share, and keeps the FIRST height', () => {
+test('repeating a repeatable action earns another share, up to its own ceiling', () => {
   const l = new ActionLedger();
-  assert.strictEqual(l.record(addr(1), 'inscribe', 500), true);
-  assert.strictEqual(l.record(addr(1), 'inscribe', 900), false);
-  assert.strictEqual(l.at(addr(1)).inscribe, 500);
-  assert.strictEqual(sharesOf(l.at(addr(1))), 1);
+  for (let i = 0; i < 5; i++) l.record(addr(1), 'alpha', 100 + i);
+  assert.strictEqual(l.at(addr(1)).alpha.count, 3, 'three Alphas is the ceiling');
+  assert.strictEqual(sharesOf(l.at(addr(1))), 3);
 });
 
-test('a snapshot height hides what happened after it', () => {
+test('repeating a one-shot action earns nothing extra', () => {
+  // Etching is capped at one because it costs a ticker price. Three names to fill a bar would be
+  // asking somebody to burn real money for a bigger slice of a free coin.
+  for (const key of ['inscribe', 'etch']) {
+    const l = new ActionLedger();
+    for (let i = 0; i < 5; i++) l.record(addr(1), key, 100 + i);
+    assert.strictEqual(l.at(addr(1))[key].count, 1, `${key} must cap at one`);
+    assert.strictEqual(sharesOf(l.at(addr(1))), 1);
+  }
+});
+
+test('the ceilings add up to the maximum the page draws its bar against', () => {
+  const l = new ActionLedger();
+  for (const a of ACTIONS) for (let i = 0; i < a.max + 2; i++) l.record(addr(1), a.key, 100 + i);
+  assert.strictEqual(sharesOf(l.at(addr(1))), MAX_SHARES);
+  assert.strictEqual(fillOf(l.at(addr(1))), 1, 'a maxed address must read as exactly 100%');
+});
+
+test('the bar fills in the proportions the actions are actually worth', () => {
   const l = new ActionLedger();
   l.record(addr(1), 'inscribe', 100);
-  l.record(addr(1), 'etch', 900);
-  assert.strictEqual(sharesOf(l.at(addr(1), 500)), 1, 'the etch is after the snapshot');
-  assert.strictEqual(sharesOf(l.at(addr(1), 900)), 2, 'and at the snapshot height itself it counts');
+  assert.strictEqual(fillOf(l.at(addr(1))), 1 / 8);
+  for (let i = 0; i < 3; i++) l.record(addr(1), 'alpha', 100);
+  assert.strictEqual(fillOf(l.at(addr(1))), 4 / 8, 'one inscribe plus three Alphas is half the bar');
+});
+
+test('past the ceiling the extra occurrence is refused rather than stored', () => {
+  const l = new ActionLedger();
+  assert.strictEqual(l.record(addr(1), 'etch', 100), true);
+  assert.strictEqual(l.record(addr(1), 'etch', 200), false);
+  // Storing it and capping on the way out would be equivalent today and wrong the day somebody
+  // mints ten thousand times: the ledger would grow without bound for no extra share.
+  assert.strictEqual(l.actors.get(addr(1)).etch.length, 1);
+});
+
+test('the cap keeps the EARLIEST occurrences, because a snapshot only looks backwards', () => {
+  const l = new ActionLedger();
+  for (const h of [100, 200, 300, 400, 500]) l.record(addr(1), 'alpha', h);
+  assert.deepStrictEqual(l.actors.get(addr(1)).alpha, [100, 200, 300]);
+  assert.strictEqual(l.at(addr(1), 250).alpha.count, 2, 'two Alphas were minted by block 250');
+});
+
+test('a snapshot height hides occurrences after it, one at a time', () => {
+  const l = new ActionLedger();
+  l.record(addr(1), 'alpha', 100);
+  l.record(addr(1), 'alpha', 900);
+  assert.strictEqual(l.at(addr(1), 500).alpha.count, 1);
+  assert.strictEqual(sharesOf(l.at(addr(1), 500)), 1);
+  assert.strictEqual(sharesOf(l.at(addr(1), 900)), 2, 'at the snapshot height itself it counts');
   assert.strictEqual(sharesOf(l.at(addr(1), null)), 2, 'no snapshot means everything so far');
 });
 
@@ -63,6 +108,14 @@ test('an address whose only action is after the snapshot is off the roll entirel
   l.record(addr(1), 'coin', 900);
   assert.deepStrictEqual(l.roll(500), []);
   assert.strictEqual(l.roll(900).length, 1);
+});
+
+test('the first height is reported alongside the count', () => {
+  const l = new ActionLedger();
+  l.record(addr(1), 'alpha', 700);
+  l.record(addr(1), 'alpha', 800);
+  assert.strictEqual(l.at(addr(1)).alpha.first, 700);
+  assert.strictEqual(l.at(addr(1)).etch.first, null, 'and it is null for what was never done');
 });
 
 test('an unknown action is refused rather than silently ignored', () => {
@@ -74,16 +127,21 @@ test('a ledger survives the round trip a reorg snapshot puts it through', () => 
   const l = new ActionLedger();
   l.record(addr(1), 'inscribe', 100);
   l.record(addr(2), 'alpha', 200);
+  l.record(addr(2), 'alpha', 210);
   const back = ActionLedger.fromJSON(JSON.parse(JSON.stringify(l.toJSON())));
   assert.deepStrictEqual(back.roll(), l.roll());
 });
 
-test('a restored ledger is a copy, so rewinding one does not rewrite the other', () => {
+test('a restored ledger is a deep copy, so the live one cannot grow it', () => {
+  // Not paranoia: the occurrences are ARRAYS now, and a shallow copy hands the snapshot the very
+  // array the live ledger keeps pushing onto. It would restore to a state that never existed.
   const l = new ActionLedger();
-  l.record(addr(1), 'inscribe', 100);
+  l.record(addr(1), 'alpha', 100);
   const back = ActionLedger.fromJSON(l.toJSON());
-  l.record(addr(1), 'etch', 200);
-  assert.strictEqual(sharesOf(back.at(addr(1))), 1, 'the copy must not have grown an etch');
+  l.record(addr(1), 'alpha', 200);
+  l.record(addr(1), 'etch', 300);
+  assert.strictEqual(back.at(addr(1)).alpha.count, 1, 'the copy must not have grown a second Alpha');
+  assert.strictEqual(sharesOf(back.at(addr(1))), 1);
 });
 
 // --- the split ----------------------------------------------------------------------------------
@@ -99,20 +157,38 @@ test('the parts sum to exactly the supply, with an awkward number of wallets', (
 
 test('the parts sum to exactly the supply when shares are lopsided', () => {
   const l = new ActionLedger();
-  for (let i = 0; i < 777; i++) for (let k = 0; k <= i % 4; k++) l.record(addr(i), ACTIONS[k].key, 100);
+  for (let i = 0; i < 777; i++) {
+    for (let k = 0; k <= i % 4; k++) for (let n = 0; n <= i % 3; n++) l.record(addr(i), ACTIONS[k].key, 100 + n);
+  }
   const parts = allocate(l.roll(), SUPPLY);
   assert.strictEqual(parts.reduce((s, p) => s + p.amount, 0), SUPPLY);
   assert.ok(parts.every((p) => Number.isInteger(p.amount)), 'no fractional units');
 });
 
-test('four actions is worth four times one action, to the unit', () => {
+test('a maxed wallet is paid eight times a one-action wallet, to the last unit available', () => {
   const l = new ActionLedger();
   l.record(addr(1), 'inscribe', 100);
-  for (const a of ACTIONS) l.record(addr(2), a.key, 100);
+  for (const a of ACTIONS) for (let i = 0; i < a.max; i++) l.record(addr(2), a.key, 100 + i);
   const parts = allocate(l.roll(), SUPPLY);
   const one = parts.find((p) => p.address === addr(1)).amount;
-  const four = parts.find((p) => p.address === addr(2)).amount;
-  assert.strictEqual(four, one * 4);
+  const full = parts.find((p) => p.address === addr(2)).amount;
+
+  // Nine shares do not divide a round billion, so somebody has to receive the leftover unit and
+  // the ratio cannot be exactly 8 AND the parts sum to the supply. Summing exactly is the property
+  // worth keeping: a plan handing out one unit more than exists is a plan that cannot be broadcast.
+  assert.strictEqual(one + full, SUPPLY, 'every unit is handed out');
+  assert.ok(Math.abs(full - one * MAX_SHARES) <= 1,
+    `expected about ${one * MAX_SHARES}, got ${full}`);
+});
+
+test('and when the supply does divide evenly, the ratio is exact', () => {
+  const l = new ActionLedger();
+  l.record(addr(1), 'inscribe', 100);
+  for (const a of ACTIONS) for (let i = 0; i < a.max; i++) l.record(addr(2), a.key, 100 + i);
+  const parts = allocate(l.roll(), 9 * 1000000); // 9 shares, so no remainder to hand anybody
+  const one = parts.find((p) => p.address === addr(1)).amount;
+  const full = parts.find((p) => p.address === addr(2)).amount;
+  assert.strictEqual(full, one * MAX_SHARES);
 });
 
 test('the same roll always splits the same way', () => {

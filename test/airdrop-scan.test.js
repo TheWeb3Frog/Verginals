@@ -13,7 +13,7 @@ const { decodeBlock, xvgToUnits } = require('../src/rpc');
 const { buildInscriptionScript, pushData, parentIdToBuffer } = require('../src/envelope');
 const cbor = require('../src/cbor');
 const codec = require('../src/runes/codec');
-const { sharesOf } = require('../src/airdrop');
+const { sharesOf, MAX_SHARES } = require('../src/airdrop');
 const { lockFor } = require('./fixtures/etchlock');
 
 let passed = 0;
@@ -96,7 +96,8 @@ const ROOT = 'ab'.repeat(32);
 const ROOT_ID = ROOT + 'i0';
 
 const did = (svc, address) => Object.entries(svc.actions.at(address))
-  .filter(([, h]) => h != null).map(([k]) => k).sort();
+  .filter(([, d]) => d.count > 0).map(([k]) => k).sort();
+const times = (svc, address, key) => svc.actions.at(address)[key].count;
 
 // --- one action each ------------------------------------------------------------------------------
 
@@ -106,7 +107,7 @@ test('an inscription reveal earns the address that received it', async () => {
   const svc = service(chain);
   await svc.sync();
   assert.deepStrictEqual(did(svc, 'Vann'), ['inscribe']);
-  assert.strictEqual(svc.actions.at('Vann').inscribe, 100, 'and the height it happened at');
+  assert.strictEqual(svc.actions.at('Vann').inscribe.first, 100, 'and the height it happened at');
 });
 
 test('an etching earns an etch and NOT an inscription, though it is both', async () => {
@@ -198,10 +199,51 @@ test('four different actions by one address are four shares', async () => {
       vout: [out('Vzoe'), opret(codec.encodeMint(codec.refOf(103, 0)))] }]);
   await svc.sync();
   assert.deepStrictEqual(did(svc, 'Vzoe'), ['alpha', 'coin', 'etch', 'inscribe']);
-  assert.strictEqual(sharesOf(svc.actions.at('Vzoe')), 4);
+  assert.strictEqual(sharesOf(svc.actions.at('Vzoe')), 4, 'one of each is four of the eight');
 });
 
-test('doing the same thing ten times is still one share', async () => {
+test('minting three Alphas off the real chain earns three shares, and a fourth earns none', async () => {
+  const chain = new FakeChain()
+    .add(100, [revealTx(ROOT, { txid: 'c0', vout: 0 }, 'Vteam', 'text/plain', Buffer.from('c'))]);
+  const svc = service(chain, ROOT_ID);
+  await svc.sync();
+  // Each mint spends the parent tip and re-emits it, the way the live mint really serialises, so
+  // all four are verified children rather than four unparented reveals.
+  let tip = { txid: ROOT, vout: 0 };
+  for (let i = 0; i < 4; i++) {
+    const txid = 'mint' + i;
+    chain.add(101 + i, [revealTx(txid, tip, 'Vmax', 'image/webp', Buffer.from('art' + i),
+      parentIdToBuffer(ROOT_ID))]);
+    tip = { txid, vout: 0 };
+  }
+  await svc.sync();
+  assert.strictEqual(times(svc, 'Vmax', 'alpha'), 3, 'the fourth Alpha is over the ceiling');
+  assert.strictEqual(sharesOf(svc.actions.at('Vmax')), 3);
+});
+
+test('a full bar is reachable, and nothing beyond it is', async () => {
+  const chain = new FakeChain()
+    .add(100, [revealTx(ROOT, { txid: 'c0', vout: 0 }, 'Vteam', 'text/plain', Buffer.from('c'))]);
+  const svc = service(chain, ROOT_ID);
+  await svc.sync();
+  let tip = { txid: ROOT, vout: 0 };
+  for (let i = 0; i < 3; i++) {
+    const txid = 'a' + i;
+    chain.add(101 + i, [revealTx(txid, tip, 'Vall', 'image/webp', Buffer.from('art' + i), parentIdToBuffer(ROOT_ID))]);
+    tip = { txid, vout: 0 };
+  }
+  chain.add(104, [revealTx('ins', { txid: 'c7', vout: 0 }, 'Vall', 'text/plain', Buffer.from('gm'))]);
+  chain.add(105, [etchTx('e1', { txid: 'c8', vout: 0 }, 'Vall', 'OPEN', { p: 0, m: { a: 1000 } })]);
+  for (let i = 0; i < 4; i++) {
+    chain.add(106 + i, [{ txid: 'm' + i, vin: [{ txid: 'f' + i, vout: 0, scriptSig: { hex: '' } }],
+      vout: [out('Vall'), opret(codec.encodeMint(codec.refOf(105, 0)))] }]);
+  }
+  await svc.sync();
+  assert.strictEqual(times(svc, 'Vall', 'coin'), 3, 'the fourth coin mint is over the ceiling');
+  assert.strictEqual(sharesOf(svc.actions.at('Vall')), MAX_SHARES, 'and that is the whole bar');
+});
+
+test('inscribing ten times is still one share, because inscribing caps at one', async () => {
   const chain = new FakeChain();
   for (let i = 0; i < 10; i++) {
     chain.add(100 + i, [revealTx('i' + i, { txid: 'c' + i, vout: 0 }, 'Vsam', 'text/plain', Buffer.from('x' + i))]);
@@ -209,7 +251,7 @@ test('doing the same thing ten times is still one share', async () => {
   const svc = service(chain);
   await svc.sync();
   assert.strictEqual(sharesOf(svc.actions.at('Vsam')), 1);
-  assert.strictEqual(svc.actions.at('Vsam').inscribe, 100, 'the first one is the one that counts');
+  assert.strictEqual(svc.actions.at('Vsam').inscribe.first, 100, 'the first one is the one that counts');
 });
 
 // --- the chain changing its mind -----------------------------------------------------------------------

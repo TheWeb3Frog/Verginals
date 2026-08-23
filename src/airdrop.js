@@ -1,5 +1,5 @@
 'use strict';
-// Who did something on Verge, and what that earns them in a community drop.
+// Who did something on Verge, how often, and what that earns them in a community drop.
 //
 // ALPHA GO BRRRR was etched with its whole supply premined and no open mint, which leaves exactly
 // one way for it to reach anybody: it gets sent. This file decides who it gets sent to.
@@ -24,51 +24,71 @@
 // An etching is itself an inscription reveal, and an Alpha mint is too. They are counted as the
 // more specific action only, never as both, so a single transaction can never earn two shares.
 //
-// WHY A HEIGHT IS RECORDED FOR EACH. An airdrop announced and then counted live is an airdrop you
-// can farm: read the rules, do the cheapest qualifying thing, take a share off everybody who was
-// there before the rules existed. So eligibility is settled at a SNAPSHOT HEIGHT and the ledger
-// keeps, per address per action, the first height it happened at. Choosing that height later, or
-// never, is a decision this file does not make -- it only makes the decision possible.
+// ONE ACTION IS ENOUGH TO BE ON THE LIST. REPEATING IT IS WHAT FILLS THE BAR. Two of the four are
+// worth doing more than once, up to three times, and the other two are not:
+//
+//   Minting an Alpha and minting a coin are cheap, repeatable, and exactly the behaviour this drop
+//   is meant to reward, so each is worth up to three shares.
+//
+//   Inscribing is worth one. Etching is worth one because it costs a ticker price: asking somebody
+//   to buy three names to fill a bar would be asking them to burn real money for a bigger slice of
+//   a free coin, which is a trap rather than an incentive.
+//
+// WHY A HEIGHT IS RECORDED FOR EACH OCCURRENCE. An airdrop announced and then counted live is an
+// airdrop you can farm: read the rules, do the cheapest qualifying thing, take a share off
+// everybody who was there before the rules existed. So eligibility is settled at a SNAPSHOT HEIGHT,
+// and the ledger keeps a height per occurrence rather than one per action, because "how many
+// Alphas had this address minted by block H" is a different question from "when was the first".
+// Choosing that height later, or never, is a decision this file does not make; it only makes the
+// decision possible.
 
-/** The four actions, in the order a page should show them. The bit values are part of the format. */
+/** The four actions, in the order a page should show them, with how far each one can be taken. */
 const ACTIONS = [
-  { key: 'inscribe', bit: 1, label: 'Inscribed on Verge' },
-  { key: 'alpha', bit: 2, label: 'Minted an Alpha Verginal' },
-  { key: 'etch', bit: 4, label: 'Etched a coin' },
-  { key: 'coin', bit: 8, label: 'Minted a coin' },
+  { key: 'inscribe', max: 1, label: 'Inscribed on Verge', one: 'Inscribe something' },
+  { key: 'alpha', max: 3, label: 'Minted an Alpha Verginal', one: 'Mint an Alpha' },
+  { key: 'etch', max: 1, label: 'Etched a coin', one: 'Etch a coin' },
+  { key: 'coin', max: 3, label: 'Minted a coin', one: 'Mint a coin' },
 ];
 
 const BY_KEY = new Map(ACTIONS.map((a) => [a.key, a]));
 
-/** Every share is worth the same. Four actions, four shares, and no action is worth more. */
-const SHARE_PER_ACTION = 1;
+/** Every occurrence is worth the same. Nothing is weighted by what it cost or how early it was. */
+const SHARE_PER_OCCURRENCE = 1;
+
+/** The most anybody can hold. The bar on the page is a fraction of this and nothing else. */
+const MAX_SHARES = ACTIONS.reduce((n, a) => n + a.max * SHARE_PER_OCCURRENCE, 0);
 
 class ActionLedger {
   constructor() {
-    // address -> { inscribe: height, alpha: height, ... }  first height only
+    // address -> { inscribe: [height, ...], alpha: [...], ... } in scan order, capped per action
     this.actors = new Map();
   }
 
   /**
    * Record that `address` performed `key` at `height`.
    *
-   * Later repeats are dropped rather than overwritten: the ledger answers "when did this first
-   * happen", and a snapshot height must give the same answer whether it is applied today or after
-   * the same address has acted a hundred more times.
+   * Kept in scan order and capped at the action's own maximum, and the cap keeps the FIRST
+   * occurrences rather than the latest. That is what makes a snapshot answerable: a height only
+   * ever looks backwards, so the occurrences it could possibly count are the earliest ones, and
+   * throwing those away to keep newer ones would silently lower the count for every past height.
+   *
+   * @returns {boolean} whether it was recorded, false once the action is already at its maximum
    */
   record(address, key, height) {
     if (!address || typeof address !== 'string') return false;
-    if (!BY_KEY.has(key)) throw new Error(`unknown action ${JSON.stringify(key)}`);
+    const action = BY_KEY.get(key);
+    if (!action) throw new Error(`unknown action ${JSON.stringify(key)}`);
     if (!Number.isInteger(height) || height < 0) throw new Error('height must be a non-negative integer');
     let rec = this.actors.get(address);
     if (!rec) { rec = {}; this.actors.set(address, rec); }
-    if (rec[key] != null) return false;
-    rec[key] = height;
+    const at = rec[key] || (rec[key] = []);
+    if (at.length >= action.max) return false;
+    at.push(height);
     return true;
   }
 
   /**
-   * What this address did at or before `asOf`.
+   * What this address had done by `asOf`, per action: how many times, and when it first happened.
    *
    * `asOf` null means "everything so far", which is the honest answer while no snapshot height has
    * been chosen. It is not the same as eligibility being settled, and callers say which they mean.
@@ -77,8 +97,12 @@ class ActionLedger {
     const rec = this.actors.get(address) || {};
     const done = {};
     for (const a of ACTIONS) {
-      const h = rec[a.key];
-      done[a.key] = h != null && (asOf == null || h <= asOf) ? h : null;
+      const heights = (rec[a.key] || []).filter((h) => asOf == null || h <= asOf);
+      done[a.key] = {
+        count: Math.min(heights.length, a.max),
+        max: a.max,
+        first: heights.length ? heights[0] : null,
+      };
     }
     return done;
   }
@@ -100,7 +124,14 @@ class ActionLedger {
 
   static fromJSON(obj) {
     const l = new ActionLedger();
-    for (const [address, rec] of obj || []) l.actors.set(address, Object.assign({}, rec));
+    // Copied one array deep. A shallow copy would hand the restored ledger the very arrays the live
+    // one keeps pushing onto, so a snapshot taken for a reorg would grow itself and restore to a
+    // state that never existed.
+    for (const [address, rec] of obj || []) {
+      const out = {};
+      for (const key of Object.keys(rec || {})) out[key] = (rec[key] || []).slice();
+      l.actors.set(address, out);
+    }
     return l;
   }
 }
@@ -108,9 +139,25 @@ class ActionLedger {
 /** How many shares a set of completed actions is worth. */
 function sharesOf(done) {
   let n = 0;
-  for (const a of ACTIONS) if (done && done[a.key] != null) n += SHARE_PER_ACTION;
+  for (const a of ACTIONS) {
+    const d = done && done[a.key];
+    if (d && d.count > 0) n += Math.min(d.count, a.max) * SHARE_PER_OCCURRENCE;
+  }
   return n;
 }
+
+/** Is this address on the list at all? One occurrence of one action is enough, and always has been. */
+const isEligible = (done) => sharesOf(done) > 0;
+
+/**
+ * How full this address's bar is, 0 to 1.
+ *
+ * A share of the MAXIMUM ANYBODY CAN HOLD, not a share of the supply and not a share of the roll.
+ * Those two move every time somebody else qualifies, and a figure that quietly shrinks while you
+ * are reading it is how an airdrop page turns into an argument. This one only ever goes up, and it
+ * goes up when you do something.
+ */
+const fillOf = (done) => sharesOf(done) / MAX_SHARES;
 
 /**
  * Split a supply across a roll, largest remainder first.
@@ -141,4 +188,6 @@ function allocate(roll, supply) {
   return parts.map((p) => ({ address: p.address, shares: p.shares, amount: p.amount }));
 }
 
-module.exports = { ACTIONS, SHARE_PER_ACTION, ActionLedger, sharesOf, allocate };
+module.exports = {
+  ACTIONS, SHARE_PER_OCCURRENCE, MAX_SHARES, ActionLedger, sharesOf, isEligible, fillOf, allocate,
+};

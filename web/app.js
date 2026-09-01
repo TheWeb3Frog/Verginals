@@ -879,7 +879,49 @@ function scanningNotice(p, again) {
 }
 
 // --- market tab: all Verginals currently for sale -------------------------------------------
+
+// Floor first, because that is the question a marketplace is opened with. The listings used to be
+// drawn in whatever order the book returned them, so the cheapest one could be anywhere on the page
+// and the floor figure at the top pointed at a card nobody could find.
+const mkt = { sort: 'price-asc', ranks: new Map(), bound: false };
+
+/** Collection number to rarity rank, fetched once. Rank is half of what a buyer is comparing. */
+async function marketRanks() {
+  if (mkt.ranks.size) return mkt.ranks;
+  try {
+    const r = await api('/api/collection/items');
+    for (const it of (r && r.items) || []) if (it.rank != null) mkt.ranks.set(it.number, it.rank);
+  } catch (_) { /* the price is still worth showing without it */ }
+  return mkt.ranks;
+}
+
+function bindMarketSorts() {
+  if (mkt.bound) return;
+  const bar = $('#mk-sorts');
+  if (!bar) return;
+  mkt.bound = true;
+  bar.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-msort]');
+    if (!b) return;
+    mkt.sort = b.dataset.msort;
+    $$('#mk-sorts .vg-pill').forEach((p) => p.classList.toggle('is-on', p === b));
+    loadMarket();
+  });
+}
+
+/** Order the listings the way the pressed pill says. */
+function sortListings(listings, byLoc) {
+  const numOf = (l) => { const i = byLoc.get(l.carrier); return i && i.collectionNumber != null ? i.collectionNumber : null; };
+  const rankOf = (l) => { const n = numOf(l); const r = n == null ? null : mkt.ranks.get(n); return r == null ? Infinity : r; };
+  const rows = [...listings];
+  if (mkt.sort === 'price-desc') return rows.sort((a, b) => b.priceUnits - a.priceUnits);
+  if (mkt.sort === 'rank') return rows.sort((a, b) => rankOf(a) - rankOf(b) || a.priceUnits - b.priceUnits);
+  if (mkt.sort === 'new') return rows.sort((a, b) => (b.at || 0) - (a.at || 0));
+  return rows.sort((a, b) => a.priceUnits - b.priceUnits);
+}
+
 async function loadMarket() {
+  bindMarketSorts();
   const g = $('#market-gallery');
   // Say what is happening BEFORE the wait, not after it. This function needs the inscription list
   // to match a listing to its art, and during a rescan that request is slow, so the panel sat on
@@ -899,6 +941,7 @@ async function loadMarket() {
     // Guarded: an answer without a listings array used to throw here, and the throw took the
     // whole market panel with it rather than showing an empty one.
     const listings = (data && Array.isArray(data.listings)) ? data.listings : [];
+    await marketRanks();
     $('#market-meta').textContent = `${listings.length} for sale`;
     paintMarketStats(listings);
     if (!listings.length) {
@@ -918,14 +961,16 @@ async function loadMarket() {
     }
     const byLoc = new Map(list.map((i) => [i.location, i]));
     g.innerHTML = '';
-    listings.forEach((l) => {
+    sortListings(listings, byLoc).forEach((l) => {
       const ins = byLoc.get(l.carrier);
       const c = document.createElement('div');
       c.className = 'ins-card clickable';
       const img = ins ? thumbHtml(ins) : '<div class="blob">🏷️</div>';
       const label = ins ? (ins.collectionNumber != null ? `#${ins.collectionNumber}` : (ins.number != null ? `#${ins.number}` : 'Inscription')) : 'Inscription';
       const xvg = l.priceUnits / MKT_COIN, usd = usdStr(xvg);
-      c.innerHTML = `<div class="ins-media">${img}</div>
+      const num = ins && ins.collectionNumber != null ? ins.collectionNumber : null;
+      const rank = num == null ? null : mkt.ranks.get(num);
+      c.innerHTML = `<div class="ins-media">${img}${rank != null ? `<span class="mk-rank">rank ${fmt(rank)}</span>` : ''}</div>
         <div class="ins-body"><div class="num">${label}</div>
         <div class="mk-price">${fmt(xvg)} XVG</div>${usd ? `<div class="mk-usd">${usd}</div>` : ''}</div>`;
       if (ins) c.addEventListener('click', () => openDetail(ins));

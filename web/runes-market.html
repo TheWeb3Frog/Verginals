@@ -8,7 +8,7 @@
 <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/vg.css">
-<link rel="stylesheet" href="/runes-market.css">
+<link rel="stylesheet" href="/runes-market.css?v=29">
 </head>
 <body class="vg">
 <main class="vg-wrap">
@@ -34,7 +34,8 @@
              placeholder="search ticker" aria-label="Search by ticker">
     </div>
     <div class="rm-sorts" id="rm-sorts" role="group" aria-label="Sort">
-      <button type="button" class="vg-pill is-on" data-sort="new">Newest</button>
+      <button type="button" class="vg-pill is-on" data-sort="live">Active</button>
+      <button type="button" class="vg-pill" data-sort="new">Newest</button>
       <button type="button" class="vg-pill" data-sort="price">Cheapest</button>
       <button type="button" class="vg-pill" data-sort="minted">Most minted</button>
       <button type="button" class="vg-pill" data-sort="holders">Most held</button>
@@ -83,6 +84,7 @@
   </section>
 
 </main>
-<script type="module" src="/runes-market.js"></script>
+<script src="/wallet.js?v=29"></script>
+<script type="module" src="/runes-market.js?v=29"></script>
 </body>
 </html>

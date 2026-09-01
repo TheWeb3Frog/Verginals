@@ -8,7 +8,7 @@
   <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/vg.css" />
-  <link rel="stylesheet" href="/style.css?v=29" />
+  <link rel="stylesheet" href="/style.css?v=30" />
 </head>
 <body class="vg vg-hosted">
 
@@ -353,6 +353,14 @@
         </div>
       </header>
       <span class="hint hidden" id="market-meta"></span>
+      <div class="mk-bar">
+        <div class="mk-sorts" id="mk-sorts" role="group" aria-label="Sort listings">
+          <button type="button" class="vg-pill is-on" data-msort="price-asc">Floor first</button>
+          <button type="button" class="vg-pill" data-msort="price-desc">Priciest</button>
+          <button type="button" class="vg-pill" data-msort="rank">Rarest</button>
+          <button type="button" class="vg-pill" data-msort="new">Just listed</button>
+        </div>
+      </div>
       <div class="gallery" id="market-gallery"><div class="empty">Loading…</div></div>
     </section>
 
@@ -827,7 +835,7 @@
 
   <script src="/vendor/qrcode.js"></script>
   <script type="module" src="/app-chrome.js"></script>
-<script src="/app.js?v=29"></script>
-  <script src="/wallet.js?v=29"></script>
+<script src="/app.js?v=30"></script>
+  <script src="/wallet.js?v=30"></script>
 </body>
 </html>

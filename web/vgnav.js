@@ -93,6 +93,10 @@ function buildNav(active) {
       }
       li.append(btn, panel);
 
+      // Decided once, here, because every handler below branches on it.
+      const fine = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+      let shutTimer = null;
+
       const open = (on) => {
         for (const other of menu.querySelectorAll('li[data-open]')) {
           if (other !== li) { delete other.dataset.open; other.querySelector('.vg-top').setAttribute('aria-expanded', 'false'); }
@@ -100,7 +104,17 @@ function buildNav(active) {
         if (on) li.dataset.open = '1'; else delete li.dataset.open;
         btn.setAttribute('aria-expanded', on ? 'true' : 'false');
       };
-      btn.addEventListener('click', () => { clearTimeout(shutTimer); open(!li.dataset.open); });
+      // A CLICK HERE NEVER CLOSES, when there is a pointer.
+      //
+      // It used to toggle, and that is the bug people actually hit. Hovering opens the panel; the
+      // thing under the cursor then looks exactly like a button, so they click it; the toggle shuts
+      // it again under the cursor. And because the pointer never LEFT the item, no mouseenter can
+      // fire to bring it back, so the menu stays shut and the only way out is another click. That
+      // is the "it disappears and I have to click to get it back" report, exactly.
+      //
+      // On a touch screen there is no hover, so the tap has to keep toggling or a panel could never
+      // be dismissed.
+      btn.addEventListener('click', () => { clearTimeout(shutTimer); open(fine ? true : !li.dataset.open); });
       // Hover only where there is a real pointer. On a touch screen a hover-open menu swallows the
       // first tap and the person thinks the link is broken.
       //
@@ -108,12 +122,20 @@ function buildNav(active) {
       // is a seam, and a menu that closes on the way across it cannot be used at all: you aim at a
       // sub-item, cross the seam, and the thing you were aiming at is gone. The grace period is
       // short enough to feel immediate and long enough to survive the crossing.
-      let shutTimer = null;
-      if (window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+      if (fine) {
         li.addEventListener('mouseenter', () => { clearTimeout(shutTimer); open(true); });
+        // The safety net, and the reason the menu can no longer get stuck: mouseenter only fires on
+        // ENTRY, so any path that closes the panel while the pointer is still inside leaves it shut
+        // with no way to reopen by moving. This reopens it on the next movement over the item, so
+        // "the pointer is on it" and "it is open" cannot drift apart, whatever closed it.
+        li.addEventListener('mousemove', () => {
+          if (li.dataset.open) return;
+          clearTimeout(shutTimer);
+          open(true);
+        });
         li.addEventListener('mouseleave', () => {
           clearTimeout(shutTimer);
-          shutTimer = setTimeout(() => open(false), 220);
+          shutTimer = setTimeout(() => open(false), 300);
         });
       }
       li.addEventListener('focusout', (e) => {
@@ -156,7 +178,15 @@ function buildNav(active) {
       nav.classList.remove('is-open');
     }
   });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') nav.classList.remove('is-open'); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    nav.classList.remove('is-open');
+    for (const li of menu.querySelectorAll('li[data-open]')) {
+      delete li.dataset.open;
+      const t = li.querySelector('.vg-top');
+      if (t) t.setAttribute('aria-expanded', 'false');
+    }
+  });
   return nav;
 }
 

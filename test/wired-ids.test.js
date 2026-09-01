@@ -182,4 +182,46 @@ test('CONTROL: a script that borrows a helper it does not define is reported', (
     `the check missed a borrowed helper, found only ${JSON.stringify(borrowed)}`);
 });
 
+// --- the bar renders a control that only one script can wire -------------------------------------
+//
+// mountChrome puts a Connect Wallet button on EVERY page. wallet.js is the only thing that wires
+// it. Six pages mounted the bar and never loaded wallet.js, so on all six the button was rendered,
+// looked exactly like the working one, and did nothing when pressed.
+//
+// This is the same shape as every other bug in this file: a contract between two files that no
+// single file can be read to check.
+
+/** Pages whose own scripts call mountChrome, so the bar and its button end up on them. */
+function pagesMountingChrome() {
+  return PAGES.filter((page) => {
+    const html = read(page);
+    if (/mountChrome/.test(html)) return true;
+    for (const m of html.matchAll(/src="\/([A-Za-z0-9._-]+\.js)(?:\?[^"]*)?"/g)) {
+      const f = path.join(WEB, m[1]);
+      if (fs.existsSync(f) && /mountChrome/.test(fs.readFileSync(f, 'utf8'))) return true;
+    }
+    return false;
+  });
+}
+
+test('the harness found pages that mount the bar, so an empty check is not a pass', () => {
+  assert.ok(pagesMountingChrome().length >= 5,
+    `only ${pagesMountingChrome().length} pages appear to mount the bar`);
+});
+
+test('EVERY PAGE SHOWING THE CONNECT BUTTON ALSO LOADS THE SCRIPT THAT WIRES IT', () => {
+  const inert = pagesMountingChrome().filter((f) => !pagesLoading('wallet.js').includes(f));
+  assert.deepStrictEqual(inert, [],
+    'these pages render Connect Wallet and nothing wires it:\n  ' + inert.join('\n  '));
+});
+
+test('CONTROL: a page that mounts the bar without wallet.js is reported', () => {
+  const mounting = pagesMountingChrome();
+  const loading = pagesLoading('wallet.js');
+  // Pretend one of them stopped loading it, and confirm the comparison notices.
+  const pretend = mounting.filter((f) => !loading.filter((x) => x !== mounting[0]).includes(f));
+  assert.ok(pretend.includes(mounting[0]),
+    'the check would not notice a page that dropped wallet.js');
+});
+
 console.log(`\n${passed} wired-id tests passed`);

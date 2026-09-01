@@ -892,3 +892,20 @@ footer .hint { max-width: 980px; margin: 0 auto; }
   .gal-head { grid-template-columns: 1fr; gap: 18px; align-items: start; }
   .gal-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* --- the Verginals market: sorting, and the rank a buyer shops on -------------------------------- */
+
+.mk-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 0 0 16px; }
+.mk-sorts { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* The media box has to be a positioning context for the badge to sit inside the art. */
+.ins-media { position: relative; }
+/* Rank over the art rather than under it: the picture and its rarity are one thought, and the body
+   below is already carrying the price. */
+.mk-rank {
+  position: absolute; top: 8px; right: 8px; z-index: 1;
+  padding: 4px 8px; border-radius: var(--r-pill, 999px);
+  background: rgba(11, 16, 23, .82); backdrop-filter: blur(4px);
+  border: 1px solid var(--line);
+  font: 500 10.5px/1 var(--mono); color: var(--txt); white-space: nowrap;
+}

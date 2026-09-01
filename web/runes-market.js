@@ -37,7 +37,7 @@ function compact(n) {
 }
 
 let coins = [];
-let sort = 'new';
+let sort = 'live';
 let query = '';
 let scanning = false;
 let scanTimer = null;
@@ -110,6 +110,37 @@ function paintStats(res) {
   stat('Listed', fmtN(listed), listed ? 'on the book' : 'nobody selling yet', listed ? '' : 'vg-muted');
 }
 
+// The mark colour, drawn from the collection's own palette.
+//
+// Every row used to carry the same grey-blue gradient square with the same fallback glyph in it,
+// so fourteen coins read as fourteen identical rows and the eye had nothing to hold on to. A coin
+// has no art, but it does have a permanent identity, so the colour is derived from that: the same
+// coin is the same colour on every device, for ever, and no two adjacent rows look alike.
+const MARKS = ['#FD0142', '#7909F9', '#FEC925', '#F18BF6', '#0DF1FF', '#59C54F',
+  '#FF4F02', '#DB3FFD', '#03BF99', '#FDED58', '#0098DB'];
+
+function markFor(key) {
+  // FNV-1a over the ticker AND the reference. A plain h*31 over the reference alone clustered,
+  // because every reference on this chain starts with the same four digits: measured against the
+  // real fourteen coins in the order the page actually shows them, it put two identical colours
+  // side by side. This one puts none.
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619); }
+  const bg = MARKS[(h >>> 0) % MARKS.length];
+  // Readable text on whatever came out, rather than white on lemon yellow.
+  const r = parseInt(bg.slice(1, 3), 16), g = parseInt(bg.slice(3, 5), 16), b = parseInt(bg.slice(5, 7), 16);
+  const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  return { bg, fg: lum > 0.55 ? '#0b1017' : '#ffffff' };
+}
+
+/** Can somebody do anything with this coin right now? Ranks a market by what is alive in it. */
+function liveness(c) {
+  if (c.market.asks > 0) return 3;          // you can buy it
+  if (c.mint && c.mint.open) return 2;      // you can mint it
+  if (c.carriers > 1) return 1;             // somebody other than the etcher holds it
+  return 0;                                 // etched and untouched
+}
+
 function sorted() {
   const rows = coins.filter((c) => !query
     || c.ticker.includes(query) || c.display.includes(query) || c.runeRef.startsWith(query));
@@ -128,7 +159,15 @@ function sorted() {
     return rows.sort((a, b) => (b.mintedShare || 0) - (a.mintedShare || 0) || byNew(a, b));
   }
   if (sort === 'holders') return rows.sort((a, b) => b.carriers - a.carriers || byNew(a, b));
-  return rows.sort(byNew);
+  if (sort === 'new') return rows.sort(byNew);
+  // The default. Newest-first was the default and it opened the market on whatever was etched last,
+  // which is reliably a coin with no asks, no holders and nothing to do, so the first thing anybody
+  // saw was two rows of "No asks" and a dash. Sorting by what you can actually act on puts the
+  // living coins at the top without inventing a metric: it is only counting listings and mints.
+  return rows.sort((a, b) => liveness(b) - liveness(a)
+    || b.market.asks - a.market.asks
+    || b.carriers - a.carriers
+    || byNew(a, b));
 }
 
 function render() {
@@ -170,7 +209,7 @@ function render() {
 function progressFor(c) {
   const prog = el('div', 'rm-prog');
   if (!c.mint) {
-    prog.append(el('span', 'rm-pct', 'no open mint, ' + compact(c.whole.supply) + ' supply'));
+    prog.append(el('span', 'rm-pct', compact(c.whole.supply) + ' supply, mint closed'));
     return prog;
   }
 
@@ -188,10 +227,10 @@ function progressFor(c) {
     label.textContent = (c.mint.closedBecause || [])[0] || 'mint closed';
     label.classList.add('closed');
   } else if (c.mint.remaining == null) {
-    label.textContent = `${pct.toFixed(0)}% minted, no limit on claims`;
+    label.textContent = `${pct.toFixed(0)}% minted, no limit`;
   } else {
-    label.textContent = `${pct > 0 && pct < 1 ? pct.toFixed(2) : pct.toFixed(0)}% minted, `
-      + `${compact(c.mint.remaining)} claims left`;
+    label.textContent = `${pct > 0 && pct < 1 ? pct.toFixed(2) : pct.toFixed(0)}% \u00b7 `
+      + `${compact(c.mint.remaining)} left`;
   }
   prog.append(track, label);
   return prog;
@@ -203,7 +242,10 @@ function rowFor(c) {
   const href = '/runes/coin?rune=' + encodeURIComponent(c.runeRef);
 
   const id = el('div', 'rm-id');
-  const mark = el('div', 'rm-mark', c.symbol || '¤');
+  const face = markFor(c.ticker + c.runeRef);
+  const mark = el('div', 'rm-mark', c.symbol || c.ticker.slice(0, 1));
+  mark.style.background = face.bg;
+  mark.style.color = face.fg;
   const names = el('div', 'rm-names');
   const name = el('a', 'rm-name', c.display);
   name.href = href;

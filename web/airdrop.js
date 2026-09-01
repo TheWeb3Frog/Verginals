@@ -80,7 +80,13 @@ function paintTerms(d) {
       if (i) $('ad-name').append(el('span', 'ad-dot', '•'));
       $('ad-name').append(document.createTextNode(part));
     });
-    $('ad-supply').textContent = fmt(d.coin.whole);
+    // Every figure and every mention of the name, filled from the chain rather than typed into the
+    // markup. The page used to say "One billion" in four places; the coin the drop points at is
+    // configuration, and when it changed those four sentences became false while the stat beside
+    // them was right. A number that lives in two places is a number that eventually disagrees with
+    // itself, so it lives in one: the etching.
+    for (const e of document.querySelectorAll('[data-supply]')) e.textContent = fmt(d.coin.whole);
+    for (const e of document.querySelectorAll('[data-coin]')) e.textContent = d.coin.display;
   }
 
   // What state the drop is in, said in the chip rather than buried in a paragraph.

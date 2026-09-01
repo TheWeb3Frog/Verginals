@@ -513,7 +513,17 @@ $('#et-compose').addEventListener('click', async () => {
   }
 
   out.textContent = '';
-  out.append(el('h3', '', 'Your etching, composed'));
+
+  // THE DECISIVE BUTTON GOES FIRST, and this is the whole fix.
+  //
+  // It used to sit at the bottom, under a summary, a hex dump and three paragraphs, so the last
+  // thing on screen after pressing "Compose" was a wall of text with the real action below the
+  // fold. People pressed compose, watched their wallet do something for the lock key, and believed
+  // they had etched. They had not: nothing is signed, nothing is paid, and the coin does not exist
+  // until the button below is pressed.
+  const confirm = el('div', 'et-confirm');
+  out.append(confirm);
+  out.append(el('h3', '', 'What gets written'));
   const box = el('div');
   kv(box, 'Coin', r.display || r.ticker, 'lead');
   kv(box, 'Definition', r.bodyBytes + ' bytes of CBOR');
@@ -539,13 +549,26 @@ $('#et-compose').addEventListener('click', async () => {
 
   const next = el('div');
   if (r.launched) {
-    const go = el('button', 'et-btn', 'Etch it for real');
-    next.append(el('p', 'et-note', 'This is the last reversible moment. Once you pay, the coin is '
-      + 'made and everything above is permanent.'));
-    next.append(go);
+    const head = el('div', 'et-confirm-head');
+    head.append(el('p', 'et-confirm-say', 'Nothing has been signed or paid yet'));
+    head.append(el('p', 'et-confirm-why', 'Reviewing costs nothing and changes nothing. '
+      + (r.display || r.ticker) + ' does not exist until you press the button below, and after that '
+      + 'every number on this page is permanent.'));
+    const price = el('p', 'et-confirm-price');
+    price.append(el('b', '', xvg(r.cost.total) + ' XVG'), document.createTextNode(' in total'));
+    head.append(price);
+
+    const go = el('button', 'et-btn et-go', 'Etch ' + (r.display || r.ticker) + ' for real');
+    head.append(go);
+    confirm.append(head);
+
     const live = el('div', 'et-result');
-    next.append(live);
-    go.addEventListener('click', () => { go.disabled = true; startEtch(payload, live); });
+    confirm.append(live);
+    go.addEventListener('click', () => { go.disabled = true; go.textContent = 'Etching...'; startEtch(payload, live); });
+
+    // Put the decision where the eye already is. Composing scrolls the page, and a button somebody
+    // has to hunt for is a button somebody does not press.
+    requestAnimationFrame(() => confirm.scrollIntoView({ behavior: 'smooth', block: 'center' }));
   } else {
     next.append(el('p', 'et-note', 'Verge Runes is not switched on yet on this server, so nothing '
       + 'here has been broadcast and no coins have moved. This is the real etching your coin would '
@@ -649,6 +672,22 @@ async function startEtch(payload, host) {
     } catch { continue; }
 
     if (s.status === 'error') { state.className = 'et-err'; state.textContent = s.error; return; }
+
+    // Say where it has got to. This used to read "Building your coin now" for as long as it took,
+    // which on a slow block is several minutes of a screen that looks identical to a stuck one, and
+    // a stuck screen is what makes somebody reload and press things twice.
+    if (!s.runeRef) {
+      const where = s.revealTxid
+        ? 'Etching broadcast. Waiting for a miner to place it in a block, which is what gives your '
+          + 'coin its number.'
+        : s.splitTxid
+          ? 'Payment seen. Writing the coin definition onto the chain.'
+          : selfFunded
+            ? 'Payment signed. Waiting for the network to relay it.'
+            : 'Waiting for your payment. You can leave this page open.';
+      if (state.textContent !== where) state.textContent = where;
+    }
+
     if (s.runeRef) {
       host.textContent = '';
       host.append(el('h3', '', 'Your coin exists'));

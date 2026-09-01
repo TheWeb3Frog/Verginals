@@ -8,7 +8,7 @@
   <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/vg.css" />
-  <link rel="stylesheet" href="/style.css?v=28" />
+  <link rel="stylesheet" href="/style.css?v=29" />
 </head>
 <body class="vg vg-hosted">
 
@@ -174,15 +174,6 @@
           </div>
           <div class="vg-bar mh-bar"><span id="mint-bar" style="width:0"></span></div>
 
-          <div class="mh-houses" id="mh-houses">
-            <div class="mh-house"><span class="vg-label">Fire</span><b class="vg-num vg-n-sm">1,111</b>
-              <div class="vg-bar thin"><span class="fire" style="width:100%"></span></div></div>
-            <div class="mh-house"><span class="vg-label">Water</span><b class="vg-num vg-n-sm">1,111</b>
-              <div class="vg-bar thin"><span class="water" style="width:100%"></span></div></div>
-            <div class="mh-house"><span class="vg-label">Earth</span><b class="vg-num vg-n-sm">1,111</b>
-              <div class="vg-bar thin"><span class="earth" style="width:100%"></span></div></div>
-          </div>
-
           <div class="mh-pair">
             <div>
               <p class="vg-label">What it costs</p>
@@ -201,25 +192,24 @@
         </div>
       </div>
 
-      <!-- showcase: what an Alpha Verginal looks like -->
-      <div class="card showcase">
-        <span class="showcase-tag">★ The first Verginals ever inscribed on Verge</span>
-        <h2>Meet the Alpha Verginals</h2>
-        <p class="lead">This is <span class="em">history</span>: the very first collection of native inscriptions ever created on the Verge (XVG) blockchain. 3,333 hand-crafted pixel cats, each carrying a Verge rune, each written <span class="em">directly onto the chain</span>: no server, no database, no middleman. Once yours is inscribed, it lives on Verge <span class="em">forever</span>.</p>
-        <p class="lead">Every Verginal belongs to one of three Houses: <span class="em">Fire</span>, <span class="em">Water</span> and <span class="em">Earth</span>, with 1,111 in each. You don't choose which one you get: a provably-fair random draw seals your Verginal the instant you start, and reveals it the moment your payment confirms. Here's a taste of what's inside the vault:</p>
-        <div class="showcase-solo">
-          <div class="sc-card sc-featured">
-            <img id="sc-img" src="/api/collection/image/1" alt="Alpha Verginal" width="560" height="560" />
-            <div class="sc-meta"><span class="sc-name" id="sc-name">Verginals #1</span><span class="sc-house fire" id="sc-house">Fire</span></div>
+      <!-- the collection itself: real Alphas, real numbers, no lore -->
+      <section class="gal">
+        <div class="gal-head">
+          <div>
+            <p class="vg-label">The collection</p>
+            <h2 class="vg-d2">Every one is different,<br>and you do not pick.</h2>
           </div>
-          <div class="sc-dots" id="sc-dots">
-            <button class="sc-dot active" type="button" data-i="0" aria-label="Show House of Fire"></button>
-            <button class="sc-dot" type="button" data-i="1" aria-label="Show House of Water"></button>
-            <button class="sc-dot" type="button" data-i="2" aria-label="Show House of Earth"></button>
-          </div>
+          <p class="vg-say gal-say">
+            Hand-drawn pixel cats written straight onto Verge. These are real ones, already
+            inscribed and owned by somebody. Yours is drawn at random from whatever is left.
+          </p>
         </div>
-        <p class="showcase-note">Real Verginals from the collection: yours is randomly assigned and could be any of the 3,333. No two are alike.</p>
-      </div>
+        <ul class="gal-grid" id="gal-grid" aria-label="Alpha Verginals already inscribed"></ul>
+        <div class="gal-foot">
+          <a class="vg-btn" href="#explore">Browse all of them</a>
+          <a class="vg-btn" href="#collection">Rarity ranking</a>
+        </div>
+      </section>
 
       <!-- reserve form -->
       <div class="card" id="mint-form">
@@ -837,7 +827,7 @@
 
   <script src="/vendor/qrcode.js"></script>
   <script type="module" src="/app-chrome.js"></script>
-<script src="/app.js?v=28"></script>
-  <script src="/wallet.js?v=28"></script>
+<script src="/app.js?v=29"></script>
+  <script src="/wallet.js?v=29"></script>
 </body>
 </html>

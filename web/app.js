@@ -1387,7 +1387,9 @@ function revealVerginal(v, j) {
   head.className = 'rv-head';
   const name = document.createElement('h3');
   name.className = 'vg-d3';
-  name.textContent = (v.name || 'Verginal') + ' #' + v.number;
+  // The name already carries the number: the collection stores "Verginals #1", so appending it
+  // again read "Verginals #1 #1" on the one screen somebody actually looks at.
+  name.textContent = v.name || ('Verginals #' + v.number);
   head.append(name);
   if (house) {
     const chip = document.createElement('span');
@@ -1951,39 +1953,72 @@ function renderDonateQR() {
   }
 }
 
-// --- showcase carousel -------------------------------------------------------------------
-// One Alpha Verginal at a time (Fire → Water → Earth), auto-rotating with clickable dots.
-(function showcaseCarousel() {
-  const img = $('#sc-img');
-  const nameEl = $('#sc-name');
-  const houseEl = $('#sc-house');
-  const dots = $$('.sc-dot');
-  if (!img || !nameEl || !houseEl || !dots.length) return;
+// --- the collection gallery --------------------------------------------------------------
+//
+// Eight real Alphas, not three on a timer. The old version rotated one image between three
+// hard-coded numbers to demonstrate the Houses, which is a fact about the collection that nobody
+// mints on, and it did it inside a container that letterboxed a square image into a vertical strip.
+//
+// These are ones that have actually been inscribed, drawn fresh on every load, so the section is
+// evidence rather than an advert: somebody owns each of these.
+(function collectionGallery() {
+  const grid = $('#gal-grid');
+  if (!grid) return;
 
-  const slides = [
-    { num: 1, house: 'fire',  label: 'Fire'  },
-    { num: 2, house: 'water', label: 'Water' },
-    { num: 4, house: 'earth', label: 'Earth' },
-  ];
-  let i = 0;
-  let timer = null;
+  const tile = (item) => {
+    const li = document.createElement('li');
+    li.className = 'gal-tile is-wait';
 
-  function show(n) {
-    i = (n + slides.length) % slides.length;
-    const s = slides[i];
-    img.src = '/api/collection/image/' + s.num;
-    img.alt = 'Alpha Verginal, House of ' + s.label;
-    nameEl.textContent = 'Verginals #' + s.num;
-    houseEl.textContent = s.label;
-    houseEl.className = 'sc-house ' + s.house;
-    dots.forEach((d, k) => d.classList.toggle('active', k === i));
-  }
-  function start() { stop(); timer = setInterval(() => show(i + 1), 3500); }
-  function stop() { if (timer) { clearInterval(timer); timer = null; } }
+    const a = document.createElement('a');
+    a.href = '#explore';
+    a.setAttribute('aria-label', item.name || ('Verginals #' + item.number));
 
-  dots.forEach((d) => d.addEventListener('click', () => { show(Number(d.dataset.i)); start(); }));
-  show(0);
-  start();
+    const img = document.createElement('img');
+    img.src = '/api/collection/image/' + item.number;
+    // No width/height attributes on purpose. They are presentational hints with a definite height,
+    // and a definite height makes the browser ignore aspect-ratio, which is what produced the black
+    // bars. The ratio is set in CSS and the box is reserved by it, so nothing jumps either.
+    img.alt = item.name || ('Verginals #' + item.number);
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.addEventListener('load', () => li.classList.remove('is-wait'), { once: true });
+    img.addEventListener('error', () => li.classList.remove('is-wait'), { once: true });
+    a.append(img);
+
+    const meta = document.createElement('div');
+    meta.className = 'gal-meta';
+    const num = document.createElement('span');
+    num.className = 'gal-num';
+    // The name already carries the number. Composing it again is how the reveal came to read
+    // "Verginals #1 #1".
+    num.textContent = item.name || ('Verginals #' + item.number);
+    meta.append(num);
+    if (item.rank != null) {
+      const rank = document.createElement('span');
+      rank.className = 'gal-rank';
+      rank.textContent = 'rank ' + fmt(item.rank);
+      meta.append(rank);
+    }
+    a.append(meta);
+    li.append(a);
+    return li;
+  };
+
+  (async () => {
+    let items = [];
+    try {
+      const r = await api('/api/collection/items');
+      items = (r && r.items) || [];
+    } catch (_) { /* the section is worth showing either way */ }
+
+    // Before anybody has minted there is nothing owned to show, so fall back to the first few of
+    // the collection rather than rendering an empty band.
+    const pick = items.length
+      ? items.sort(() => Math.random() - 0.5).slice(0, 8)
+      : [1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({ number: n, name: 'Verginals #' + n }));
+    grid.textContent = '';
+    for (const it of pick) grid.append(tile(it));
+  })();
 })();
 
 // --- Arena (the game): pick a Verginal, compose a loadout, duel, climb the ladder ------------

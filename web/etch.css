@@ -459,3 +459,35 @@
 .et-card-name.is-long { font-size: 27px; }
 .et-card-name.is-longer { font-size: 21px; letter-spacing: -.01em; }
 .et-card-name { overflow-wrap: anywhere; }
+
+/* --- the confirm step ---------------------------------------------------------------------------
+   The decisive action used to sit at the bottom of the preview, under a summary, a hex dump and
+   three paragraphs. Somebody pressing "Compose" watched their wallet derive a lock key, saw a wall
+   of text, and reasonably concluded they had etched. They had not. So the decision is now the first
+   thing in the preview and it says, in the largest type on the panel, that nothing has happened. */
+
+.et-confirm {
+  margin: 0 0 26px;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-card, 12px);
+  background: linear-gradient(180deg, rgba(76, 194, 241, .07), transparent 60%), var(--card);
+}
+.et-confirm-head { padding: 22px 24px; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.et-confirm-say {
+  margin: 0; font: 700 19px/1.2 var(--display); letter-spacing: -.02em; color: var(--txt);
+}
+.et-confirm-why { margin: 0; font-size: 13px; line-height: 1.6; color: var(--muted); max-width: 62ch; }
+.et-confirm-price { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+.et-confirm-price b {
+  font: 700 24px/1 var(--mono); letter-spacing: -.02em; color: var(--txt);
+  font-variant-numeric: tabular-nums; margin-right: 8px;
+}
+/* Full width, because this is the only thing on the panel anybody needs to press. */
+.et-go { width: 100%; margin-top: 6px; padding: 14px 20px; font-size: 15px; }
+.et-confirm .et-result { padding: 0 24px 22px; }
+.et-confirm .et-result:empty { display: none; }
+
+@media (max-width: 620px) {
+  .et-confirm-head { padding: 18px 16px; }
+  .et-confirm .et-result { padding: 0 16px 18px; }
+}

@@ -287,36 +287,15 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 @keyframes pop { 0% { transform: scale(.96); } 55% { transform: scale(1.04); } 100% { transform: scale(1); } }
 
 /* Alpha Verginals showcase */
-.showcase { background: linear-gradient(160deg, #123650, var(--card)); overflow: hidden; }
-.showcase-tag {
   display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase;
   color: var(--accent); background: #4cc2f11a; border: 1px solid #4cc2f155; border-radius: 999px; padding: 5px 12px;
 }
-.showcase h2 { margin: 14px 0 6px; font-size: 24px; letter-spacing: .2px; }
-.showcase .lead { font-size: 15px; color: var(--txt); line-height: 1.55; margin: 0 0 4px; max-width: 640px; }
-.showcase .lead .em { color: var(--accent); font-weight: 700; }
-.showcase-solo { margin: 20px 0 6px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
-.sc-card {
   background: var(--bg2); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
   transition: transform .18s ease, border-color .18s ease;
 }
-.sc-card:hover { transform: translateY(-4px); border-color: var(--accent); }
-.sc-card img { width: 100%; aspect-ratio: 1/1; object-fit: contain; display: block; image-rendering: pixelated; background: var(--bg); }
-.sc-featured { width: 100%; max-width: 340px; }
-.sc-dots { display: flex; gap: 10px; }
-.sc-dot {
   width: 10px; height: 10px; padding: 0; border-radius: 999px; cursor: pointer;
   background: var(--line); border: 1px solid var(--line); transition: background .18s ease, border-color .18s ease, transform .18s ease;
 }
-.sc-dot:hover { border-color: var(--accent); }
-.sc-dot.active { background: var(--accent); border-color: var(--accent); transform: scale(1.15); }
-.sc-meta { padding: 9px 11px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.sc-name { font-weight: 700; font-size: 13px; }
-.sc-house { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; padding: 3px 8px; border-radius: 999px; }
-.sc-house.fire { color: #ff9d6b; background: #ff9d6b1a; border: 1px solid #ff9d6b55; }
-.sc-house.water { color: #4cc2f1; background: #4cc2f11a; border: 1px solid #4cc2f155; }
-.sc-house.earth { color: #7ed492; background: #7ed4921a; border: 1px solid #7ed49255; }
-.showcase-note { font-size: 12px; color: var(--muted); margin-top: 12px; }
 
 /* Long-form prose (Vision / Terms) */
 .prose { max-width: 760px; }
@@ -866,3 +845,50 @@ footer .hint { max-width: 980px; margin: 0 auto; }
   font: 700 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim);
 }
 .mint-or::before, .mint-or::after { content: ''; flex: 1; height: 1px; background: var(--hair); }
+
+/* --- the collection, shown rather than described ------------------------------------------------
+   What was here before was two paragraphs of lore about Houses and ONE image behind three dots, and
+   the image was letterboxed into a vertical strip because the markup's height attribute beat its
+   aspect-ratio. Nobody buys a pixel cat because of a paragraph. They buy it because they saw eight
+   of them at once and wanted one. */
+
+.gal { margin: 56px 0 0; }
+.gal-head {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .8fr);
+  gap: 40px; align-items: end; margin-bottom: 22px;
+}
+.gal-head .vg-d2 { text-wrap: balance; }
+.gal-say { margin: 0; }
+
+.gal-grid {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;
+}
+.gal-tile {
+  border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden;
+  background: var(--card); transition: border-color .12s ease, transform .12s ease;
+}
+.gal-tile:hover { border-color: var(--accent); transform: translateY(-3px); }
+/* height:auto is load-bearing. The image carries width and height attributes, and a definite height
+   makes the browser ignore aspect-ratio, which is exactly how a 560x560 cat came to be drawn 338
+   wide by 560 tall with black bars top and bottom. */
+.gal-tile img {
+  display: block; width: 100%; height: auto; aspect-ratio: 1 / 1;
+  image-rendering: pixelated; background: var(--bg2);
+}
+.gal-meta {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  padding: 9px 12px; border-top: 1px solid var(--line);
+}
+.gal-num { font: 700 12.5px/1 var(--mono); color: var(--txt); }
+.gal-rank { font: 400 11px/1 var(--mono); color: var(--dim); white-space: nowrap; }
+/* The placeholder a tile wears before its art arrives, so the grid does not jump. */
+.gal-tile.is-wait { background: repeating-linear-gradient(45deg, var(--bg) 0 7px, var(--card) 7px 14px); }
+.gal-tile.is-wait img { opacity: 0; }
+
+.gal-foot { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+
+@media (max-width: 900px) {
+  .gal-head { grid-template-columns: 1fr; gap: 18px; align-items: start; }
+  .gal-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

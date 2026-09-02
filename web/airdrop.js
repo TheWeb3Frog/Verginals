@@ -12,7 +12,7 @@
 //   then is a lie that reads exactly like the truth, so while the index is behind the tip this page
 //   refuses to render a verdict at all.
 //
-//   AN ESTIMATE IS LABELLED AS ONE. The allocation is a billion divided by every share that exists,
+//   AN ESTIMATE IS LABELLED AS ONE. The allocation is the supply divided by every share there is,
 //   and shares are still being earned. Quoting a number that quietly shrinks each time somebody
 //   else qualifies is how an airdrop page turns into an argument.
 
@@ -21,7 +21,7 @@ import { mountChrome } from '/vgnav.js';
 mountChrome({
   active: 'coins',
   where: [{ text: 'Coins', href: '/runes/market' }, { text: 'Airdrop' }],
-  right: 'one billion, none of it ours',
+  right: 'all of it, none of it ours',
 });
 
 const $ = (id) => document.getElementById(id);

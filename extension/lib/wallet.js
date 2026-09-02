@@ -54,6 +54,30 @@ export const DEFAULT_STRENGTH = 256;
 // configured a little tighter than the default.
 const MAX_CHAINED_MINTS = 20;
 
+// WHAT A SWAP COSTS TO RELAY, and why it is a function rather than a constant.
+//
+// The node charges by SIZE: it refuses anything paying less than its relay rate for the bytes it
+// occupies. The marketplace used to pay a flat 0.3 XVG, which is right for the four-input swap it
+// was written against and wrong for every wallet holding more coins than that. A real buy was
+// rejected with "mempool min fee not met, 300000 < 1100000": a 5.5 kB transaction, because the
+// buyer's wallet had dozens of small coins in it and all of them were being spent.
+//
+// 0.2 XVG per kB is the node's own floor (getnetworkinfo relayfee), not a number chosen here, and
+// it charges by the WHOLE kB, so the rounding is up. A signed P2PKH input measures 147 to 149
+// bytes depending on the DER signature; the high end is used, because being a few bytes over costs
+// nothing and being one byte under costs the whole transaction.
+const RELAY_PER_KB = 200000;
+const INPUT_BYTES = 149;
+const OUTPUT_BYTES = 34;
+// A completed swap writes: padded carrier, fresh postage, seller payout, optional market fee,
+// optional change. Priced at the maximum, since overpaying by one output is 34 bytes.
+const SWAP_OUTPUTS = 5;
+
+const swapFee = (inputs, outputs) => {
+  const bytes = 14 + inputs * INPUT_BYTES + outputs * OUTPUT_BYTES;
+  return Math.max(RELAY_PER_KB, Math.ceil(bytes / 1000) * RELAY_PER_KB);
+};
+
 const DERIVATION_PATH = "m/44'/77'/0'/0/0";
 const accountPath = (i) => `m/44'/77'/0'/0/${i}`;
 
@@ -667,20 +691,41 @@ export class Wallet {
    * The split is stamped at the age of its source coins (rule R1: a transaction's nTime must be
    * >= every input's), so the new pads are no younger than the coins they came from and a
    * fixed-price buy on an older listing variant still validates.
-   * @returns {{ pads: Array, funds: Array }}
+   * IT ALSO PRICES THE SWAP, because the two questions cannot be answered apart. The node charges
+   * by SIZE, the size is decided by how many coins get spent, and how many get spent depends on
+   * what the fee makes the buyer need. Whoever picks the coins has to be the one who prices them.
+   *
+   * @returns {{ pads: Array, funds: Array, feeUnits: number }}
    */
-  async _ensurePads(sorted, need) {
+  async _ensurePads(sorted, need, outputs = SWAP_OUTPUTS) {
     const PAD = swap.POSTAGE_UNITS; // 0.1 XVG, the minimum relayable dust
     // Fast path: three or more clean coins already, two as pads and the rest covering need. The two
     // pads must sum to at least one dust so the padding-out (pads + offset) is itself relayable;
     // otherwise fall through and split, which mints dust-sized pads on purpose.
     if (sorted.length >= 3 && sorted[0].value + sorted[1].value >= PAD) {
-      const rest = sorted.slice(2);
-      const restSum = rest.reduce((s, u) => s + u.value, 0);
-      if (restSum >= need) {
+      // BIGGEST FIRST, AND ONLY AS MANY AS THE PRICE NEEDS.
+      //
+      // This used to hand every remaining coin to the swap, and completeListing spends every coin
+      // it is handed. A wallet holding sixty small coins therefore built a sixty-input transaction
+      // to buy one Verginal: about 9 kB, needing 1.8 XVG of fee, against a flat 0.3 XVG. The node
+      // refused it outright with "mempool min fee not met". Nothing was wrong with the wallet; it
+      // just had a lot of coins in it.
+      //
+      // The fee grows as coins are added, so the target grows with the selection and the loop
+      // stops at the first point that covers both.
+      const rest = sorted.slice(2).sort((a, b) => b.value - a.value);
+      const picked = [];
+      let have = 0;
+      for (const u of rest) {
+        if (have >= need + swapFee(2 + 1 + picked.length, outputs)) break;
+        picked.push(u);
+        have += u.value;
+      }
+      if (have >= need + swapFee(2 + 1 + picked.length, outputs)) {
         return {
           pads: sorted.slice(0, 2).map((u) => ({ txid: u.txid, vout: u.vout, value: u.value })),
-          funds: rest.map((u) => ({ txid: u.txid, vout: u.vout, value: u.value })),
+          funds: picked.map((u) => ({ txid: u.txid, vout: u.vout, value: u.value })),
+          feeUnits: swapFee(2 + 1 + picked.length, outputs),
         };
       }
     }
@@ -707,6 +752,7 @@ export class Wallet {
     return {
       pads: [{ txid: stxid, vout: 0, value: PAD }, { txid: stxid, vout: 1, value: PAD }],
       funds: [{ txid: stxid, vout: 2, value: change }],
+      feeUnits: swapFee(2 + 1 + 1, outputs),
     };
   }
 
@@ -770,8 +816,9 @@ export class Wallet {
       throw new Error('the listed price changed since you opened it; cancel and try again');
     }
 
-    const feeUnits = 300000; // ~0.3 XVG, a small padded swap
-    const need = variant.priceUnits + feeUnits;
+    // The fee is not known yet: it depends on how many coins end up funding this. Ask for the
+    // price alone and let the selection price itself.
+    const need = variant.priceUnits;
     // Only coins older than the variant's nTime may fund it (R1). Newer ones are simply left
     // alone rather than allowed to block the purchase.
     const eligible = await this._coinsOlderThan(sorted, variant.time);
@@ -780,7 +827,7 @@ export class Wallet {
         ? 'All of your XVG is more recent than this listing, so an instant buy is not possible yet. Use "Make an offer" instead, which has no such limit and works right away.'
         : 'Your coins that are old enough for this listing do not cover the price. Use "Make an offer" instead, which can spend your whole balance.');
     }
-    const { pads, funds } = await this._ensurePads(eligible, need);
+    const { pads, funds, feeUnits } = await this._ensurePads(eligible, need);
     const built = await swap.completeListing({
       variant, pads, funds,
       buyerAddress: this._address, priv: this._priv, feeUnits,
@@ -798,8 +845,7 @@ export class Wallet {
     if (sellerAddress && sellerAddress === this._address) throw new Error("This is your own listing, so you can't make an offer on it.");
     const { sorted } = await this._marketCoins(null);
     if (!sorted.length) throw new Error('This wallet has no spendable XVG. Top it up, wait for the deposit to confirm, then try again.');
-    const feeUnits = 300000;
-    const { pads, funds } = await this._ensurePads(sorted, priceUnits + feeUnits);
+    const { pads, funds, feeUnits } = await this._ensurePads(sorted, priceUnits);
     const [ct, cv] = carrierOutpoint.split(':');
     const carrierOffset = await this._carrierOffset(carrierOutpoint);
     const { bps, address } = await this._marketFee();

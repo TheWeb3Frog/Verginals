@@ -1037,6 +1037,22 @@ async function loadCollection() {
     buildTraitFilter();
     buildBadgeFilter();
     renderCollView();
+
+    // SAY WHEN THE ART IS NOT THERE YET.
+    //
+    // The tiles come from the mint's own state, so their names, ranks and prices are right the
+    // moment the server is up. The pictures do not: /api/content serves an inscription out of the
+    // index, and during a rescan every one of them is a 404. So this page rendered thirteen hundred
+    // blank squares and said nothing, which reads as a collection that has lost its art rather than
+    // as a server that is still reading. Explore and the market already say it; this did not.
+    const prog = await indexProgress();
+    const old = $('#coll-scanning');
+    if (old) old.remove();
+    if (prog && prog.scanning) {
+      const note = scanningNotice(prog, loadCollection);
+      note.id = 'coll-scanning';
+      grid.parentNode.insertBefore(note, grid);
+    }
   } catch (e) {
     grid.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`;
   }
@@ -1132,19 +1148,65 @@ async function renderCollActivity() {
     const { activity } = await api('/api/collection/activity?limit=50');
     if (!activity || !activity.length) { box.innerHTML = '<div class="empty">No activity yet. Sales and listings will show here.</div>'; return; }
     box.innerHTML = '';
+    // Built as elements rather than as a string, because the two things in a row that somebody
+    // wants to click are the Verginal and the wallet, and both need a handler.
+    //
+    // A row was previously a dead end: it named a Verginal you could not open and a wallet you
+    // could not look at, which is the only two questions anybody has about a sale.
+    const item = (n) => {
+      const label = n != null ? `Verginals #${n}` : 'Verginal';
+      const ins = n != null ? coll.insByNum.get(n) : null;
+      // Only clickable once the index knows where that inscription is. During a rescan it is plain
+      // text rather than a link that goes nowhere.
+      if (!ins) {
+        const span = document.createElement('span');
+        span.className = 'ca-item';
+        span.textContent = label;
+        return span;
+      }
+      const a = document.createElement('a');
+      a.className = 'ca-item ca-link';
+      a.href = '#';
+      a.textContent = label;
+      a.addEventListener('click', (e) => { e.preventDefault(); openDetail(ins); });
+      return a;
+    };
+    const wallet = (addr) => {
+      const a = document.createElement('a');
+      a.className = 'ca-addr ca-link';
+      a.href = '/gallery/' + encodeURIComponent(addr || '');
+      a.title = addr || '';
+      a.textContent = short(addr);
+      a.addEventListener('click', (e) => { e.preventDefault(); showOwnerGallery(addr); });
+      return a;
+    };
+
     activity.forEach((a) => {
       const xvg = a.priceUnits / MKT_COIN;
       const row = document.createElement('div');
       row.className = 'coll-act';
-      const who = a.type === 'sale'
-        ? `<span class="ca-addr">${esc(short(a.sellerAddress))}</span> → <span class="ca-addr">${esc(short(a.buyerAddress))}</span>`
-        : `by <span class="ca-addr">${esc(short(a.sellerAddress))}</span>`;
-      row.innerHTML = `
-        <span class="ca-type ca-${a.type}">${a.type === 'sale' ? 'Sale' : 'Listed'}</span>
-        <span class="ca-item">${a.collectionNumber != null ? `Verginals #${a.collectionNumber}` : 'Verginal'}</span>
-        <span class="ca-price">${fmt(xvg)} XVG</span>
-        <span class="ca-who">${who}</span>
-        <span class="ca-time">${collAgo(a.at)}</span>`;
+
+      const type = document.createElement('span');
+      type.className = `ca-type ca-${a.type}`;
+      type.textContent = a.type === 'sale' ? 'Sale' : 'Listed';
+
+      const price = document.createElement('span');
+      price.className = 'ca-price';
+      price.textContent = `${fmt(xvg)} XVG`;
+
+      const who = document.createElement('span');
+      who.className = 'ca-who';
+      if (a.type === 'sale') {
+        who.append(wallet(a.sellerAddress), document.createTextNode(' \u2192 '), wallet(a.buyerAddress));
+      } else {
+        who.append(document.createTextNode('by '), wallet(a.sellerAddress));
+      }
+
+      const time = document.createElement('span');
+      time.className = 'ca-time';
+      time.textContent = collAgo(a.at);
+
+      row.append(type, item(a.collectionNumber), price, who, time);
       box.appendChild(row);
     });
   } catch (e) {

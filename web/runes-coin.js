@@ -42,7 +42,18 @@ async function load() {
   $('status').hidden = true;
   $('coin').hidden = false;
 
-  $('rc-symbol').textContent = c.symbol || '¤';
+  // The picture, if one has been set. It replaces the letter mark rather than sitting beside it:
+  // a coin has one identity, not two.
+  if (c.image) {
+    const img = document.createElement('img');
+    img.src = c.image;
+    img.alt = '';
+    img.className = 'rc-pic';
+    $('rc-symbol').textContent = '';
+    $('rc-symbol').append(img);
+  } else {
+    $('rc-symbol').textContent = c.symbol || (c.ticker || '?').slice(0, 1);
+  }
   $('rc-name').textContent = c.display || c.ticker;
   $('rc-ref').textContent = c.runeRef;
   $('rc-block').textContent = Number(c.etchedAtHeight).toLocaleString();
@@ -110,6 +121,94 @@ async function load() {
   // Trading goes below the identity and above the detail, because it is what somebody arriving here
   // from the market came to do.
   mountTrade($('rc-trade'), c);
+
+  mountImageUpload(c);
+}
+
+/**
+ * Offer the etcher a picture for their coin.
+ *
+ * Shown only to the wallet that etched it, and only once that wallet is connected. Everybody else
+ * never sees the control: the server refuses them anyway, but a button that exists to be refused is
+ * a button that wastes somebody's time and makes the site look like it is guessing.
+ *
+ * The picture is held by this server, not on the chain. The panel says so, because a coin's supply
+ * and a coin's logo having different permanence is exactly the sort of thing a page should not let
+ * somebody assume.
+ */
+function mountImageUpload(c) {
+  const host = $('rc-image');
+  if (!host || !c.etcher) return;
+
+  const draw = (address) => {
+    host.textContent = '';
+    if (address !== c.etcher) { host.hidden = true; return; }
+    host.hidden = false;
+
+    const label = document.createElement('label');
+    label.className = 'vg-btn rc-pick';
+    label.textContent = c.image ? 'Change the picture' : 'Add a picture';
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/png,image/jpeg,image/webp,image/gif';
+    input.hidden = true;
+    label.append(input);
+
+    const say = document.createElement('span');
+    say.className = 'rc-image-say';
+    say.textContent = `PNG, JPEG, WEBP or GIF, up to ${Math.round((c.imageMaxBytes || 24576) / 1024)} KB. Held by this site, not written to the chain.`;
+
+    host.append(label, say);
+
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      say.textContent = 'Reading...';
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        let bin = '';
+        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+        const dataBase64 = btoa(bin);
+
+        say.textContent = 'Waiting for your wallet to sign...';
+        const ch = await fetch('/api/runes/image/challenge', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ address }),
+        }).then((r) => r.json());
+        if (ch.error) throw new Error(ch.error);
+
+        const signature = await window.VerginalsArena.signMessage(ch.challenge);
+
+        say.textContent = 'Saving...';
+        const r = await fetch('/api/runes/image', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ runeRef: c.runeRef, address, nonce: ch.nonce, signature, dataBase64 }),
+        }).then((x) => x.json());
+        if (r.error) throw new Error(r.error);
+
+        // Cache-busted, or the browser shows the picture that was just replaced.
+        const img = document.createElement('img');
+        img.src = r.url + '?t=' + Date.now();
+        img.alt = '';
+        img.className = 'rc-pic';
+        $('rc-symbol').textContent = '';
+        $('rc-symbol').append(img);
+        say.textContent = 'Saved.';
+        label.textContent = 'Change the picture';
+        label.append(input);
+      } catch (e) {
+        say.textContent = e.message || 'that did not work';
+        say.classList.add('rc-image-bad');
+      }
+    });
+  };
+
+  const w = window.VerginalsArena;
+  if (!w) return;
+  draw(w.address());
+  // The bar's connect button announces itself, so the control appears the moment the right wallet
+  // arrives rather than only on a reload.
+  document.addEventListener('vg:wallet', (e) => draw(e.detail && e.detail.address));
 }
 
 load();

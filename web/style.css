@@ -1130,3 +1130,8 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 .coll-links { margin: 8px 0 0; font-size: 12.5px; }
 .coll-links a { color: var(--accent); text-decoration: none; }
 .coll-links a:hover { text-decoration: underline; }
+
+/* A row in the activity feed names a Verginal and a wallet, and those are the only two questions
+   anybody has about a sale. They look like the links they now are. */
+.ca-link { color: var(--accent); text-decoration: none; cursor: pointer; }
+.ca-link:hover { text-decoration: underline; }

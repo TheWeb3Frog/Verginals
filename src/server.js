@@ -58,6 +58,10 @@ const { OrderBook } = require('./orderbook');
 const { RuneBook } = require('./runes/book');
 const { GameAuth } = require('./gameauth');
 const { verifyMessage } = require('./message');
+const coinimage = require('./coinimage');
+// A function rather than a const: DATA_DIR is settled further down this file, and a const here
+// would read it before it exists. Handlers call this, and by then everything is bound.
+const coinImageDir = () => path.join(DATA_DIR, 'coin-images');
 const { GameStore } = require('./gamestore');
 const { deriveFighter, ELEMENTS: GAME_ELEMENTS, BADGE_DEFS } = require('./game');
 const { buildTrophySVG } = require('./trophy');
@@ -1823,7 +1827,20 @@ function handleRuneCoin(req, res, url) {
   const height = service.runes.height || 0;
   const c = coin(service.runes, ref, height);
   if (!c) return sendJSON(res, 404, { error: 'no coin of that name has been etched', runeRef: ref });
-  return sendJSON(res, 200, c);
+  // The picture, and who is allowed to change it. The address is public information already: it is
+  // where the etching's premine landed and anyone reading the chain can see it. Sending it lets the
+  // page decide whether to offer the upload at all rather than showing a button that will be
+  // refused, and the refusal itself is still enforced by the endpoint.
+  const etcher = service.etchers.get(ref) || null;
+  const hasImage = coinimage.TYPES.some((t) => {
+    const f = coinimage.fileFor(coinImageDir(), ref, t.ext);
+    return f && fs.existsSync(f);
+  });
+  return sendJSON(res, 200, Object.assign({}, c, {
+    etcher,
+    image: hasImage ? coinimage.urlFor(ref) : null,
+    imageMaxBytes: coinimage.MAX_BYTES,
+  }));
 }
 
 /** Parse a JSON request body, or an empty object. readBody already caps the size. */
@@ -1843,8 +1860,6 @@ async function readJsonBody(req) {
 //
 // WHAT MAY BE STORED is decided by src/coinimage.js, which reads the bytes and believes nothing it
 // is told. Read the header of that file before changing anything here.
-const coinimage = require('./coinimage');
-const COIN_IMAGE_DIR = path.join(DATA_DIR, 'coin-images');
 
 // A separate handshake from the Arena's, so a challenge minted for one is not spendable on the
 // other even though both verify the same way.
@@ -1894,13 +1909,13 @@ async function handleCoinImagePut(req, res, body) {
   const v = coinimage.check(bytes);
   if (!v.ok) return sendJSON(res, 400, { error: v.why });
 
-  const file = coinimage.fileFor(COIN_IMAGE_DIR, runeRef, v.ext);
+  const file = coinimage.fileFor(coinImageDir(), runeRef, v.ext);
   if (!file) return sendJSON(res, 400, { error: 'bad coin reference' });
   // One picture per coin: a new one replaces whatever was there, in every format it might have
   // been, so a stale png cannot outlive the webp that replaced it.
-  fs.mkdirSync(COIN_IMAGE_DIR, { recursive: true });
+  fs.mkdirSync(coinImageDir(), { recursive: true });
   for (const t of coinimage.TYPES) {
-    const old = coinimage.fileFor(COIN_IMAGE_DIR, runeRef, t.ext);
+    const old = coinimage.fileFor(coinImageDir(), runeRef, t.ext);
     if (old && old !== file && fs.existsSync(old)) fs.unlinkSync(old);
   }
   fs.writeFileSync(file, bytes);
@@ -1918,7 +1933,7 @@ function handleCoinImageGet(res, slug) {
   if (!m) return sendJSON(res, 404, { error: 'not found' });
   const runeRef = `${m[1]}:${m[2]}`;
   for (const t of coinimage.TYPES) {
-    const file = coinimage.fileFor(COIN_IMAGE_DIR, runeRef, t.ext);
+    const file = coinimage.fileFor(coinImageDir(), runeRef, t.ext);
     if (!file || !fs.existsSync(file)) continue;
     const bytes = fs.readFileSync(file);
     res.writeHead(200, {

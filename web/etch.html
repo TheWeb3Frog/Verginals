@@ -8,7 +8,7 @@
 <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/vg.css">
-<link rel="stylesheet" href="/etch.css?v=29">
+<link rel="stylesheet" href="/etch.css?v=32">
 </head>
 <body class="vg">
 <main class="et-wrap">
@@ -139,13 +139,20 @@
           </div>
           <div id="et-mint-out" class="et-readout"></div>
           <label class="et-label" for="et-price">Network fee per claim <span class="et-opt">in XVG</span></label>
-          <input id="et-price" class="et-input" type="text" inputmode="decimal" value="1">
+          <input id="et-price" class="et-input" type="text" inputmode="decimal" value="0">
           <p class="et-note">
-            1 XVG is the recommendation. It is paid as an ordinary transaction fee, so the miner of
-            the block receives it and the protocol pays nobody. Its job is to stop one person taking
-            the whole supply for the cost of relay, and a low number does that perfectly well: set
-            it high and people simply do not claim. Maximum 49 XVG, because Verge Core refuses a fee
-            above 50.
+            Zero is the recommendation. A claim then costs only what the network itself charges to
+            relay it, which is the cheapest a mint can be and the single biggest reason people
+            actually claim. Whatever you set is paid as an ordinary transaction fee, so the miner of
+            the block receives it and the protocol pays nobody. Maximum 49 XVG, because Verge Core
+            refuses a fee above 50.
+          </p>
+          <p class="et-note">
+            <b>What a price is for.</b> It is the only friction on your mint. Nothing limits how many
+            times one wallet may claim, so at zero one person can take your whole supply in an
+            afternoon for the cost of relay. Most etchers should still choose zero and accept that,
+            because a mint nobody claims is worth less than one somebody swept. Set a price only if
+            you would rather have a slow mint than a fast one.
           </p>
         </div>
       </div>
@@ -206,7 +213,7 @@
     </p>
   </footer>
 </main>
-<script src="/wallet.js?v=29"></script>
-<script type="module" src="/etch.js?v=29"></script>
+<script src="/wallet.js?v=32"></script>
+<script type="module" src="/etch.js?v=32"></script>
 </body>
 </html>

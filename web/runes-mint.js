@@ -5,7 +5,7 @@
 // protocol counts. Closed mints are listed too: somebody arriving after a window shut should read
 // why rather than find an empty page and wonder if the site is broken.
 
-import { mountChrome } from '/vgnav.js?v=34';
+import { mountChrome } from '/vgnav.js?v=36';
 
 mountChrome({ active: 'coins', where: [{ text: 'Coins', href: '/runes/market' }, { text: 'Mint' }],
   right: 'the price is the network fee, and it goes to the miner' });

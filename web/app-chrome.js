@@ -9,6 +9,6 @@
 // routes by clicking one of those buttons, so deleting the strip would break every deep link on the
 // site. It is only no longer drawn: the bar above reaches all of it, where the bar it replaces
 // reached three.
-import { mountChrome } from '/vgnav.js?v=34';
+import { mountChrome } from '/vgnav.js?v=36';
 
 mountChrome({ active: null });

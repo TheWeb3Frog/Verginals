@@ -16,7 +16,7 @@
 //   and shares are still being earned. Quoting a number that quietly shrinks each time somebody
 //   else qualifies is how an airdrop page turns into an argument.
 
-import { mountChrome } from '/vgnav.js?v=34';
+import { mountChrome } from '/vgnav.js?v=36';
 
 mountChrome({
   active: 'coins',

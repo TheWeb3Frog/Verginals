@@ -309,7 +309,11 @@
    it, and a touch screen with no hover at all, and it kept failing at least one. Nothing here is
    hidden on a desktop, so none of those failures have anywhere to happen. */
 
-:root { --side-w: 244px; --top-h: 56px; }
+/* Collapsed to its icons, opened by pointing at it.
+   The page is padded by the COLLAPSED width and never by the open one, so the rail expands OVER the
+   content instead of shoving it sideways. A sidebar that reflows the whole page every time the
+   pointer crosses it is worse than no sidebar. */
+:root { --side-w: 64px; --side-open: 236px; --top-h: 56px; }
 
 .vg-sided { padding-left: var(--side-w); }
 
@@ -317,34 +321,63 @@
   position: fixed; inset: 0 auto 0 0; z-index: 70; width: var(--side-w);
   display: flex; flex-direction: column;
   background: var(--bg2); border-right: 1px solid var(--line);
+  overflow: hidden; transition: width .16s ease;
 }
-.vg-side .vg-brand { flex: none; height: var(--top-h); padding: 0 18px; border-bottom: 1px solid var(--line); }
-.vg-side-scroll { flex: 1 1 auto; overflow-y: auto; padding: 16px 12px 20px; }
+/* focus-within as well as hover, or the rail is unusable from a keyboard. */
+.vg-side:hover, .vg-side:focus-within { width: var(--side-open); box-shadow: 12px 0 40px rgba(0, 0, 0, .45); }
+
+.vg-side .vg-brand { flex: none; height: var(--top-h); padding: 0 20px; border-bottom: 1px solid var(--line); }
+.vg-side-scroll { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; padding: 14px 12px 20px; }
+
+/* Everything that is words rather than a symbol. Held at the open width so the labels do not
+   reflow while the rail animates, and clipped by the rail's own overflow. */
+.vg-side-text {
+  white-space: nowrap; opacity: 0; transition: opacity .12s ease;
+}
+.vg-side:hover .vg-side-text, .vg-side:focus-within .vg-side-text { opacity: 1; }
+
+.vg-side-icon { flex: none; width: 20px; height: 20px; display: block; }
 .vg-side-label {
-  margin: 14px 0 6px 10px;
+  margin: 14px 0 6px 12px; height: 12px; overflow: hidden;
   font: 700 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim);
+  white-space: nowrap; opacity: 0; transition: opacity .12s ease;
 }
+.vg-side:hover .vg-side-label, .vg-side:focus-within .vg-side-label { opacity: 1; }
 .vg-side-scroll > .vg-side-label:first-child { margin-top: 0; }
 .vg-side-list { list-style: none; margin: 0 0 4px; padding: 0; }
 .vg-side-link {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 8px 10px; border-radius: var(--r-ctl);
-  color: var(--muted); text-decoration: none; font: 500 13.5px/1.2 var(--sans);
+  display: flex; align-items: center; gap: 12px;
+  /* Fixed height and a fixed left inset so the icons form a straight column whether the rail is
+     open or shut, and nothing shifts vertically when it opens. */
+  height: 38px; padding: 0 10px; border-radius: var(--r-ctl);
+  color: var(--muted); text-decoration: none; font: 500 13.5px/1 var(--sans);
 }
+.vg-side-link em { margin-left: auto; }
 .vg-side-link:hover { background: var(--card); color: var(--txt); }
 /* The page you are on, marked by a filled row rather than a colour change alone, so it survives a
    screenshot and a colour-blind reader. */
 .vg-side-link.is-on { background: var(--card); color: var(--txt); box-shadow: inset 2px 0 0 var(--accent); }
-.vg-side-link em { font: 400 10.5px/1 var(--mono); font-style: normal; color: var(--dim); }
+.vg-side-link em {
+  font: 400 10.5px/1 var(--mono); font-style: normal; color: var(--dim);
+  white-space: nowrap; opacity: 0; transition: opacity .12s ease;
+}
+.vg-side:hover .vg-side-link em, .vg-side:focus-within .vg-side-link em { opacity: 1; }
 
-.vg-side-foot { flex: none; padding: 14px 12px 16px; border-top: 1px solid var(--line); }
+.vg-side-foot { flex: none; padding: 12px; border-top: 1px solid var(--line); }
 .vg-side-install {
-  display: block; text-align: center; padding: 9px 12px; border-radius: var(--r-ctl);
+  display: flex; align-items: center; gap: 12px; height: 38px; padding: 0 10px;
+  border-radius: var(--r-ctl);
   border: 1px solid var(--line2); color: var(--txt); text-decoration: none;
   font: 600 12.5px/1 var(--sans);
 }
 .vg-side-install:hover { border-color: var(--accent); color: var(--accent); }
-.vg-side-mini { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 12px; padding: 0 4px; }
+/* Words only, so it is nothing at all while the rail is shut and must not hold height there. */
+.vg-side-mini {
+  display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 0 4px;
+  max-height: 0; margin-top: 0; overflow: hidden; opacity: 0;
+  transition: max-height .16s ease, opacity .12s ease, margin-top .16s ease;
+}
+.vg-side:hover .vg-side-mini, .vg-side:focus-within .vg-side-mini { max-height: 120px; margin-top: 12px; opacity: 1; }
 .vg-side-mini a { font-size: 11px; color: var(--dim); text-decoration: none; }
 .vg-side-mini a:hover { color: var(--muted); }
 
@@ -384,6 +417,12 @@
 
 @media (max-width: 900px) {
   .vg-sided { padding-left: 0; }
+  /* A drawer is never collapsed: it is either shut or it is the whole navigation. */
+  .vg-side, .vg-side:hover, .vg-side:focus-within { width: min(86vw, 300px); }
+  .vg-side-text, .vg-side-label, .vg-side-link em, .vg-side-mini {
+    opacity: 1; max-height: none; margin-top: 0;
+  }
+  .vg-side-mini { margin-top: 12px; }
   .vg-side {
     transform: translateX(-100%); transition: transform .22s ease;
     box-shadow: 0 0 44px rgba(0, 0, 0, .6);
@@ -396,8 +435,6 @@
     background: rgba(4, 8, 12, .6); opacity: 0; pointer-events: none; transition: opacity .22s ease;
   }
   .vg-side-open .vg-scrim { opacity: 1; pointer-events: auto; }
-  /* The drawer is the whole navigation on a phone, so it must not be locked behind the viewport. */
-  .vg-side { width: min(86vw, 300px); }
 }
 
 @media (prefers-reduced-motion: reduce) {

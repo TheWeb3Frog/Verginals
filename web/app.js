@@ -37,6 +37,7 @@ $$('.tab').forEach((t) => t.addEventListener('click', () => {
   $$('.panel').forEach((x) => x.classList.remove('active'));
   t.classList.add('active');
   $('#panel-' + t.dataset.tab).classList.add('active');
+  if (t.dataset.tab === 'home') loadHome();
   if (t.dataset.tab === 'explore') { loadInscriptions(); startExploreAutoRefresh(); }
   else stopExploreAutoRefresh();
   if (t.dataset.tab === 'mint') loadMintStatus();
@@ -92,6 +93,9 @@ window.addEventListener('hashchange', tabFromHash);
 // still in its temporal dead zone: a ReferenceError on every load that carried a hash. It was
 // survivable while nothing linked to a tab. The site bar links to eight of them.
 queueMicrotask(tabFromHash);
+// The home panel is the one that starts active, so no tab click ever fires for it and its loader
+// would never run on a plain visit to the site.
+queueMicrotask(() => { if ($('#panel-home') && $('#panel-home').classList.contains('active')) loadHome(); });
 
 // --- Terms-acceptance gate ---------------------------------------------------------------
 // Before any inscription or mint, the user must tick a box accepting the Terms of Use and
@@ -1996,6 +2000,164 @@ function renderDonateQR() {
   } catch (_) {
     holder.innerHTML = '<div class="hint">(QR unavailable, copy the address)</div>';
   }
+}
+
+// --- the front door -------------------------------------------------------------------------
+//
+// Everything on the home panel that is a number comes from the chain, and everything that is a
+// picture is an Alpha somebody already owns. Nothing here is illustration and nothing is a claim
+// about what the site can do: it is the site, counted.
+//
+// Every request is allowed to fail on its own. A front door that renders nothing because one
+// endpoint was slow is worse than one missing a figure, so each block fills in when it can and the
+// dashes stay where it cannot.
+let homeLoaded = false;
+
+async function loadHome() {
+  if (homeLoaded) return;
+  homeLoaded = true;
+
+  const figures = $('#hm-figures');
+  const rail = $('#hm-rail');
+  const coinList = $('#hm-coins');
+  if (!figures) return;
+
+  const stat = (label, value, sub) => {
+    const d = document.createElement('div');
+    d.className = 'vg-stat';
+    const l = document.createElement('span'); l.className = 'vg-label'; l.textContent = label;
+    const b = document.createElement('b'); b.className = 'vg-num'; b.textContent = value;
+    d.append(l, b);
+    if (sub) { const x = document.createElement('span'); x.className = 'vg-stat-sub'; x.textContent = sub; d.append(x); }
+    figures.append(d);
+    return d;
+  };
+  const say = (key, node) => {
+    const slot = document.querySelector(`[data-hm-stat="${key}"]`);
+    if (slot) { slot.textContent = ''; slot.append(node); }
+  };
+  const bold = (n, tail) => {
+    const f = document.createDocumentFragment();
+    const b = document.createElement('b'); b.textContent = n;
+    f.append(b, document.createTextNode(' ' + tail));
+    return f;
+  };
+
+  const [ins, mint, coins, listings] = await Promise.all([
+    api('/api/inscriptions').catch(() => null),
+    api('/api/mint/status').catch(() => null),
+    api('/api/runes/coins').catch(() => null),
+    api('/api/market/listings').catch(() => null),
+  ]);
+
+  // --- the band of figures ---------------------------------------------------------------------
+  const items = (ins && ins.inscriptions) || [];
+  const holders = new Set(items.filter((i) => i.ownerAddress).map((i) => i.ownerAddress)).size;
+  const forSale = (listings && listings.listings) || [];
+  const allCoins = (coins && coins.coins) || [];
+  const openMints = allCoins.filter((c) => c.mint && c.mint.open).length;
+  const coinAsks = allCoins.reduce((n, c) => n + ((c.market && c.market.asks) || 0), 0);
+
+  figures.textContent = '';
+  if (ins) stat('Inscribed', fmt(ins.count), 'on Verge, for ever');
+  if (mint) stat('Alphas minted', fmt(mint.minted), `of ${fmt(mint.supply)}`);
+  if (coins) stat('Coins etched', fmt(allCoins.length), openMints ? `${openMints} open to claim` : 'by the community');
+  if (holders) stat('Wallets holding', fmt(holders), 'one or more');
+  if (ins) stat('Indexed to block', fmt(ins.indexedThrough), ins.indexReady ? 'up to date' : 'still reading');
+
+  // --- what each capability is worth saying right now --------------------------------------------
+  if (mint) say('mint', bold(fmt(mint.remaining), 'still unminted'));
+  if (ins) say('ins', bold(fmt(ins.count), 'written so far'));
+  if (coins) say('coins', bold(fmt(allCoins.length), allCoins.length === 1 ? 'coin exists' : 'coins exist'));
+  if (coins) say('open', bold(fmt(openMints), openMints === 1 ? 'coin is open' : 'coins are open'));
+  if (listings || coins) say('listed', bold(fmt(forSale.length + coinAsks), 'offers on the book'));
+  say('arena', bold(fmt(items.filter((i) => i.collectionNumber != null).length), 'possible fighters'));
+
+  // --- the rail ------------------------------------------------------------------------------------
+  // Written twice, because the marquee translates by exactly half its width to loop seamlessly.
+  if (rail) {
+    const nums = items.filter((i) => i.collectionNumber != null).map((i) => i.collectionNumber);
+    const pick = (nums.length >= 12 ? nums.sort(() => Math.random() - 0.5).slice(0, 14)
+      : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+    rail.textContent = '';
+    for (const run of [0, 1]) {
+      for (const n of pick) {
+        const img = document.createElement('img');
+        img.src = '/api/collection/image/' + n;
+        img.alt = run === 0 ? 'Verginals #' + n : '';
+        if (run === 1) img.setAttribute('aria-hidden', 'true');
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        rail.append(img);
+      }
+    }
+  }
+
+  // --- the coins ------------------------------------------------------------------------------------
+  if (coinList && allCoins.length) {
+    // Same ordering the market itself uses: what somebody can act on, before what happens to be new.
+    const live = (c) => (c.market.asks > 0 ? 3 : (c.mint && c.mint.open ? 2 : (c.carriers > 1 ? 1 : 0)));
+    const top = [...allCoins]
+      .sort((a, b) => live(b) - live(a) || b.carriers - a.carriers || b.etchedAtHeight - a.etchedAtHeight)
+      .slice(0, 6);
+    coinList.textContent = '';
+    for (const c of top) {
+      const a = document.createElement('a');
+      a.className = 'hm-coinrow';
+      a.href = '/runes/coin?rune=' + encodeURIComponent(c.runeRef);
+
+      const mark = document.createElement('span');
+      mark.className = 'hm-coinmark';
+      mark.textContent = c.symbol || c.ticker.slice(0, 1);
+      const face = homeMark(c.ticker + c.runeRef);
+      mark.style.background = face.bg;
+      mark.style.color = face.fg;
+
+      const name = document.createElement('span');
+      name.className = 'hm-coinname';
+      name.textContent = c.display;
+      const sub = document.createElement('span');
+      sub.className = 'hm-coinsub';
+      sub.textContent = c.mint && c.mint.open ? 'open to claim' : `${compactNum(c.whole.supply)} supply`;
+      name.append(sub);
+
+      const ask = document.createElement('span');
+      const best = c.market.bestAskWhole;
+      ask.className = 'hm-coinask' + (best == null ? ' none' : '');
+      ask.textContent = best == null ? 'no asks' : fmt(best / 1e6) + ' XVG';
+
+      const held = document.createElement('span');
+      held.className = 'hm-coinheld';
+      held.textContent = c.carriers + (c.carriers === 1 ? ' holder' : ' holders');
+
+      a.append(mark, name, ask, held);
+      coinList.append(a);
+    }
+  }
+}
+
+/** The same identity colour the coin market uses, so a coin looks the same wherever it appears. */
+const HOME_MARKS = ['#FD0142', '#7909F9', '#FEC925', '#F18BF6', '#0DF1FF', '#59C54F',
+  '#FF4F02', '#DB3FFD', '#03BF99', '#FDED58', '#0098DB',
+  // Widened from eleven: fifteen coins over eleven colours put two of the same shade in one
+  // short list. These three are also real collection backgrounds, so the set stays one palette.
+  '#1F6F52', '#6CE3FF', '#424C6D'];
+function homeMark(key) {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619); }
+  const bg = HOME_MARKS[(h >>> 0) % HOME_MARKS.length];
+  const r = parseInt(bg.slice(1, 3), 16), g = parseInt(bg.slice(3, 5), 16), b = parseInt(bg.slice(5, 7), 16);
+  return { bg, fg: (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 > 0.55 ? '#0b1017' : '#ffffff' };
+}
+
+/** Big numbers, short, for a row that has no room for nine digits. */
+function compactNum(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '-';
+  if (Math.abs(v) >= 1e9) return (v / 1e9).toFixed(1).replace(/\.0$/, '') + 'B';
+  if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (Math.abs(v) >= 1e3) return Math.round(v / 1e3) + 'K';
+  return fmt(v);
 }
 
 // --- the collection gallery --------------------------------------------------------------

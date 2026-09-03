@@ -909,3 +909,161 @@ footer .hint { max-width: 980px; margin: 0 auto; }
   border: 1px solid var(--line);
   font: 500 10.5px/1 var(--mono); color: var(--txt); white-space: nowrap;
 }
+
+/* ================================================================================================
+   THE FRONT DOOR
+   ================================================================================================
+   The site used to open on the Inscribe form: a tool, with no answer to "what is this". Everything
+   below is built from things that already exist on chain rather than from illustration, because the
+   collection's own art is better than anything that could be drawn to sit beside it, and a number
+   read back from Verge is worth more than a claim about one. */
+
+.hm-hero { padding: 58px 0 34px; display: flex; flex-direction: column; gap: 20px; align-items: flex-start; }
+.hm-hero .vg-d1 { text-wrap: balance; }
+.hm-lead { max-width: 60ch; font-size: 15px; }
+.hm-acts { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+
+/* --- the rail of real Alphas ------------------------------------------------------------------- */
+
+/* Full bleed out of the page gutter: the art is the one thing here that should touch both edges. */
+.hm-strip {
+  position: relative; margin: 8px calc(50% - 50vw) 0; padding: 0;
+  overflow: hidden; -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+.hm-rail { display: flex; gap: 12px; width: max-content; animation: hm-slide 64s linear infinite; }
+.hm-rail:hover { animation-play-state: paused; }
+.hm-rail img {
+  display: block; width: 128px; height: auto; aspect-ratio: 1 / 1;
+  border-radius: 10px; border: 1px solid var(--line);
+  image-rendering: pixelated; background: var(--bg2);
+}
+/* The rail holds the same run twice, so translating by exactly half is seamless. */
+@keyframes hm-slide { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@media (prefers-reduced-motion: reduce) {
+  .hm-rail { animation: none; }
+  .hm-strip { overflow-x: auto; }
+}
+
+/* --- what the chain says ------------------------------------------------------------------------ */
+
+.hm-figures { grid-template-columns: repeat(5, 1fr); margin: 40px 0 0; }
+.hm-figures .vg-num { font-size: clamp(20px, 2.4vw, 30px); }
+
+/* --- the six things ------------------------------------------------------------------------------ */
+
+.hm-do { padding: 68px 0 0; }
+.hm-do-head { margin-bottom: 26px; }
+.hm-do-head .vg-d2 { text-wrap: balance; margin-top: 10px; }
+
+.hm-grid {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px;
+}
+.hm-card {
+  display: flex; flex-direction: column; gap: 10px; align-items: flex-start;
+  padding: 24px; border: 1px solid var(--line); border-radius: var(--r-card);
+  background: var(--card); transition: border-color .14s ease, transform .14s ease;
+}
+.hm-card:hover { border-color: var(--line2); transform: translateY(-3px); }
+.hm-card h3 { margin: 0; font: 700 18px/1.2 var(--display); letter-spacing: -.02em; color: var(--txt); }
+.hm-card p { margin: 0; font-size: 13px; line-height: 1.6; color: var(--muted); }
+/* The number sits between the sentence and the button, and it is pushed to the bottom so six cards
+   of different lengths still line their buttons up. */
+.hm-num {
+  margin-top: auto; padding-top: 8px;
+  font: 400 11.5px/1 var(--mono); color: var(--dim); font-variant-numeric: tabular-nums;
+}
+.hm-num b { color: var(--accent); font-weight: 600; }
+.hm-go { padding: 9px 16px; font-size: 13px; }
+
+/* Each capability gets a mark built from the palette rather than an emoji: emoji render differently
+   on every platform and read as decoration. These are the same shapes at six angles. */
+.hm-mark {
+  width: 34px; height: 34px; border-radius: 9px; display: block;
+  border: 1px solid var(--line2);
+}
+.hm-mark-mint  { background: linear-gradient(140deg, #FD0142, #7909F9); }
+.hm-mark-ins   { background: linear-gradient(140deg, #4cc2f1, #0098DB); }
+.hm-mark-etch  { background: linear-gradient(140deg, #FEC925, #FF4F02); }
+.hm-mark-claim { background: linear-gradient(140deg, #03BF99, #59C54F); }
+.hm-mark-trade { background: linear-gradient(140deg, #DB3FFD, #7909F9); }
+.hm-mark-arena { background: linear-gradient(140deg, #FF4F02, #FD0142); }
+
+/* --- coins ---------------------------------------------------------------------------------------- */
+
+.hm-coins { padding: 72px 0 0; }
+.hm-coins-head {
+  display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
+  gap: 48px; align-items: start;
+}
+.hm-coins-head .vg-d2 { text-wrap: balance; margin: 10px 0 14px; }
+.hm-coins-head .vg-say { margin-bottom: 18px; }
+
+.hm-coinlist {
+  list-style: none; margin: 0; padding: 0;
+  border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden;
+}
+.hm-coinrow {
+  display: grid; grid-template-columns: 34px minmax(0, 1fr) auto auto;
+  gap: 14px; align-items: center;
+  padding: 13px 16px; background: var(--card); border-top: 1px solid var(--line);
+  color: var(--txt); text-decoration: none;
+}
+.hm-coinrow:first-child { border-top: 0; }
+.hm-coinrow:hover { background: #18232f; }
+.hm-coinmark {
+  width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center;
+  font: 700 13px/1 var(--mono); color: #fff;
+}
+.hm-coinname { min-width: 0; font: 700 14px/1.2 var(--display); letter-spacing: -.015em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-coinsub { display: block; margin-top: 2px; font: 400 10.5px/1 var(--mono); color: var(--dim); }
+.hm-coinask { font: 600 12.5px/1 var(--mono); color: var(--txt); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hm-coinask.none { color: var(--dim); font-weight: 400; }
+.hm-coinheld { font: 400 11px/1 var(--mono); color: var(--dim); white-space: nowrap; }
+
+/* --- the two panels --------------------------------------------------------------------------------- */
+
+.hm-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 72px; }
+.hm-panel {
+  display: flex; flex-direction: column; gap: 10px; align-items: flex-start;
+  padding: 30px; border: 1px solid var(--line); border-radius: var(--r-card);
+  background: var(--card); text-decoration: none; color: var(--txt);
+  transition: border-color .14s ease;
+  position: relative; overflow: hidden;
+}
+.hm-panel:hover { border-color: var(--accent); }
+.hm-panel .vg-d3 { text-wrap: balance; }
+.hm-panel .vg-small { max-width: 52ch; }
+.hm-panel-go { margin-top: 6px; font: 600 13px/1 var(--sans); color: var(--accent); }
+.hm-panel-go::after { content: ' \2192'; }
+/* A wash of the section's own colour, so the two read as different offers at a glance. */
+.hm-panel-wallet { background: radial-gradient(120% 90% at 100% 0%, rgba(76,194,241,.10), transparent 60%), var(--card); }
+.hm-panel-drop { background: radial-gradient(120% 90% at 100% 0%, rgba(56,211,159,.10), transparent 60%), var(--card); }
+
+/* --- the claims ---------------------------------------------------------------------------------------- */
+
+.hm-claims {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px;
+  margin: 72px 0 8px; background: var(--line);
+  border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden;
+}
+.hm-claim { background: var(--card); padding: 22px 24px; display: flex; flex-direction: column; gap: 8px; }
+.hm-claim .vg-d4 { color: var(--txt); }
+.hm-claim p { margin: 0; }
+
+/* --- narrower ------------------------------------------------------------------------------------------- */
+
+@media (max-width: 1000px) {
+  .hm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hm-figures { grid-template-columns: repeat(3, 1fr); }
+  .hm-coins-head { grid-template-columns: 1fr; gap: 26px; }
+}
+@media (max-width: 680px) {
+  .hm-hero { padding: 34px 0 24px; }
+  .hm-grid, .hm-pair, .hm-claims { grid-template-columns: 1fr; }
+  .hm-figures { grid-template-columns: repeat(2, 1fr); }
+  .hm-rail img { width: 96px; }
+  .hm-panel { padding: 22px; }
+}

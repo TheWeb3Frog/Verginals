@@ -117,7 +117,10 @@ function paintStats(res) {
 // has no art, but it does have a permanent identity, so the colour is derived from that: the same
 // coin is the same colour on every device, for ever, and no two adjacent rows look alike.
 const MARKS = ['#FD0142', '#7909F9', '#FEC925', '#F18BF6', '#0DF1FF', '#59C54F',
-  '#FF4F02', '#DB3FFD', '#03BF99', '#FDED58', '#0098DB'];
+  '#FF4F02', '#DB3FFD', '#03BF99', '#FDED58', '#0098DB',
+  // Widened from eleven: fifteen coins over eleven colours put two of the same shade in one
+  // short list. These three are also real collection backgrounds, so the set stays one palette.
+  '#1F6F52', '#6CE3FF', '#424C6D'];
 
 function markFor(key) {
   // FNV-1a over the ticker AND the reference. A plain h*31 over the reference alone clustered,

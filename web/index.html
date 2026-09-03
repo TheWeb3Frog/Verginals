@@ -8,7 +8,7 @@
   <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/vg.css" />
-  <link rel="stylesheet" href="/style.css?v=30" />
+  <link rel="stylesheet" href="/style.css?v=33" />
 </head>
 <body class="vg vg-hosted">
 
@@ -26,7 +26,8 @@
   </div>
 
   <nav class="tabs">
-    <button class="tab active" data-tab="inscribe">Inscribe</button>
+    <button class="tab active" data-tab="home">Home</button>
+    <button class="tab" data-tab="inscribe">Inscribe</button>
     <button class="tab hidden" data-tab="mint" id="tab-mint">Mint ✦</button>
     <button class="tab" data-tab="explore">Explore</button>
     <button class="tab" data-tab="market">Market</button>
@@ -41,8 +42,144 @@
   </nav>
 
   <main>
+    <!-- ============ HOME ============ -->
+    <section class="panel active" id="panel-home">
+
+      <header class="hm-hero">
+        <p class="vg-label">Verge, written on</p>
+        <h1 class="vg-d1">Put something<br>on a chain that<br>never had any.</h1>
+        <p class="vg-say hm-lead">
+          Verge ran for a decade with no way to write anything to it. Verginals is the whole stack
+          that changed that: inscriptions, a coin protocol, a collection, a market and a wallet, all
+          on chain, none of it holding your keys.
+        </p>
+        <div class="hm-acts">
+          <a class="vg-btn primary" href="#mint" data-goto="mint">Mint an Alpha, free</a>
+          <a class="vg-btn" href="#inscribe" data-goto="inscribe">Inscribe anything</a>
+        </div>
+      </header>
+
+      <!-- Real Alphas, pulled from the ones actually inscribed. The art is the argument. -->
+      <div class="hm-strip" aria-label="Alpha Verginals already inscribed">
+        <div class="hm-rail" id="hm-rail"></div>
+      </div>
+
+      <!-- What the chain says, rather than what we say about it. -->
+      <dl class="vg-stats hm-figures" id="hm-figures"></dl>
+
+      <section class="hm-do">
+        <div class="hm-do-head">
+          <p class="vg-label">Everything you can do</p>
+          <h2 class="vg-d2">Six things, and none of<br>them need an account.</h2>
+        </div>
+        <ul class="hm-grid">
+          <li class="hm-card" data-hm="mint">
+            <span class="hm-mark hm-mark-mint" aria-hidden="true"></span>
+            <h3>Mint an Alpha</h3>
+            <p>A hand-drawn pixel cat from the first collection ever made on Verge, drawn at random. You pay the network and nothing else.</p>
+            <span class="hm-num" data-hm-stat="mint">-</span>
+            <a class="vg-btn hm-go" href="#mint" data-goto="mint">Mint one</a>
+          </li>
+          <li class="hm-card" data-hm="inscribe">
+            <span class="hm-mark hm-mark-ins" aria-hidden="true"></span>
+            <h3>Inscribe anything</h3>
+            <p>An image, a file, a sentence. It goes into a transaction and lives on Verge for as long as Verge does. No server holds it.</p>
+            <span class="hm-num" data-hm-stat="ins">-</span>
+            <a class="vg-btn hm-go" href="#inscribe" data-goto="inscribe">Write one</a>
+          </li>
+          <li class="hm-card" data-hm="etch">
+            <span class="hm-mark hm-mark-etch" aria-hidden="true"></span>
+            <h3>Etch a coin</h3>
+            <p>Your own token on Verge, with a name nobody can take twice. You pick the supply, and claiming it is free by default.</p>
+            <span class="hm-num" data-hm-stat="coins">-</span>
+            <a class="vg-btn hm-go" href="/etch">Etch one</a>
+          </li>
+          <li class="hm-card" data-hm="claim">
+            <span class="hm-mark hm-mark-claim" aria-hidden="true"></span>
+            <h3>Claim a coin</h3>
+            <p>Somebody else's coin, on open terms they fixed at the etching and cannot change afterwards. Most of them cost nothing.</p>
+            <span class="hm-num" data-hm-stat="open">-</span>
+            <a class="vg-btn hm-go" href="/runes/mint">Claim one</a>
+          </li>
+          <li class="hm-card" data-hm="trade">
+            <span class="hm-mark hm-mark-trade" aria-hidden="true"></span>
+            <h3>Buy and sell</h3>
+            <p>One transaction, both sides at once. No escrow, no deposit, and your coins never leave your wallet until somebody takes the offer.</p>
+            <span class="hm-num" data-hm-stat="listed">-</span>
+            <a class="vg-btn hm-go" href="#market" data-goto="market">Open the market</a>
+          </li>
+          <li class="hm-card" data-hm="arena">
+            <span class="hm-mark hm-mark-arena" aria-hidden="true"></span>
+            <h3>Fight in the Arena</h3>
+            <p>Your Verginal has traits, and the traits are a fighter. Duel, climb a ladder, breed a descendant that inherits what it came from.</p>
+            <span class="hm-num" data-hm-stat="arena">-</span>
+            <a class="vg-btn hm-go" href="#arena" data-goto="arena">Enter</a>
+          </li>
+        </ul>
+      </section>
+
+      <!-- Coins: the second protocol, shown as the coins that exist rather than described. -->
+      <section class="hm-coins">
+        <div class="hm-coins-head">
+          <div>
+            <p class="vg-label">Verge Runes</p>
+            <h2 class="vg-d2">Coins, etched by<br>whoever wanted one.</h2>
+            <p class="vg-say">
+              A token protocol written for Verge, indexed by code anyone can rerun. Nobody approves
+              a name and nobody can take it back once it is yours.
+            </p>
+            <div class="hm-acts">
+              <a class="vg-btn primary" href="/runes/market">See every coin</a>
+              <a class="vg-btn" href="/etch">Etch your own</a>
+            </div>
+          </div>
+          <ul class="hm-coinlist" id="hm-coins"></ul>
+        </div>
+      </section>
+
+      <!-- The two things worth pointing at right now. -->
+      <section class="hm-pair">
+        <a class="hm-panel hm-panel-wallet" href="/verginalswallet">
+          <p class="vg-label">The wallet</p>
+          <h3 class="vg-d3">Your keys stay on your device.</h3>
+          <p class="vg-small">
+            A browser wallet built for this chain: it reads which of your coins carry an inscription
+            so you never spend one by accident, and it signs everything locally. We never see a key,
+            a phrase, or a balance.
+          </p>
+          <span class="hm-panel-go">Install it</span>
+        </a>
+        <a class="hm-panel hm-panel-drop" href="/airdrop">
+          <p class="vg-label">Community drop</p>
+          <h3 class="vg-d3">If you were here early,<br>some of it is yours.</h3>
+          <p class="vg-small">
+            The first community coin is being given away to the wallets that inscribed, minted and
+            etched during the chain's first year. Nothing to claim and nothing to pay: check an
+            address and see.
+          </p>
+          <span class="hm-panel-go">Check an address</span>
+        </a>
+      </section>
+
+      <section class="hm-claims">
+        <div class="hm-claim">
+          <p class="vg-d4">Nobody holds your keys.</p>
+          <p class="vg-small">Every signature happens on your device. There is no account to make, no balance we keep, and nothing to withdraw.</p>
+        </div>
+        <div class="hm-claim">
+          <p class="vg-d4">We take nothing.</p>
+          <p class="vg-small">No mint fee, no listing fee, no cut of a sale. What you pay is what the network charges to carry your transaction.</p>
+        </div>
+        <div class="hm-claim">
+          <p class="vg-d4">Check it yourself.</p>
+          <p class="vg-small">The indexer is open and every number on this page is read back from Verge. Run it and you get the same answers we do.</p>
+        </div>
+      </section>
+
+    </section>
+
     <!-- ============ INSCRIBE ============ -->
-    <section class="panel active" id="panel-inscribe">
+    <section class="panel" id="panel-inscribe">
       <div class="card">
         <div class="subtabs">
           <button class="subtab active" data-kind="text">Text</button>
@@ -835,7 +972,7 @@
 
   <script src="/vendor/qrcode.js"></script>
   <script type="module" src="/app-chrome.js"></script>
-<script src="/app.js?v=30"></script>
-  <script src="/wallet.js?v=30"></script>
+<script src="/app.js?v=33"></script>
+  <script src="/wallet.js?v=33"></script>
 </body>
 </html>

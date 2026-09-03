@@ -655,35 +655,53 @@ footer .hint { max-width: 980px; margin: 0 auto; }
    ================================================================================================ */
 
 .mh {
-  display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
+  display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr);
   border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden;
   background: var(--card); margin-bottom: 18px;
 }
 
-/* One sealed mark, not a grid of them. A wall of identical placeholders reads as stock; a single
-   sealed shape reads as the one you have not opened. */
-.mh-seal {
-  position: relative; min-height: 260px;
-  background-color: var(--bg);
-  border-right: 1px solid var(--line);
-  display: grid; place-items: center;
+/* --- the draw, made visible --------------------------------------------------------------------
+   This was an empty grid with a small diamond outline breathing in the middle of it: forty per cent
+   of the hero on a page whose entire job is to sell the art, spent on a placeholder. Real Alphas
+   cycle here instead, and the cycling is not decoration: "you do not choose which one you get" is
+   the collection's central rule, and this is what that rule looks like. */
+.mh-art {
+  position: relative; display: flex; flex-direction: column; gap: 12px;
+  padding: 22px; background: var(--bg); border-right: 1px solid var(--line);
 }
-.mh-diamond {
-  width: 84px; height: 84px; transform: rotate(45deg);
-  border: 2px solid var(--accent); border-radius: 8px;
-  box-shadow: 0 0 44px -6px rgba(76, 194, 241, .5);
+.mh-frame {
+  position: relative; border-radius: 12px; overflow: hidden;
+  border: 1px solid var(--line2); background: var(--bg2);
+  aspect-ratio: 1 / 1;
 }
-@media (prefers-reduced-motion: no-preference) {
-  .mh-diamond { animation: mhBreathe 5s ease-in-out infinite; }
-  @keyframes mhBreathe {
-    0%, 100% { opacity: .75; transform: rotate(45deg) scale(1); }
-    50% { opacity: 1; transform: rotate(45deg) scale(1.05); }
-  }
+.mh-frame img {
+  display: block; width: 100%; height: 100%; object-fit: cover;
+  image-rendering: pixelated;
+  opacity: 0; transition: opacity .34s ease;
 }
+.mh-frame img.is-in { opacity: 1; }
+/* The number and rank of whichever one is showing, over the art so the frame stays square. */
+.mh-shot-meta {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  padding: 10px 12px;
+  background: linear-gradient(transparent, rgba(4, 8, 12, .82));
+  font: 500 12px/1 var(--mono);
+}
+.mh-shot-meta span:first-child { color: #fff; }
+.mh-shot-meta span:last-child { color: var(--accent); }
+.mh-art-say { margin: 0; font-size: 12px; line-height: 1.5; color: var(--muted); text-align: center; }
 
 .mh-body { padding: 34px 32px; display: flex; flex-direction: column; gap: 20px; }
-.mh-counts { display: flex; gap: 44px; }
+.mh-counts { display: flex; flex-wrap: wrap; gap: 40px; }
 .mh-bar { margin-top: -6px; }
+
+/* --- the action, above the fold ------------------------------------------------------------------
+   It was a form further down the page. On the one screen whose whole purpose is a single action,
+   the action has to be on it. */
+.mh-go { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 2px; }
+.mh-cta { padding: 14px 28px; font-size: 15.5px; }
+.mh-go-say { font-size: 12.5px; color: var(--muted); }
 
 .mh-houses { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .mh-house {
@@ -702,7 +720,7 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 
 @media (max-width: 820px) {
   .mh { grid-template-columns: 1fr; }
-  .mh-seal { min-height: 150px; border-right: 0; border-bottom: 1px solid var(--line); }
+  
   .mh-body { padding: 26px 22px; }
   .mh-counts { gap: 30px; }
 }

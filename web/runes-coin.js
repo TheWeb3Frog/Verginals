@@ -156,7 +156,7 @@ function mountImageUpload(c) {
 
     const say = document.createElement('span');
     say.className = 'rc-image-say';
-    say.textContent = `PNG, JPEG, WEBP or GIF, up to ${Math.round((c.imageMaxBytes || 24576) / 1024)} KB. Held by this site, not written to the chain.`;
+    say.textContent = `PNG, JPEG, WEBP or GIF, up to ${Math.round((c.imageMaxBytes || 102400) / 1024)} KB.`;
 
     host.append(label, say);
 

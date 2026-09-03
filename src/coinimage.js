@@ -28,8 +28,15 @@
 const path = require('path');
 const codec = require('./runes/codec');
 
-/** Small on purpose. A coin's mark is a mark, and this is a server's disk rather than a chain. */
-const MAX_BYTES = 24 * 1024;
+/**
+ * Generous, because this is a server's disk and not a chain: the 68 KB ceiling an inscription lives
+ * under does not apply to a file we simply keep. A hundred kilobytes across every coin that will
+ * ever be etched is still nothing, and it is the difference between a logo and a thumbnail.
+ *
+ * The cap is still a cap. It bounds what one request can spend of the disk and of the time spent
+ * reading it, and the dimension check below is what actually guards against a bomb.
+ */
+const MAX_BYTES = 100 * 1024;
 /** Nothing sane needs more, and past it something is being attempted rather than uploaded. */
 const MAX_SIDE = 1024;
 
@@ -98,7 +105,7 @@ function dimensions(bytes, mime) {
 function check(bytes) {
   if (!Buffer.isBuffer(bytes) || bytes.length === 0) return { ok: false, why: 'no file was sent' };
   if (bytes.length > MAX_BYTES) {
-    return { ok: false, why: `that file is ${(bytes.length / 1024).toFixed(0)} KB and the limit is ${MAX_BYTES / 1024} KB. A coin mark should be small: try a PNG at 256 by 256 or less.` };
+    return { ok: false, why: `that file is ${(bytes.length / 1024).toFixed(0)} KB and the limit is ${MAX_BYTES / 1024} KB. Try a smaller PNG, or the same one at 512 by 512.` };
   }
   const type = sniff(bytes);
   if (!type) {

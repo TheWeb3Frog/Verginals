@@ -40,7 +40,7 @@ $$('.tab').forEach((t) => t.addEventListener('click', () => {
   if (t.dataset.tab === 'home') loadHome();
   if (t.dataset.tab === 'explore') { loadInscriptions(); startExploreAutoRefresh(); }
   else stopExploreAutoRefresh();
-  if (t.dataset.tab === 'mint') loadMintStatus();
+  if (t.dataset.tab === 'mint') { loadMintStatus(); startMintShowcase(); }
   if (t.dataset.tab === 'stats') loadStats();
   if (t.dataset.tab === 'launchpad') loadLaunchpad();
   if (t.dataset.tab === 'market') loadMarket();
@@ -1320,6 +1320,12 @@ async function loadMintStatus() {
     $('#mint-supply').textContent = fmt(s.remaining);
     const pct = s.supply ? Math.min(100, (s.minted / s.supply) * 100) : 0;
     $('#mint-bar').style.width = pct.toFixed(2) + '%';
+    // The share, spelled out. A bar is a feeling and a number is a fact, and a mint that is two
+    // fifths gone is a reason to go now rather than later.
+    if ($('#mint-pct')) $('#mint-pct').textContent = pct.toFixed(0) + '%';
+    // Nothing left to mint means the button is a lie.
+    const cta = $('#mh-cta');
+    if (cta && s.remaining === 0) { cta.textContent = 'Every one has been minted'; cta.classList.add('is-off'); }
     $('#mint-fair').innerHTML =
       `Committed draw · commitment <code>${short(s.commitment)}</code>` +
       (s.revealed && s.seed ? ` · seed revealed <code>${short(s.seed)}</code>` : '');
@@ -2226,6 +2232,72 @@ function compactNum(n) {
   if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
   if (Math.abs(v) >= 1e3) return Math.round(v / 1e3) + 'K';
   return fmt(v);
+}
+
+// The hero's mint button scrolls to the form rather than following its href.
+//
+// The hash IS the tab address on this page, so letting "#mint-form" reach the bar would replace
+// "#mint" with a name no tab answers to: the panel would stay put and a reload would land somewhere
+// else entirely.
+(function wireMintCta() {
+  const cta = document.getElementById('mh-cta');
+  const form = document.getElementById('mint-form');
+  if (!cta || !form) return;
+  cta.addEventListener('click', (e) => {
+    e.preventDefault();
+    form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const first = form.querySelector('input:not([type=hidden]), button');
+    if (first) setTimeout(() => first.focus({ preventScroll: true }), 420);
+  });
+})();
+
+// --- the mint hero's rotating Alpha -----------------------------------------------------------
+//
+// Real ones, cycling. The collection's central rule is that you do not choose which one you get,
+// and a frame that keeps handing you a different cat is what that rule looks like. What was here
+// before was an empty grid with a diamond outline breathing in it, on the one page whose whole job
+// is to make somebody want the art.
+//
+// Paused when the tab is hidden and skipped entirely for anybody who asked for less motion.
+let mintShotTimer = null;
+
+async function startMintShowcase() {
+  const img = $('#mh-shot');
+  if (!img || mintShotTimer) return;
+
+  let pool = [];
+  try {
+    const r = await api('/api/collection/items');
+    pool = ((r && r.items) || []).filter((i) => i.number != null);
+  } catch (_) { /* fall through to the opening numbers */ }
+  if (!pool.length) pool = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({ number: n, name: 'Verginals #' + n }));
+
+  // Shuffled once, then walked in order, so the same cat cannot come up twice in a row.
+  pool.sort(() => Math.random() - 0.5);
+  let i = 0;
+
+  const show = () => {
+    const it = pool[i % pool.length];
+    i += 1;
+    const next = new Image();
+    next.src = '/api/collection/image/' + it.number;
+    const land = () => {
+      img.classList.remove('is-in');
+      // One frame of fade out, then swap and fade in, so the change reads as a change.
+      setTimeout(() => {
+        img.src = next.src;
+        img.alt = it.name || ('Verginals #' + it.number);
+        $('#mh-shot-name').textContent = it.name || ('Verginals #' + it.number);
+        $('#mh-shot-rank').textContent = it.rank != null ? 'rank ' + fmt(it.rank) : '';
+        img.classList.add('is-in');
+      }, 180);
+    };
+    if (next.complete) land(); else { next.addEventListener('load', land, { once: true }); next.addEventListener('error', land, { once: true }); }
+  };
+
+  show();
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  mintShotTimer = setInterval(() => { if (!document.hidden) show(); }, 2600);
 }
 
 // --- the collection gallery --------------------------------------------------------------

@@ -87,7 +87,7 @@ test('a POLYGLOT is still only ever served as the image it structurally is', () 
 test('an oversized file is refused before anything else looks at it', () => {
   const r = check(Buffer.concat([png(8, 8, 8), Buffer.alloc(MAX_BYTES + 1)]));
   assert.strictEqual(r.ok, false);
-  assert.match(r.why, /limit is 24 KB/);
+  assert.match(r.why, new RegExp('limit is ' + (MAX_BYTES / 1024) + ' KB'));
 });
 
 test('A DECOMPRESSION BOMB is refused on its declared dimensions', () => {

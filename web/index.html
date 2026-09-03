@@ -7,8 +7,8 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/vg.css?v=42" />
-  <link rel="stylesheet" href="/style.css?v=42" />
+  <link rel="stylesheet" href="/vg.css?v=43" />
+  <link rel="stylesheet" href="/style.css?v=43" />
 </head>
 <body class="vg vg-hosted">
 
@@ -314,12 +314,22 @@
            left, what it costs, and who decides which one you get. Everything else about the
            collection is below it. -->
       <div class="mh">
-        <div class="mh-seal vg-grid-motif" aria-hidden="true"><span class="mh-diamond"></span></div>
+        <!-- The draw, made visible. Real Alphas cycle here, which is the one thing on the page
+             that argues for itself: you do not choose which one you get, and this is what that
+             looks like. It replaced an empty grid with a small diamond outline in it. -->
+        <div class="mh-art">
+          <div class="mh-frame">
+            <img id="mh-shot" alt="An Alpha Verginal" />
+            <div class="mh-shot-meta"><span id="mh-shot-name">Verginals</span><span id="mh-shot-rank"></span></div>
+          </div>
+          <p class="mh-art-say">Every one is different. Yours is drawn at random.</p>
+        </div>
         <div class="mh-body">
-          <h2 class="vg-d1" id="mint-title">3,333 hand-drawn<br>pixel cats. Free.</h2>
+          <p class="vg-label">Alpha Verginals</p>
+          <h2 class="vg-d1" id="mint-title">3,333 pixel cats.<br>Yours is free.</h2>
           <p class="vg-say">
-            The first inscription collection ever made on Verge. You do not choose which one you
-            get, and neither do we.
+            The first inscription collection ever made on Verge, hand-drawn and written straight
+            onto the chain. You do not choose which one you get, and neither do we.
           </p>
 
           <div class="mh-counts">
@@ -331,8 +341,19 @@
               <span class="vg-label">Left</span>
               <b class="vg-num vg-n-xl vg-accent" id="mint-supply">-</b>
             </div>
+            <div class="vg-stat mh-pct-stat">
+              <span class="vg-label">Gone</span>
+              <b class="vg-num vg-n-xl" id="mint-pct">-</b>
+            </div>
           </div>
           <div class="vg-bar mh-bar"><span id="mint-bar" style="width:0"></span></div>
+
+          <!-- The action, above the fold, on the page whose whole job is that action. It used to
+               be a form somebody had to scroll to find. -->
+          <div class="mh-go">
+            <a class="vg-btn primary mh-cta" href="#mint-form" id="mh-cta">Mint one, free</a>
+            <span class="mh-go-say">You pay the Verge network fee and nothing else.</span>
+          </div>
 
           <div class="mh-pair">
             <div>
@@ -998,7 +1019,7 @@
 
   <script src="/vendor/qrcode.js"></script>
   <script type="module" src="/app-chrome.js"></script>
-<script src="/app.js?v=42"></script>
-  <script src="/wallet.js?v=42"></script>
+<script src="/app.js?v=43"></script>
+  <script src="/wallet.js?v=43"></script>
 </body>
 </html>

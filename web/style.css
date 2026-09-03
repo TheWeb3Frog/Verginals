@@ -1123,3 +1123,10 @@ footer .hint { max-width: 980px; margin: 0 auto; }
   .hm-wallet { grid-template-columns: 1fr; gap: 28px; padding: 28px; }
   .hm-wallet-art { display: none; }
 }
+
+/* The collection page counts and ranks things, and the page that does that properly is Stats.
+   Nothing pointed at it from here, so the deepest analysis on the site was reachable only from a
+   menu. */
+.coll-links { margin: 8px 0 0; font-size: 12.5px; }
+.coll-links a { color: var(--accent); text-decoration: none; }
+.coll-links a:hover { text-decoration: underline; }

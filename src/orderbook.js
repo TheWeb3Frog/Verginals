@@ -202,12 +202,30 @@ class OrderBook {
   }
 
   /** Recent Alpha activity: sales and live listings, newest first, capped at `limit`. */
+  /**
+   * The feed, in seconds, whatever the records say.
+   *
+   * A sale was stamped with Date.now() and a listing with seconds, and the two were then concat'd
+   * and sorted against each other. Two things followed, and both were visible on the page:
+   *
+   *   Every sale sorted above every listing FOR EVER, because a millisecond stamp is a thousand
+   *   times the number a second stamp is, so the sort was comparing magnitudes rather than time.
+   *   A sale from July sat at the top of the feed above listings from this morning.
+   *
+   *   And the client reads seconds, so it aged each sale to a huge negative number, clamped that
+   *   to zero, and printed "0s ago". Every sale in the collection's history claimed to have just
+   *   happened.
+   *
+   * Normalised here rather than in the stored records: the records are the truth of what was
+   * written at the time, and a feed is the right place to make them comparable.
+   */
   activity(limit = 50) {
+    const secs = (t) => (Number(t) > 1e11 ? Math.round(Number(t) / 1000) : Number(t)) || 0;
     const sales = this.state.sales.filter(OrderBook._isAlpha)
-      .map((s) => ({ type: 'sale', at: s.at, collectionNumber: s.collectionNumber, priceUnits: s.priceUnits, sellerAddress: s.sellerAddress, buyerAddress: s.buyerAddress }));
+      .map((s) => ({ type: 'sale', at: secs(s.at), collectionNumber: s.collectionNumber, priceUnits: s.priceUnits, sellerAddress: s.sellerAddress, buyerAddress: s.buyerAddress }));
     const lists = Object.values(this.state.listings).filter((l) => OrderBook._isAlpha(l) && !l.pendingSale)
-      .map((l) => ({ type: 'list', at: l.at, collectionNumber: l.collectionNumber, priceUnits: l.priceUnits, sellerAddress: l.sellerAddress }));
-    return sales.concat(lists).sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, limit);
+      .map((l) => ({ type: 'list', at: secs(l.at), collectionNumber: l.collectionNumber, priceUnits: l.priceUnits, sellerAddress: l.sellerAddress }));
+    return sales.concat(lists).sort((a, b) => b.at - a.at).slice(0, limit);
   }
 
   // --- bids --------------------------------------------------------------------------------

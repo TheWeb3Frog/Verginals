@@ -11,7 +11,7 @@
 //   page, and it is why the redeem script is rebuilt locally and CHECKED against the lock address
 //   rather than taken from the server: this page trusts the chain, not its own backend.
 
-import { mountChrome } from '/vgnav.js?v=37';
+import { mountChrome } from '/vgnav.js?v=39';
 
 mountChrome({ active: 'coins', where: [{ text: 'Coins', href: '/runes/market' }, { text: 'Recover a deposit' }],
   right: 'your deposit comes back, even if the wallet is gone' });

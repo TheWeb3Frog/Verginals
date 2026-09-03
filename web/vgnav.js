@@ -34,6 +34,7 @@ const ICON = {
   drop: 'M10 2.8a5.5 5.5 0 0 0-5.5 5.5h11A5.5 5.5 0 0 0 10 2.8Zm0 0v5.5m-5.5 0 3.4 8.4m7.6-8.4-3.4 8.4m-4.2-8.4 4.2 8.4',
   pen: 'M4 16h12M12.6 3.9a1.7 1.7 0 0 1 2.4 2.4l-7.4 7.4-3.2.8.8-3.2Z',
   swords: 'M14.5 3.5h2v2l-6.6 6.6-2-2ZM5.5 3.5h-2v2l6.6 6.6 2-2M6.2 12.2 3.7 14.7l1.6 1.6 2.5-2.5m6-1.6 2.5 2.5-1.6 1.6-2.5-2.5',
+  launch: 'M10 13V3.5m0 0L6.8 6.7M10 3.5l3.2 3.2M3.5 12v3a1.5 1.5 0 0 0 1.5 1.5h10a1.5 1.5 0 0 0 1.5-1.5v-3',
   wallet: 'M3.5 6.5A1.5 1.5 0 0 1 5 5h10.5a1 1 0 0 1 1 1v1.5m-13-1v8A1.5 1.5 0 0 0 5 16h11a.5.5 0 0 0 .5-.5v-8a.5.5 0 0 0-.5-.5H5a1.5 1.5 0 0 1-1.5-1.5ZM13.5 11h.01',
 };
 
@@ -61,6 +62,7 @@ const NAV = [
     title: 'More',
     items: [
       { href: '/#inscribe', text: 'Inscribe', icon: 'pen' },
+      { href: '/#launchpad', text: 'Launch a collection', icon: 'launch' },
       { href: '/arena', text: 'Arena', icon: 'swords' },
       { href: '/#wallet', text: 'My wallet', icon: 'wallet' },
     ],
@@ -69,7 +71,6 @@ const NAV = [
 
 const FOOT = [
   { href: '/runes', text: 'How coins work' },
-  { href: '/#launchpad', text: 'Launchpad' },
   { href: '/#stats', text: 'Stats' },
   { href: '/unlock', text: 'Recover a deposit' },
   { href: '/#vision', text: 'Vision' },

@@ -996,7 +996,13 @@ const coll = {
 
 function collAgo(ts) {
   if (!ts) return '';
-  const s = Math.max(0, Math.floor(Date.now() / 1000) - ts);
+  // Defensive about the unit as well as the server being fixed: a record written in milliseconds
+  // reads as a date in the year 58,000, and the clamp below used to turn that into "0s ago", which
+  // is the most confident possible way to be wrong.
+  const t = Number(ts) > 1e11 ? Math.round(Number(ts) / 1000) : Number(ts);
+  const s = Math.floor(Date.now() / 1000) - t;
+  // A timestamp in the future is bad data, not "just now". Saying nothing beats saying zero.
+  if (s < 0) return '';
   if (s < 60) return s + 's ago';
   if (s < 3600) return Math.floor(s / 60) + 'm ago';
   if (s < 86400) return Math.floor(s / 3600) + 'h ago';

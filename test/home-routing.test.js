@@ -66,4 +66,26 @@ test('CONTROL: a link to a tab that does not exist is reported', () => {
   assert.deepStrictEqual(fake, ['nosuchtab'], 'the check would not notice a dead link');
 });
 
+// --- the wordmark ------------------------------------------------------------------------------
+//
+// It is an <a>, so without a rule of its own it takes the browser's link colours: blue, underlined,
+// and purple once anybody has clicked it. That is exactly what happened when the horizontal bar was
+// replaced and the brand's base rule went with it, leaving only the rule that styled its box.
+
+const vgcss = fs.readFileSync(path.join(__dirname, '..', 'web', 'vg.css'), 'utf8');
+
+test('THE WORDMARK NAMES EVERY LINK STATE, so no default can win one', () => {
+  const rule = /\.vg-brand:link[^{]*\{([^}]*)\}/.exec(vgcss);
+  assert.ok(rule, 'the brand should style its link states explicitly');
+  for (const state of [':link', ':visited', ':hover', ':active']) {
+    assert.ok(new RegExp('\\.vg-brand' + state).test(vgcss), `${state} is unstyled and will fall back`);
+  }
+  assert.match(rule[1], /color:\s*var\(--txt\)/, 'and it stays the text colour in all of them');
+  assert.match(rule[1], /text-decoration:\s*none/);
+});
+
+test('and it still has a base rule at all, which is what went missing', () => {
+  assert.match(vgcss, /^\.vg-brand \{/m, 'the brand needs its own base rule, not just a layout one');
+});
+
 console.log(`\n${passed} home routing tests passed`);

@@ -326,7 +326,20 @@
 /* focus-within as well as hover, or the rail is unusable from a keyboard. */
 .vg-side:hover, .vg-side:focus-within { width: var(--side-open); box-shadow: 12px 0 40px rgba(0, 0, 0, .45); }
 
-.vg-side .vg-brand { flex: none; height: var(--top-h); padding: 0 18px; border-bottom: 1px solid var(--line); gap: 12px; }
+/* THE WORDMARK IS NOT A LINK, whatever element it is made of.
+   Its base rule lived in the horizontal bar that the sidebar replaced, and went with it. What was
+   left styled the box and nothing else, so the wordmark fell back to the browser's own link
+   colours: blue, underlined, and purple once anybody had clicked it. Every state is named here so
+   there is no state left for a default to win. */
+.vg-brand {
+  display: flex; align-items: center; gap: 12px;
+  color: var(--txt); text-decoration: none;
+  font: 700 15px/1 var(--display); letter-spacing: .04em;
+}
+.vg-brand:link, .vg-brand:visited, .vg-brand:hover, .vg-brand:active, .vg-brand:focus {
+  color: var(--txt); text-decoration: none;
+}
+.vg-side .vg-brand { flex: none; height: var(--top-h); padding: 0 18px; border-bottom: 1px solid var(--line); }
 .vg-logo { flex: none; width: 28px; height: 28px; display: block; border-radius: 7px; }
 .vg-side-scroll { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; padding: 14px 12px 20px; }
 

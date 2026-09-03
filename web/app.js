@@ -2086,10 +2086,11 @@ function renderDonateQR() {
 // endpoint was slow is worse than one missing a figure, so each block fills in when it can and the
 // dashes stay where it cannot.
 let homeLoaded = false;
+let homeLoading = false;
 
 async function loadHome() {
-  if (homeLoaded) return;
-  homeLoaded = true;
+  if (homeLoaded || homeLoading) return;
+  homeLoading = true;
 
   const figures = $('#hm-figures');
   const rail = $('#hm-rail');
@@ -2123,6 +2124,20 @@ async function loadHome() {
     api('/api/runes/coins').catch(() => null),
     api('/api/market/listings').catch(() => null),
   ]);
+  homeLoading = false;
+
+  // NOTHING CAME BACK, SO COME BACK LATER.
+  //
+  // Every request above swallows its own failure, which keeps one slow endpoint from taking the
+  // page down, and used to mean a total failure painted an empty page and then never tried again:
+  // the flag was set before the work, so a single burst of 504s during a rescan left the front door
+  // blank for the rest of that visit. A restart makes those bursts routine, so this is not a rare
+  // path. The flag is only set once something actually arrived.
+  if (!ins && !mint && !coins) {
+    setTimeout(loadHome, 4000);
+    return;
+  }
+  homeLoaded = true;
 
   // --- the band of figures ---------------------------------------------------------------------
   const items = (ins && ins.inscriptions) || [];

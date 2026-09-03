@@ -8,7 +8,7 @@
 <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/vg.css?v=34">
-<link rel="stylesheet" href="/runes-market.css?v=29">
+<link rel="stylesheet" href="/runes-market.css?v=35">
 </head>
 <body class="vg">
 <main class="vg-wrap">
@@ -45,12 +45,14 @@
   <div id="status" class="vg-note">Reading the chain…</div>
 
   <div class="rm-table vg-scroll" id="rm-table" hidden>
-    <div class="rm-thead" aria-hidden="true">
+    <div class="rm-thead">
+      <span class="rm-rankh">#</span>
       <span>Coin</span>
-      <span class="rm-num">Cheapest ask</span>
+      <span class="rm-num">Floor</span>
       <span class="rm-num">For sale</span>
+      <span class="rm-num">Holders</span>
       <span>Minted</span>
-      <span class="rm-num">Held by</span>
+      <span class="rm-num">Age</span>
       <span></span>
     </div>
     <ul id="rm-list" class="rm-list"></ul>
@@ -85,6 +87,6 @@
 
 </main>
 <script src="/wallet.js?v=29"></script>
-<script type="module" src="/runes-market.js?v=29"></script>
+<script type="module" src="/runes-market.js?v=35"></script>
 </body>
 </html>

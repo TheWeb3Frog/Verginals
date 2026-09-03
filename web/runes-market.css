@@ -28,13 +28,32 @@
    heading. */
 .rm-thead, .rm-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.9fr) minmax(92px, .9fr) minmax(80px, .7fr) minmax(160px, 1.6fr) minmax(56px, .5fr) auto;
-  gap: 26px; align-items: center;
+  grid-template-columns:
+    28px                    /* rank */
+    minmax(0, 1.8fr)        /* coin */
+    minmax(84px, .8fr)      /* floor */
+    minmax(76px, .7fr)      /* for sale */
+    minmax(58px, .5fr)      /* holders */
+    minmax(150px, 1.4fr)    /* minted */
+    minmax(44px, .4fr)      /* age */
+    auto;                   /* action */
+  gap: 20px; align-items: center;
 }
+/* The header stays put while the list scrolls, which is what makes a long table readable and what
+   every market people compare this to does. */
 .rm-thead {
-  padding: 0 18px 11px;
+  position: sticky; top: var(--top-h, 56px); z-index: 5;
+  padding: 11px 18px; margin-bottom: 6px;
+  background: var(--bg); border-bottom: 1px solid var(--line);
   font: 700 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim);
 }
+.rm-rankh { text-align: center; }
+.rm-rank {
+  text-align: center; font: 500 12px/1 var(--mono); color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+/* The top three carry the accent, the way a leaderboard reads. */
+.rm-row:nth-child(-n+3) .rm-rank { color: var(--accent); font-weight: 700; }
 .rm-thead span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rm-num { text-align: right; }
 
@@ -63,6 +82,9 @@
 
 .rm-val { text-align: right; font-variant-numeric: tabular-nums; min-width: 0; }
 .rm-val b { display: block; font: 700 14.5px/1.2 var(--mono); letter-spacing: -.02em; }
+/* The unit under the number rather than beside it: nine characters of "0.00009 XVG" on one line is
+   what forced the old table to ellipsise its own prices. */
+.rm-val .sub { text-transform: none; letter-spacing: 0; }
 /* Each figure carries its own label for the phone, where no column heading sits above it. On a desk
    the heading is right there and repeating it under every number is noise. */
 .rm-val span { display: none; margin-top: 3px; font-size: 11.5px; color: var(--muted); }
@@ -92,6 +114,18 @@
 
 /* --- phone ------------------------------------------------------------------------------------------ */
 
+/* Eight columns need room. Below this the name starts being ellipsised, and the name is the one
+   thing on the row nobody can do without, so the least useful column goes instead. Age is the
+   least useful: it is the only figure here that answers a question nobody came to ask. */
+@media (max-width: 1240px) {
+  .rm-thead > :nth-child(7), .rm-row > .rm-val:nth-last-of-type(1) { display: none; }
+  .rm-thead, .rm-row {
+    grid-template-columns: 26px minmax(0, 2fr) minmax(80px, .8fr) minmax(72px, .7fr)
+      minmax(54px, .5fr) minmax(140px, 1.3fr) auto;
+    gap: 16px;
+  }
+}
+
 @media (max-width: 900px) {
   .rm-head { grid-template-columns: 1fr; gap: 30px; padding: 34px 0 30px; align-items: start; }
   .rm-head-stats { grid-template-columns: repeat(3, 1fr); }
@@ -99,6 +133,7 @@
 
 @media (max-width: 760px) {
   .rm-thead { display: none; }
+  .rm-rank { display: none; }
   /* The row stops being a table row and becomes a card: identity across the top, figures in a line
      under it, the action full width. Labels come back because no heading carries them here. */
   .rm-row { grid-template-columns: 1fr 1fr; gap: 14px 16px; }

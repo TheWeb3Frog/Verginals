@@ -37,6 +37,7 @@ function compact(n) {
 }
 
 let coins = [];
+let tip = 0;          // chain tip, so a coin's age can be read off its etching height
 let sort = 'live';
 let query = '';
 let scanning = false;
@@ -71,6 +72,7 @@ async function load() {
   }
 
   coins = res.coins;
+  tip = Number(res.tip || res.height || 0);
   scanning = res.scanning === true;
   $('status').hidden = true;
   $('rm-table').hidden = false;
@@ -199,7 +201,7 @@ function render() {
     return;
   }
 
-  for (const c of rows) list.append(rowFor(c));
+  rows.forEach((c, i) => list.append(rowFor(c, i + 1)));
 }
 
 /**
@@ -239,10 +241,21 @@ function progressFor(c) {
   return prog;
 }
 
-function rowFor(c) {
+/** How long ago a coin was etched, from block height. Verge aims at 30 second blocks. */
+function ageOf(height, tip) {
+  if (!tip || !height || tip < height) return null;
+  const secs = (tip - height) * 30;
+  if (secs < 3600) return Math.max(1, Math.round(secs / 60)) + 'm';
+  if (secs < 86400) return Math.round(secs / 3600) + 'h';
+  return Math.round(secs / 86400) + 'd';
+}
+
+function rowFor(c, rank) {
   const li = document.createElement('li');
   li.className = 'rm-row';
   const href = '/runes/coin?rune=' + encodeURIComponent(c.runeRef);
+
+  li.append(el('span', 'rm-rank', String(rank)));
 
   const id = el('div', 'rm-id');
   const face = markFor(c.ticker + c.runeRef);
@@ -252,29 +265,37 @@ function rowFor(c) {
   const names = el('div', 'rm-names');
   const name = el('a', 'rm-name', c.display);
   name.href = href;
+  name.title = c.display;
   names.append(name, el('span', 'rm-ref', c.runeRef));
   id.append(mark, names);
   li.append(id);
 
-  // The ask, per whole coin. `null` is "nobody is selling", which is a different fact from "cheap".
+  // The floor, per whole coin. `null` is "nobody is selling", which is a different fact from
+  // "cheap", and it is shown as words rather than as a zero.
   if (c.market.bestAsk === null) {
-    val(li, 'cheapest ask', 'No asks', true);
+    val(li, 'floor', 'No asks', true);
   } else {
-    val(li, 'cheapest ask', fmtXvg(c.market.bestAsk) + ' XVG');
+    const box = val(li, 'floor', fmtXvg(c.market.bestAsk));
+    box.append(el('span', 'sub', 'XVG'));
   }
 
   if (c.market.forSale > 0) {
     const box = val(li, 'for sale', compact(c.market.forSaleWhole));
-    box.append(el('span', 'sub', `on ${c.market.asks} listing${c.market.asks === 1 ? '' : 's'}`));
+    box.append(el('span', 'sub', `${c.market.asks} listing${c.market.asks === 1 ? '' : 's'}`));
   } else {
     val(li, 'for sale', '-', true);
   }
 
+  val(li, 'holders', fmtN(c.carriers), c.carriers === 0);
+
   li.append(progressFor(c));
 
-  val(li, 'coins holding it', fmtN(c.carriers), c.carriers === 0);
+  const age = ageOf(c.etchedAtHeight, tip);
+  val(li, 'age', age || '-', !age);
 
-  const go = el('a', 'vg-btn rm-go', c.market.asks > 0 ? 'Buy' : (c.mint && c.mint.open ? 'Mint' : 'Open'));
+  // What you can actually do, rather than a single word for every row.
+  const go = el('a', 'vg-btn rm-go' + (c.market.asks > 0 ? ' primary' : ''),
+    c.market.asks > 0 ? 'Buy' : (c.mint && c.mint.open ? 'Mint' : 'View'));
   go.href = href;
   li.append(go);
   return li;

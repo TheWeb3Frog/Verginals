@@ -12,7 +12,7 @@
 // Everything else on the page is prose. Nothing here touches a wallet, signs anything, or moves a
 // coin: the page reads /api/info to report this server's real state and computes the rest locally.
 
-import { mountChrome } from '/vgnav.js?v=39';
+import { mountChrome } from '/vgnav.js?v=44';
 
 mountChrome({ active: 'coins', where: [{ text: 'Coins', href: '/runes/market' }, { text: 'How it works' }],
   right: 'read this before you spend anything' });

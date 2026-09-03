@@ -63,7 +63,6 @@ const NAV = [
     items: [
       { href: '/#inscribe', text: 'Inscribe', icon: 'pen' },
       { href: '/#launchpad', text: 'Launch a collection', icon: 'launch' },
-      { href: '/arena', text: 'Arena', icon: 'swords' },
       { href: '/#wallet', text: 'My wallet', icon: 'wallet' },
     ],
   },

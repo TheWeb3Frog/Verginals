@@ -2145,7 +2145,12 @@ async function loadHome() {
   if (coins) say('coins', bold(fmt(allCoins.length), allCoins.length === 1 ? 'coin exists' : 'coins exist'));
   if (coins) say('open', bold(fmt(openMints), openMints === 1 ? 'coin is open' : 'coins are open'));
   if (listings || coins) say('listed', bold(fmt(forSale.length + coinAsks), 'offers on the book'));
-  say('arena', bold(fmt(items.filter((i) => i.collectionNumber != null).length), 'possible fighters'));
+  // Launchpad collections, counted the same way everything else on this page is: from the server.
+  try {
+    const lp = await api('/api/launchpad').catch(() => null);
+    const live = ((lp && lp.collections) || []).length;
+    say('launch', bold(fmt(live), live === 1 ? 'collection live' : 'collections live'));
+  } catch (_) { /* the card stands without it */ }
 
   // --- the rail ------------------------------------------------------------------------------------
   // Written twice, because the marquee translates by exactly half its width to loop seamlessly.

@@ -181,7 +181,8 @@
 .vg-btn.block { display: flex; width: 100%; padding: 13px 20px; font-size: 14.5px; }
 .vg-btn[disabled], .vg-btn.is-off { opacity: .4; cursor: not-allowed; pointer-events: none; }
 .vg-btn:focus-visible, .vg-pill:focus-visible, .vg-input:focus-visible,
-.vg-nav a:focus-visible, .vg-nav button:focus-visible {
+.vg-side a:focus-visible, .vg-side button:focus-visible,
+.vg-top a:focus-visible, .vg-top button:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px;
 }
 
@@ -227,86 +228,7 @@
 .vg-bar > span.water { background: var(--accent); }
 .vg-bar > span.earth { background: var(--ok); }
 
-/* --- the one bar ----------------------------------------------------------------------------- */
 
-/* One bar, five intents, on every page. The site used to stack a shared bar, a second bar and a
-   twelve-item tab strip before any content, and only three of those twelve were reachable from the
-   shared one. This replaces all of it.
-   The panels open on hover with a pointer and on click or focus without one, so it works on a phone
-   and from a keyboard. */
-.vg-nav {
-  position: sticky; top: 0; z-index: 60;
-  background: rgba(11, 16, 23, .92);
-  backdrop-filter: saturate(1.4) blur(10px);
-  border-bottom: 1px solid var(--line);
-}
-.vg-nav-in {
-  max-width: var(--page); margin: 0 auto; padding: 0 22px; height: var(--nav-h);
-  display: flex; align-items: center; gap: 28px;
-}
-.vg-brand {
-  display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--txt);
-  font: 700 15px/1 var(--display); letter-spacing: .02em;
-}
-.vg-brand i {
-  width: 20px; height: 20px; border-radius: 5px; display: block;
-  background: linear-gradient(150deg, var(--accent), var(--accent2));
-}
-.vg-menu { display: flex; align-items: center; gap: 4px; margin-left: 4px; }
-.vg-menu > li { list-style: none; position: relative; }
-.vg-top {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 8px 13px; border-radius: var(--r-pill); border: 1px solid transparent;
-  background: transparent; color: var(--muted); cursor: pointer;
-  font: 500 13.5px/1 var(--sans); text-decoration: none;
-}
-.vg-top:hover, .vg-menu > li[data-open] > .vg-top { color: var(--txt); background: var(--card); }
-.vg-top[aria-current], .vg-top.is-on { color: var(--txt); }
-.vg-top .caret { font-size: 9px; opacity: .6; }
-
-/* The panel sits 8px below the button, and that gap used to be a hole: moving the mouse toward a
-   sub-item crossed it, the pointer left the item, and the menu shut in your face. The panel is
-   pushed down by a transparent band that belongs to the item, so the travel never leaves it. */
-.vg-panel-menu {
-  position: absolute; top: 100%; left: 0; min-width: 220px;
-  padding: 22px 14px 14px;
-  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-card);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, .55);
-  display: none; flex-direction: column; gap: 2px;
-  background-clip: padding-box;
-}
-/* The bridge itself: invisible, part of the item, and exactly as tall as the gap it covers. */
-.vg-menu > li > .vg-panel-menu::before {
-  content: ''; position: absolute; left: 0; right: 0; top: -10px; height: 10px;
-}
-.vg-menu > li[data-open] > .vg-panel-menu { display: flex; }
-.vg-panel-menu .vg-label { margin: 0 0 8px 8px; }
-.vg-panel-menu a {
-  display: flex; align-items: baseline; gap: 8px; justify-content: space-between;
-  padding: 8px; border-radius: var(--r-ctl); color: var(--txt); text-decoration: none;
-  font-size: 13.5px;
-}
-.vg-panel-menu a:hover { background: var(--bg2); color: var(--accent); }
-.vg-panel-menu a em { font: 400 11px/1 var(--mono); font-style: normal; color: var(--dim); }
-
-.vg-nav-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
-.vg-tip { font: 400 11px/1 var(--mono); color: var(--dim); white-space: nowrap; }
-.vg-tip b { color: var(--muted); font-weight: 500; }
-.vg-nav-wallet { padding: 8px 15px; font-size: 12.5px; }
-.vg-burger { display: none; }
-
-/* The strip under the bar: where you are, and nothing else. */
-.vg-context {
-  border-bottom: 1px solid var(--line);
-  background: var(--bg);
-}
-.vg-context-in {
-  max-width: var(--page); margin: 0 auto; padding: 11px 22px;
-  display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  font: 700 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim);
-}
-.vg-context-in a { color: var(--muted); text-decoration: none; }
-.vg-context-in a:hover { color: var(--accent); }
 
 /* --- the footer ------------------------------------------------------------------------------ */
 
@@ -366,28 +288,6 @@
 /* --- phone ----------------------------------------------------------------------------------- */
 
 @media (max-width: 860px) {
-  .vg-menu, .vg-tip, .vg-nav-wallet { display: none; }
-  /* The strip's right-hand line is a subtitle, and at this width it collides with the trail it sits
-     beside. The trail is the part that says where you are, so the subtitle is the part that goes. */
-  .vg-context-in > span { display: none; }
-  .vg-context-in { justify-content: flex-start; }
-  .vg-burger {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 38px; height: 38px; border-radius: var(--r-ctl);
-    border: 1px solid var(--line); background: transparent; color: var(--txt);
-    font-size: 15px; cursor: pointer;
-  }
-  .vg-nav.is-open .vg-menu {
-    display: flex; position: absolute; top: var(--nav-h); left: 0; right: 0;
-    flex-direction: column; align-items: stretch; gap: 0; padding: 10px 14px 18px;
-    background: var(--bg); border-bottom: 1px solid var(--line);
-  }
-  .vg-nav.is-open .vg-menu > li { position: static; }
-  .vg-nav.is-open .vg-top { width: 100%; justify-content: space-between; border-radius: var(--r-ctl); }
-  .vg-nav.is-open .vg-panel-menu {
-    position: static; min-width: 0; box-shadow: none; border: 0; padding: 2px 0 10px 10px;
-    background: transparent;
-  }
   .vg-foot-claim { margin-left: 0; width: 100%; }
 }
 
@@ -400,3 +300,111 @@
    being drawn. Deleting it would break every deep link on the site. */
 .vg-hosted .tabs { display: none; }
 .vg-hosted .topbar { display: none; }
+
+/* --- the sidebar ------------------------------------------------------------------------------
+   Everything the site can do, on screen at once, at every width.
+
+   This replaces a horizontal strip whose three hover panels were the most reported thing here. A
+   hover menu has to survive the pointer crossing a seam, a click landing on the button underneath
+   it, and a touch screen with no hover at all, and it kept failing at least one. Nothing here is
+   hidden on a desktop, so none of those failures have anywhere to happen. */
+
+:root { --side-w: 244px; --top-h: 56px; }
+
+.vg-sided { padding-left: var(--side-w); }
+
+.vg-side {
+  position: fixed; inset: 0 auto 0 0; z-index: 70; width: var(--side-w);
+  display: flex; flex-direction: column;
+  background: var(--bg2); border-right: 1px solid var(--line);
+}
+.vg-side .vg-brand { flex: none; height: var(--top-h); padding: 0 18px; border-bottom: 1px solid var(--line); }
+.vg-side-scroll { flex: 1 1 auto; overflow-y: auto; padding: 16px 12px 20px; }
+.vg-side-label {
+  margin: 14px 0 6px 10px;
+  font: 700 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim);
+}
+.vg-side-scroll > .vg-side-label:first-child { margin-top: 0; }
+.vg-side-list { list-style: none; margin: 0 0 4px; padding: 0; }
+.vg-side-link {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 10px; border-radius: var(--r-ctl);
+  color: var(--muted); text-decoration: none; font: 500 13.5px/1.2 var(--sans);
+}
+.vg-side-link:hover { background: var(--card); color: var(--txt); }
+/* The page you are on, marked by a filled row rather than a colour change alone, so it survives a
+   screenshot and a colour-blind reader. */
+.vg-side-link.is-on { background: var(--card); color: var(--txt); box-shadow: inset 2px 0 0 var(--accent); }
+.vg-side-link em { font: 400 10.5px/1 var(--mono); font-style: normal; color: var(--dim); }
+
+.vg-side-foot { flex: none; padding: 14px 12px 16px; border-top: 1px solid var(--line); }
+.vg-side-install {
+  display: block; text-align: center; padding: 9px 12px; border-radius: var(--r-ctl);
+  border: 1px solid var(--line2); color: var(--txt); text-decoration: none;
+  font: 600 12.5px/1 var(--sans);
+}
+.vg-side-install:hover { border-color: var(--accent); color: var(--accent); }
+.vg-side-mini { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 12px; padding: 0 4px; }
+.vg-side-mini a { font-size: 11px; color: var(--dim); text-decoration: none; }
+.vg-side-mini a:hover { color: var(--muted); }
+
+/* --- the top bar ------------------------------------------------------------------------------
+   Present at every width, not only on a phone: the connect button is the primary action on this
+   site and burying it in a drawer somebody has to open first would be worse than what it replaced. */
+
+.vg-top {
+  position: sticky; top: 0; z-index: 60; height: var(--top-h);
+  background: rgba(11, 16, 23, .92); backdrop-filter: saturate(1.4) blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.vg-top-in {
+  max-width: var(--page); margin: 0 auto; height: 100%; padding: 0 22px;
+  display: flex; align-items: center; gap: 14px;
+}
+.vg-crumb { min-width: 0; font: 400 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vg-crumb a { color: var(--muted); text-decoration: none; }
+.vg-crumb a:hover { color: var(--accent); }
+.vg-top-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+.vg-top-say { font: 400 11px/1 var(--mono); color: var(--dim); white-space: nowrap; }
+.vg-nav-wallet { padding: 8px 15px; font-size: 12.5px; }
+
+/* Three lines drawn in CSS, so the control is the same shape on every platform. */
+.vg-burger {
+  display: none; flex-direction: column; justify-content: center; gap: 4px;
+  width: 36px; height: 36px; padding: 0 8px; border-radius: var(--r-ctl);
+  border: 1px solid var(--line); background: transparent; cursor: pointer;
+}
+.vg-burger i { display: block; height: 2px; background: var(--txt); border-radius: 2px; }
+
+.vg-scrim { display: none; }
+
+/* --- the drawer ---------------------------------------------------------------------------------
+   Below this width the sidebar slides off canvas and the burger brings it back. The content column
+   reclaims its padding, so nothing is squeezed into a third of the screen. */
+
+@media (max-width: 900px) {
+  .vg-sided { padding-left: 0; }
+  .vg-side {
+    transform: translateX(-100%); transition: transform .22s ease;
+    box-shadow: 0 0 44px rgba(0, 0, 0, .6);
+  }
+  .vg-side-open .vg-side { transform: translateX(0); }
+  .vg-burger { display: flex; }
+  .vg-top-say { display: none; }
+  .vg-scrim {
+    display: block; position: fixed; inset: 0; z-index: 65;
+    background: rgba(4, 8, 12, .6); opacity: 0; pointer-events: none; transition: opacity .22s ease;
+  }
+  .vg-side-open .vg-scrim { opacity: 1; pointer-events: auto; }
+  /* The drawer is the whole navigation on a phone, so it must not be locked behind the viewport. */
+  .vg-side { width: min(86vw, 300px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vg-side, .vg-scrim { transition: none; }
+}
+
+@media (max-width: 560px) {
+  .vg-top-in { padding: 0 14px; gap: 10px; }
+  .vg-tip { display: none; }
+}

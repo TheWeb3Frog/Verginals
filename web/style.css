@@ -104,7 +104,7 @@ body {
 }
 .tab.active { color: var(--txt); border-bottom-color: var(--accent); }
 
-main { max-width: 980px; margin: 0 auto; padding: 18px 24px 40px; }
+main { --main-pad: 24px; max-width: 980px; margin: 0 auto; padding: 18px var(--main-pad) 40px; }
 .panel { display: none; }
 .panel.active { display: block; }
 
@@ -492,7 +492,7 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 @media (max-width: 640px) {
   .tabs { padding: 10px 12px 0; gap: 2px; }
   .tab { padding: 9px 13px; font-size: 14px; }
-  main { padding: 16px 16px 40px; }
+  main { --main-pad: 16px; padding: 16px var(--main-pad) 40px; }
   .grid2 { grid-template-columns: 1fr; }
   .fund-row { grid-template-columns: 1fr; }
   .pay-grid { grid-template-columns: 1fr; }
@@ -927,7 +927,14 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 
 /* Full bleed out of the page gutter: the art is the one thing here that should touch both edges. */
 .hm-strip {
-  position: relative; margin: 8px calc(50% - 50vw) 0; padding: 0;
+  /* Breaks out to the edges of MAIN, not of the viewport. `calc(50% - 50vw)` assumes the content
+     column is centred in the window, which stopped being true the moment a fixed sidebar took 244px
+     off the left: the strip started 122px early and pushed the whole page 122px sideways. Main's own
+     horizontal padding is the only thing between this and the edge, so that is what it cancels. */
+  /* Cancels exactly main's own padding, read from the variable main sets, because that padding is
+     24px on a desktop and 16px on a phone. Hard-coding 24 made the strip overhang by 8px each side
+     on mobile and pushed the page sideways. */
+  position: relative; margin: 8px calc(var(--main-pad, 24px) * -1) 0; padding: 0;
   overflow: hidden; -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
   mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
 }
@@ -1066,4 +1073,53 @@ footer .hint { max-width: 980px; margin: 0 auto; }
   .hm-figures { grid-template-columns: repeat(2, 1fr); }
   .hm-rail img { width: 96px; }
   .hm-panel { padding: 22px; }
+}
+
+/* --- the wallet band -------------------------------------------------------------------------------
+   None of the six features work without it and it is the only part of this project somebody installs
+   rather than visits, so it gets a band of its own rather than half a card near the footer. */
+
+.hm-wallet {
+  display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr);
+  gap: 48px; align-items: center;
+  margin-top: 72px; padding: 40px;
+  border: 1px solid var(--line); border-radius: var(--r-card);
+  background: radial-gradient(90% 120% at 100% 0%, rgba(76, 194, 241, .12), transparent 62%), var(--card);
+}
+.hm-wallet-say { display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
+.hm-wallet-say .vg-d2 { text-wrap: balance; }
+.hm-wallet-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.hm-wallet-list li {
+  position: relative; padding-left: 22px;
+  font-size: 13px; line-height: 1.5; color: var(--muted);
+}
+/* A tick drawn in CSS: an emoji here renders differently on every platform and would be the only
+   inconsistent thing on the page. */
+.hm-wallet-list li::before {
+  content: ''; position: absolute; left: 0; top: 5px;
+  width: 10px; height: 6px; border-left: 2px solid var(--ok); border-bottom: 2px solid var(--ok);
+  transform: rotate(-45deg);
+}
+.hm-install { padding: 12px 22px; font-size: 14px; }
+
+.hm-wallet-art { display: grid; place-items: center; min-width: 0; }
+.hm-wallet-chip {
+  display: flex; align-items: center; gap: 14px; width: 100%; max-width: 320px;
+  padding: 18px 20px; border-radius: 14px;
+  border: 1px solid var(--line2); background: var(--bg2);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, .45);
+}
+.hm-wallet-dot {
+  flex: none; width: 34px; height: 34px; border-radius: 10px;
+  background: linear-gradient(150deg, var(--accent), var(--accent2));
+}
+.hm-wallet-chip b { display: block; font: 700 14px/1.2 var(--display); color: var(--txt); }
+.hm-wallet-chip span { display: block; margin-top: 3px; font: 400 11px/1 var(--mono); color: var(--ok); }
+
+/* With the wallet promoted out of it, the pair is a single panel and should not stretch to half. */
+.hm-pair-one { grid-template-columns: minmax(0, 1fr); }
+
+@media (max-width: 1000px) {
+  .hm-wallet { grid-template-columns: 1fr; gap: 28px; padding: 28px; }
+  .hm-wallet-art { display: none; }
 }

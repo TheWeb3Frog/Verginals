@@ -5,7 +5,7 @@
 // page rather than in a footnote nobody reaches: the holder count counts coins and not people, and
 // the mint progress is measured against what CAN be minted rather than the whole supply.
 
-import { mountChrome } from '/vgnav.js';
+import { mountChrome } from '/vgnav.js?v=34';
 
 mountChrome({ active: 'coins', where: [{ text: 'Coins', href: '/runes/market' }, { text: 'Market', href: '/runes/market' }, { text: 'Coin' }],
   right: 'one coin, and where it trades' });

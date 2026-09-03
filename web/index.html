@@ -7,8 +7,8 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/vg.css" />
-  <link rel="stylesheet" href="/style.css?v=33" />
+  <link rel="stylesheet" href="/vg.css?v=34" />
+  <link rel="stylesheet" href="/style.css?v=34" />
 </head>
 <body class="vg vg-hosted">
 
@@ -46,12 +46,12 @@
     <section class="panel active" id="panel-home">
 
       <header class="hm-hero">
-        <p class="vg-label">Verge, written on</p>
-        <h1 class="vg-d1">Put something<br>on a chain that<br>never had any.</h1>
+        <p class="vg-label">Verge (XVG)</p>
+        <h1 class="vg-d1">Verge can do<br>all of this now.</h1>
         <p class="vg-say hm-lead">
-          Verge ran for a decade with no way to write anything to it. Verginals is the whole stack
-          that changed that: inscriptions, a coin protocol, a collection, a market and a wallet, all
-          on chain, none of it holding your keys.
+          Verginals is the ecosystem built on Verge. Inscribe anything, mint a pixel cat, create your
+          own memecoin, trade all of it. Written straight onto the chain, and your keys never leave
+          your device.
         </p>
         <div class="hm-acts">
           <a class="vg-btn primary" href="#mint" data-goto="mint">Mint an Alpha, free</a>
@@ -69,14 +69,14 @@
 
       <section class="hm-do">
         <div class="hm-do-head">
-          <p class="vg-label">Everything you can do</p>
-          <h2 class="vg-d2">Six things, and none of<br>them need an account.</h2>
+          <p class="vg-label">Features</p>
+          <h2 class="vg-d2">We unlocked a whole<br>new ecosystem on Verge.</h2>
         </div>
         <ul class="hm-grid">
           <li class="hm-card" data-hm="mint">
             <span class="hm-mark hm-mark-mint" aria-hidden="true"></span>
             <h3>Mint an Alpha</h3>
-            <p>A hand-drawn pixel cat from the first collection ever made on Verge, drawn at random. You pay the network and nothing else.</p>
+            <p>100% free mint. A hand-drawn pixel cat from the first collection ever made on Verge, drawn at random.</p>
             <span class="hm-num" data-hm-stat="mint">-</span>
             <a class="vg-btn hm-go" href="#mint" data-goto="mint">Mint one</a>
           </li>
@@ -90,16 +90,16 @@
           <li class="hm-card" data-hm="etch">
             <span class="hm-mark hm-mark-etch" aria-hidden="true"></span>
             <h3>Etch a coin</h3>
-            <p>Your own token on Verge, with a name nobody can take twice. You pick the supply, and claiming it is free by default.</p>
+            <p>You can create your own memecoin on Verge. For fun, or for your community.</p>
             <span class="hm-num" data-hm-stat="coins">-</span>
             <a class="vg-btn hm-go" href="/etch">Etch one</a>
           </li>
           <li class="hm-card" data-hm="claim">
             <span class="hm-mark hm-mark-claim" aria-hidden="true"></span>
-            <h3>Claim a coin</h3>
-            <p>Somebody else's coin, on open terms they fixed at the etching and cannot change afterwards. Most of them cost nothing.</p>
+            <h3>Mint a coin</h3>
+            <p>Somebody else's coin, on terms they fixed at the etching and cannot change afterwards. Most of them are free.</p>
             <span class="hm-num" data-hm-stat="open">-</span>
-            <a class="vg-btn hm-go" href="/runes/mint">Claim one</a>
+            <a class="vg-btn hm-go" href="/runes/mint">Mint one</a>
           </li>
           <li class="hm-card" data-hm="trade">
             <span class="hm-mark hm-mark-trade" aria-hidden="true"></span>
@@ -111,11 +111,44 @@
           <li class="hm-card" data-hm="arena">
             <span class="hm-mark hm-mark-arena" aria-hidden="true"></span>
             <h3>Fight in the Arena</h3>
-            <p>Your Verginal has traits, and the traits are a fighter. Duel, climb a ladder, breed a descendant that inherits what it came from.</p>
+            <p>Your Alpha Verginal is also a fighter. Duel, climb a ladder, breed.</p>
             <span class="hm-num" data-hm-stat="arena">-</span>
             <a class="vg-btn hm-go" href="#arena" data-goto="arena">Enter</a>
           </li>
         </ul>
+      </section>
+
+      <!-- The wallet. Everything above needs it, so it gets a band rather than a footnote. -->
+      <section class="hm-wallet">
+        <div class="hm-wallet-say">
+          <p class="vg-label">The Verginals Wallet</p>
+          <h2 class="vg-d2">The first Verge wallet<br>that understands all this.</h2>
+          <p class="vg-say">
+            An ordinary Verge wallet cannot see that one of your coins is carrying a Verginal, so it
+            will happily spend it to a miner as change. This one reads the chain, knows which coin
+            holds what, and refuses. It mints, it inscribes, it etches, it signs a sale, and it does
+            every one of those on your device.
+          </p>
+          <ul class="hm-wallet-list">
+            <li>Your keys and your phrase never leave your browser</li>
+            <li>It will not spend a coin that carries an inscription or a rune</li>
+            <li>Mint, inscribe, etch and trade without leaving the page</li>
+            <li>Free, open, and we cannot freeze or see anything</li>
+          </ul>
+          <div class="hm-acts">
+            <a class="vg-btn primary hm-install" href="https://chromewebstore.google.com/detail/ficjfnjaiopghnpohemapfbilflfflip" target="_blank" rel="noopener">Add to Chrome, free</a>
+            <a class="vg-btn" href="/verginalswallet">How it works</a>
+          </div>
+        </div>
+        <div class="hm-wallet-art" aria-hidden="true">
+          <div class="hm-wallet-chip">
+            <span class="hm-wallet-dot"></span>
+            <div>
+              <b>Verginals Wallet</b>
+              <span>keys held on this device</span>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- Coins: the second protocol, shown as the coins that exist rather than described. -->
@@ -137,18 +170,8 @@
         </div>
       </section>
 
-      <!-- The two things worth pointing at right now. -->
-      <section class="hm-pair">
-        <a class="hm-panel hm-panel-wallet" href="/verginalswallet">
-          <p class="vg-label">The wallet</p>
-          <h3 class="vg-d3">Your keys stay on your device.</h3>
-          <p class="vg-small">
-            A browser wallet built for this chain: it reads which of your coins carry an inscription
-            so you never spend one by accident, and it signs everything locally. We never see a key,
-            a phrase, or a balance.
-          </p>
-          <span class="hm-panel-go">Install it</span>
-        </a>
+      <!-- What is worth pointing at right now. -->
+      <section class="hm-pair hm-pair-one">
         <a class="hm-panel hm-panel-drop" href="/airdrop">
           <p class="vg-label">Community drop</p>
           <h3 class="vg-d3">If you were here early,<br>some of it is yours.</h3>
@@ -972,7 +995,7 @@
 
   <script src="/vendor/qrcode.js"></script>
   <script type="module" src="/app-chrome.js"></script>
-<script src="/app.js?v=33"></script>
-  <script src="/wallet.js?v=33"></script>
+<script src="/app.js?v=34"></script>
+  <script src="/wallet.js?v=34"></script>
 </body>
 </html>

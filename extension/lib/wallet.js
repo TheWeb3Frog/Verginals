@@ -48,11 +48,21 @@ const DEFAULT_API = 'https://verginals.com';
 // and the derivation is identical, so nobody has to migrate.
 export const DEFAULT_STRENGTH = 256;
 
-// How many mints one click may chain. A node refuses a chain of unconfirmed transactions past its
-// ancestor limit, which is 25 on a Bitcoin derived chain, and the last few would be rejected after
-// the earlier ones had already paid. Twenty leaves room for the change transaction and for a node
-// configured a little tighter than the default.
-const MAX_CHAINED_MINTS = 20;
+// How many mints one click may chain, and the number is measured rather than derived.
+//
+// Each mint is its own transaction spending the change of the one before, so a run is a chain of
+// unconfirmed ancestors and a node refuses one past its limit. This was twenty, reasoned from an
+// ancestor limit of twenty five borrowed from Bitcoin. Verge does not report that limit:
+// getmempoolinfo answers with the fee floors and nothing about chain length, and no configuration
+// sets one, so twenty five was never verified.
+//
+// Runs never got past about ten in practice. The funding coin is often unconfirmed change itself,
+// which eats into the chain before the first mint is even built, and that alone could account for
+// it. Rather than keep a ceiling nobody can reach, this is the one that works.
+//
+// Going over is not fatal: mintRune broadcasts one at a time and reports how many actually landed,
+// so an over-long run costs a confusing message rather than money. It is still worth not asking.
+const MAX_CHAINED_MINTS = 10;
 
 // WHAT A SWAP COSTS TO RELAY, and why it is a function rather than a constant.
 //

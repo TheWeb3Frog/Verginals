@@ -121,9 +121,20 @@ function render(ul, rows, canMint) {
       btn.type = 'button';
       btn.className = 'vg-btn primary rm-mint';
 
-      // Twenty is the ceiling because these are chained transactions and the mempool refuses a
-      // longer chain of unconfirmed ancestors. It is also bounded by what is left to claim.
-      const ceiling = Math.max(1, Math.min(20, m.remaining == null ? 20 : m.remaining));
+      // TEN, AND THAT NUMBER IS MEASURED RATHER THAN DERIVED.
+      //
+      // Each mint is its own transaction chained onto the change of the one before, so a run of
+      // them is a chain of unconfirmed ancestors and the mempool refuses one past its limit. The
+      // ceiling was twenty, reasoned from a limit of twenty five that this node does not actually
+      // report: getmempoolinfo returns the fee floors and nothing about chain length, and no
+      // configuration sets one, so twenty five was an assumption borrowed from Bitcoin.
+      //
+      // In practice a run never got past about ten. Whatever the real limit is, and the funding
+      // coin being unconfirmed itself would eat into it, an assumption that observation contradicts
+      // should give way to the observation. Ten is what works, so ten is what the stepper offers.
+      // Also bounded by what is left to claim.
+      const CHAIN_LIMIT = 10;
+      const ceiling = Math.max(1, Math.min(CHAIN_LIMIT, m.remaining == null ? CHAIN_LIMIT : m.remaining));
       const read = () => {
         const n = parseInt(String(count.value).replace(/[^0-9]/g, ''), 10) || 1;
         return Math.max(1, Math.min(ceiling, n));

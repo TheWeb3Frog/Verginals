@@ -1826,6 +1826,113 @@ function handleRuneCoin(req, res, url) {
   return sendJSON(res, 200, c);
 }
 
+/** Parse a JSON request body, or an empty object. readBody already caps the size. */
+async function readJsonBody(req) {
+  try { return JSON.parse((await readBody(req)).toString('utf8') || '{}'); } catch { return {}; }
+}
+
+// --- a picture for a coin ---------------------------------------------------------------------
+//
+// Held HERE, not on chain. The protocol has no image field, so this is our convention and the page
+// says so rather than implying the picture is as permanent as the coin.
+//
+// WHO MAY SET ONE. Only the wallet that etched it, proved the way the Arena proves an address: the
+// server mints a one-time challenge, the wallet signs it, and the recovered address has to be the
+// one the etching reveal landed on. That address comes from the chain through the index, so nothing
+// about this trusts the caller.
+//
+// WHAT MAY BE STORED is decided by src/coinimage.js, which reads the bytes and believes nothing it
+// is told. Read the header of that file before changing anything here.
+const coinimage = require('./coinimage');
+const COIN_IMAGE_DIR = path.join(DATA_DIR, 'coin-images');
+
+// A separate handshake from the Arena's, so a challenge minted for one is not spendable on the
+// other even though both verify the same way.
+const imageAuth = new GameAuth({ prefix: 'verginals-coin-image' });
+
+/** POST /api/runes/image/challenge: a one-time string for this address to sign. */
+function handleCoinImageChallenge(req, res, body) {
+  const address = String((body && body.address) || '').trim();
+  if (!/^[a-zA-Z0-9]{26,48}$/.test(address)) return sendJSON(res, 400, { error: 'bad address' });
+  return sendJSON(res, 200, imageAuth.newChallenge(address));
+}
+
+/**
+ * POST /api/runes/image: store a picture for a coin.
+ *
+ * Order matters. Identity is settled before a single byte of the upload is looked at, so an
+ * attacker with no wallet never reaches the parser at all.
+ */
+async function handleCoinImagePut(req, res, body) {
+  const runeRef = String((body && body.runeRef) || '').trim();
+  const address = String((body && body.address) || '').trim();
+  const nonce = String((body && body.nonce) || '').trim();
+  const signature = String((body && body.signature) || '');
+
+  const rune = service.runes.runes.get(runeRef);
+  if (!rune) return sendJSON(res, 404, { error: 'no such coin' });
+
+  const etcher = service.etchers.get(runeRef);
+  if (!etcher) {
+    return sendJSON(res, 409, { error: 'this coin was etched before the index started recording etchers, so its picture cannot be set yet' });
+  }
+  if (address !== etcher) {
+    return sendJSON(res, 403, { error: 'only the wallet that etched this coin can set its picture' });
+  }
+
+  let challenge;
+  try { challenge = imageAuth.consumeChallenge(address, nonce); }
+  catch (e) { return sendJSON(res, 400, { error: e.message }); }
+  if (!verifyMessage(address, challenge, signature, pickNetwork(NETWORK).network)) {
+    return sendJSON(res, 401, { error: 'that signature does not match this address' });
+  }
+
+  let bytes;
+  try { bytes = Buffer.from(String(body.dataBase64 || ''), 'base64'); }
+  catch { return sendJSON(res, 400, { error: 'the file could not be read' }); }
+
+  const v = coinimage.check(bytes);
+  if (!v.ok) return sendJSON(res, 400, { error: v.why });
+
+  const file = coinimage.fileFor(COIN_IMAGE_DIR, runeRef, v.ext);
+  if (!file) return sendJSON(res, 400, { error: 'bad coin reference' });
+  // One picture per coin: a new one replaces whatever was there, in every format it might have
+  // been, so a stale png cannot outlive the webp that replaced it.
+  fs.mkdirSync(COIN_IMAGE_DIR, { recursive: true });
+  for (const t of coinimage.TYPES) {
+    const old = coinimage.fileFor(COIN_IMAGE_DIR, runeRef, t.ext);
+    if (old && old !== file && fs.existsSync(old)) fs.unlinkSync(old);
+  }
+  fs.writeFileSync(file, bytes);
+  return sendJSON(res, 200, { ok: true, url: coinimage.urlFor(runeRef), bytes: v.bytes, width: v.w, height: v.h });
+}
+
+/**
+ * GET /api/runes/image/<height>-<txIndex>: serve one.
+ *
+ * The type sent is the one SNIFFED at upload, recovered from the extension we chose ourselves, and
+ * it goes out with nosniff so a browser cannot be talked into treating a polyglot as markup.
+ */
+function handleCoinImageGet(res, slug) {
+  const m = /^(0|[1-9][0-9]*)-(0|[1-9][0-9]*)$/.exec(String(slug || ''));
+  if (!m) return sendJSON(res, 404, { error: 'not found' });
+  const runeRef = `${m[1]}:${m[2]}`;
+  for (const t of coinimage.TYPES) {
+    const file = coinimage.fileFor(COIN_IMAGE_DIR, runeRef, t.ext);
+    if (!file || !fs.existsSync(file)) continue;
+    const bytes = fs.readFileSync(file);
+    res.writeHead(200, {
+      'content-type': t.mime,
+      'content-length': bytes.length,
+      'x-content-type-options': 'nosniff',
+      'content-security-policy': "default-src 'none'; sandbox",
+      'cache-control': 'public, max-age=300',
+    });
+    return res.end(bytes);
+  }
+  return sendJSON(res, 404, { error: 'no picture for this coin' });
+}
+
 // --- the community drop -------------------------------------------------------------------------
 //
 // ALPHA GO BRRRR premined its whole supply and opened no mint, so the only way it reaches anybody is
@@ -3840,6 +3947,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/runes/mintable') return handleRuneMintable(req, res, url);
     if (req.method === 'GET' && p === '/api/runes/coins') return await handleRuneCoins(req, res, url);
     if (req.method === 'GET' && p === '/api/airdrop') return await handleAirdrop(req, res, url);
+    if (req.method === 'GET' && p.startsWith('/api/runes/image/')) return handleCoinImageGet(res, p.slice('/api/runes/image/'.length));
+    if (req.method === 'POST' && p === '/api/runes/image/challenge') return handleCoinImageChallenge(req, res, await readJsonBody(req));
+    if (req.method === 'POST' && p === '/api/runes/image') return await handleCoinImagePut(req, res, await readJsonBody(req));
     if (req.method === 'GET' && p === '/api/runes/coin') return handleRuneCoin(req, res, url);
     if (req.method === 'GET' && p === '/api/runes/locks') return handleRuneLocks(req, res);
     if (req.method === 'POST' && p === '/api/runes/release') return await handleRuneRelease(req, res);

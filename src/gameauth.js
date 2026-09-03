@@ -25,6 +25,9 @@ class GameAuth {
     this.secret = opts.secret || crypto.randomBytes(32).toString('hex');
     this.now = opts.now || (() => Date.now());
     this.nonceFn = opts.nonce || (() => crypto.randomBytes(16).toString('hex'));
+    // What the signed string starts with. An option so a second feature can hold its own
+    // handshake without a challenge minted for one being spendable on the other.
+    this.prefix = opts.prefix || 'verginals-arena';
     this.challenges = new Map(); // nonce -> { address, expiry, used }
   }
 
@@ -41,7 +44,7 @@ class GameAuth {
     const nonce = this.nonceFn();
     const expiry = this.now() + CHALLENGE_TTL_MS;
     this.challenges.set(nonce, { address, expiry, used: false });
-    return { nonce, expiry, challenge: `verginals-arena:${address}:${nonce}:${expiry}` };
+    return { nonce, expiry, challenge: `${this.prefix}:${address}:${nonce}:${expiry}` };
   }
 
   /**
@@ -57,7 +60,7 @@ class GameAuth {
     if (c.address !== address) throw new Error('challenge address mismatch');
     if (c.expiry <= this.now()) throw new Error('challenge expired');
     c.used = true;
-    return `verginals-arena:${address}:${nonce}:${c.expiry}`;
+    return `${this.prefix}:${address}:${nonce}:${c.expiry}`;
   }
 
   /** Issue a session token for an address (call only after the signature verified). */

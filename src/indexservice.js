@@ -100,6 +100,10 @@ class IndexService {
     // tip. The second half is what makes it unforgeable: the claim on its own is a string anybody
     // can write into one cheap inscription.
     this.alphaTip = null; // { outpoint, address, value }
+    // Who etched each coin: runeRef -> the address its reveal landed on. Read off the same
+    // inscription record the drop already uses, so it costs nothing extra and cannot disagree
+    // with it. It is what proves somebody may set that coin's picture.
+    this.etchers = new Map();
     // A third reading of the same blocks, kept beside the two state machines rather than inside
     // either. Neither of them has any business knowing what a community drop is, and runes/indexer.js
     // in particular has to stay a pure function of (state, tx) for the conformance harness.
@@ -196,6 +200,7 @@ class IndexService {
       // unlocked ticker or a height below activation all leave the reveal a plain inscription, and
       // that is what it should be paid as.
       const took = etched && this.runes.runes.has(runeRefOf(height, txIndex));
+      if (took && to) this.etchers.set(runeRefOf(height, txIndex), to);
       // Both halves are required. The CLAIM says this reveal means to be an Alpha; SPENDING THE TIP
       // says the operator's mint is what produced it. Either alone is wrong: a claim is a string
       // anybody can write, and the tip is spent by transactions that reveal nothing.
@@ -402,6 +407,7 @@ class IndexService {
       // the strength of a transaction no longer in the chain.
       actions: this.actions.toJSON(),
       alphaTip: this.alphaTip,
+      etchers: [...this.etchers.entries()],
     };
   }
 
@@ -418,6 +424,7 @@ class IndexService {
     this.runes = RuneState.fromJSON(obj.runes);
     this.actions = ActionLedger.fromJSON(obj.actions || []);
     this.alphaTip = obj.alphaTip ? Object.assign({}, obj.alphaTip) : null;
+    this.etchers = new Map(obj.etchers || []);
     return this;
   }
 

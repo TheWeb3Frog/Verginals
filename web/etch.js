@@ -13,7 +13,7 @@
 // supplies the address it already holds and derives the lock key from the same recovery phrase, so
 // the private half never reaches this page and there is nothing new for anybody to save.
 
-import { mountChrome } from '/vgnav.js?v=36';
+import { mountChrome } from '/vgnav.js?v=37';
 
 mountChrome({ active: 'create', where: [{ text: 'Create' }, { text: 'Etch a coin' }],
   right: 'permanent the moment it confirms' });

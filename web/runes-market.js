@@ -9,7 +9,7 @@
 // two places it has already been got wrong: a balance shown a hundred times too big, and a price
 // shown a hundred times too small, on the same afternoon.
 
-import { mountChrome } from '/vgnav.js?v=36';
+import { mountChrome } from '/vgnav.js?v=37';
 
 mountChrome({ active: 'coins', where: [{ text: 'Coins', href: '/runes' }, { text: 'Market' }],
   right: 'a directory first, an order book second' });

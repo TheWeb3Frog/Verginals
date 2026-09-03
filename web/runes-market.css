@@ -39,8 +39,12 @@
     auto;                   /* action */
   gap: 20px; align-items: center;
 }
-/* The header stays put while the list scrolls, which is what makes a long table readable and what
-   every market people compare this to does. */
+/* The header stays put while the list scrolls.
+   IT MUST NOT SIT INSIDE A SCROLL CONTAINER. The table carried vg-scroll, which makes it
+   overflow:auto, which makes IT the sticky ancestor rather than the viewport: `top` then offset the
+   header 56px down INSIDE the table, where it covered the first row completely. Rank 1 was simply
+   missing from the market. The responsive columns already stop this table overflowing, so the
+   scroll box was buying nothing and costing a row. */
 .rm-thead {
   position: sticky; top: var(--top-h, 56px); z-index: 5;
   padding: 11px 18px; margin-bottom: 6px;

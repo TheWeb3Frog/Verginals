@@ -326,7 +326,8 @@
 /* focus-within as well as hover, or the rail is unusable from a keyboard. */
 .vg-side:hover, .vg-side:focus-within { width: var(--side-open); box-shadow: 12px 0 40px rgba(0, 0, 0, .45); }
 
-.vg-side .vg-brand { flex: none; height: var(--top-h); padding: 0 20px; border-bottom: 1px solid var(--line); }
+.vg-side .vg-brand { flex: none; height: var(--top-h); padding: 0 18px; border-bottom: 1px solid var(--line); gap: 12px; }
+.vg-logo { flex: none; width: 28px; height: 28px; display: block; border-radius: 7px; }
 .vg-side-scroll { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; padding: 14px 12px 20px; }
 
 /* Everything that is words rather than a symbol. Held at the open width so the labels do not

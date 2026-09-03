@@ -82,6 +82,42 @@ const FOOT = [
 
 const STORE_URL = 'https://chromewebstore.google.com/detail/ficjfnjaiopghnpohemapfbilflfflip';
 
+/**
+ * The Verginals mark: the same V the favicon draws, inline so it is one request fewer and can be
+ * sized by CSS. It was a plain gradient square, which is a placeholder, not a logo.
+ */
+function logoMark() {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 32 32');
+  svg.setAttribute('class', 'vg-logo');
+  svg.setAttribute('aria-hidden', 'true');
+  const grad = document.createElementNS(NS, 'linearGradient');
+  grad.setAttribute('id', 'vgLogoG');
+  grad.setAttribute('x1', '0'); grad.setAttribute('y1', '0');
+  grad.setAttribute('x2', '1'); grad.setAttribute('y2', '1');
+  for (const [off, col] of [['0', '#4cc2f1'], ['1', '#1aa3e0']]) {
+    const stop = document.createElementNS(NS, 'stop');
+    stop.setAttribute('offset', off);
+    stop.setAttribute('stop-color', col);
+    grad.append(stop);
+  }
+  const defs = document.createElementNS(NS, 'defs');
+  defs.append(grad);
+  const bg = document.createElementNS(NS, 'rect');
+  bg.setAttribute('width', '32'); bg.setAttribute('height', '32');
+  bg.setAttribute('rx', '7'); bg.setAttribute('fill', '#0b1017');
+  const v = document.createElementNS(NS, 'path');
+  v.setAttribute('d', 'M8 9 L16 23 L24 9');
+  v.setAttribute('fill', 'none');
+  v.setAttribute('stroke', 'url(#vgLogoG)');
+  v.setAttribute('stroke-width', '3.6');
+  v.setAttribute('stroke-linecap', 'round');
+  v.setAttribute('stroke-linejoin', 'round');
+  svg.append(defs, bg, v);
+  return svg;
+}
+
 /** One icon, drawn from the table above. Inherits the row's colour and never carries its own. */
 function icon(name) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -122,7 +158,8 @@ function buildSide(active) {
 
   const brand = el('a', 'vg-brand');
   brand.href = '/';
-  brand.append(el('i'), el('span', 'vg-side-text', 'VERGINALS'));
+  brand.setAttribute('aria-label', 'Verginals, home');
+  brand.append(logoMark(), el('span', 'vg-side-text', 'VERGINALS'));
   side.append(brand);
 
   const scroll = el('nav', 'vg-side-scroll');

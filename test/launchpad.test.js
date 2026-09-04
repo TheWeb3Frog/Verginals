@@ -4,7 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { Launchpad, sniffImage } = require('../src/launchpad');
+const { Launchpad, sniffImage, ago, queueReport } = require('../src/launchpad');
 
 let passed = 0;
 function test(name, fn) {
@@ -168,6 +168,75 @@ test('list() surfaces live collections with mint status', () => {
   assert.strictEqual(list[0].slug, 'frogs');
   assert.strictEqual(list[0].creator, '@frog');
   assert.strictEqual(list[0].remaining, 1);
+});
+
+// --- the review queue, read from a terminal ------------------------------------------------
+//
+// A submission that nobody looks at is a submission that never happened, and there is no
+// notification anywhere: the terminal is the only place the operator finds out. So the first
+// line of the report has to answer the question on its own.
+
+const HOUR = 3600 * 1000, DAY = 24 * HOUR;
+const NOW = Date.UTC(2026, 8, 4, 12);
+const sub = (over) => Object.assign(
+  { id: 'a'.repeat(16), name: 'Frogs', status: 'pending', createdAt: NOW - DAY, items: [{}, {}] }, over);
+
+test('an empty queue says so in the first line, not by printing nothing', () => {
+  // Silence is ambiguous: it reads the same as a command that failed to reach the server.
+  assert.strictEqual(queueReport([], NOW)[0], 'nothing waiting for review');
+});
+
+test('THE FIRST LINE COUNTS ONLY WHAT IS STILL WAITING', () => {
+  const subs = [
+    sub({ id: 'b'.repeat(16), status: 'draft' }),
+    sub({ id: 'c'.repeat(16), status: 'approved' }),
+    sub({ id: 'd'.repeat(16), status: 'rejected' }),
+    sub({ id: 'e'.repeat(16), status: 'pending' }),
+  ];
+  assert.strictEqual(queueReport(subs, NOW)[0], '1 collection waiting for review');
+  const two = queueReport(subs.concat(sub({ id: 'f'.repeat(16) })), NOW);
+  assert.strictEqual(two[0], '2 collections waiting for review');
+});
+
+test('a waiting submission is listed with its id, age, size and who sent it', () => {
+  const out = queueReport([sub({ finalizedAt: NOW - 3 * HOUR, creator: '@frogman' })], NOW).join('\n');
+  assert.match(out, /a{16}/, 'the id is what every other command takes');
+  assert.match(out, /3 hours ago/);
+  assert.match(out, /2 items/);
+  assert.match(queueReport([sub({ items: [{}] })], NOW).join('\n'), /1 item[^s]/, 'one item is not "1 items"');
+  assert.match(out, /Frogs by @frogman/);
+  assert.match(out, /approve <id> <slug>/, 'and it says what to do next');
+});
+
+test('age is measured from when it was SENT, not when it was started', () => {
+  // A draft can sit half-finished for days before somebody finishes it. Dating the queue entry
+  // from createdAt would make a fresh submission look neglected.
+  const out = queueReport([sub({ createdAt: NOW - 6 * DAY, finalizedAt: NOW - 2 * HOUR })], NOW).join('\n');
+  assert.match(out, /2 hours ago/);
+  assert.doesNotMatch(out, /6 days ago/);
+});
+
+test('the ones already dealt with get one line, not a screen', () => {
+  const subs = [sub({ status: 'approved' }), sub({ status: 'approved' }), sub({ status: 'rejected' })];
+  const out = queueReport(subs, NOW);
+  assert.strictEqual(out[0], 'nothing waiting for review');
+  assert.ok(out.some((l) => l === 'also on file: 2 approved, 1 rejected'));
+  assert.ok(out.length <= 4, 'the summary stays short');
+});
+
+test('ago() reads as a person would say it, singular and plural', () => {
+  assert.strictEqual(ago(NOW - 30 * 1000, NOW), 'just now');
+  assert.strictEqual(ago(NOW - 60 * 1000, NOW), '1 minute ago');
+  assert.strictEqual(ago(NOW - 90 * 60 * 1000, NOW), '1 hour ago');
+  assert.strictEqual(ago(NOW - 5 * HOUR, NOW), '5 hours ago');
+  assert.strictEqual(ago(NOW - 8 * DAY, NOW), '8 days ago');
+  assert.strictEqual(ago(NOW + 5000, NOW), 'just now', 'a clock skew must not print a negative age');
+});
+
+test('CONTROL: a report that ignored status would fail the count check', () => {
+  const subs = [sub({ status: 'approved' }), sub({ status: 'pending' })];
+  const wrong = `${subs.length} collections waiting for review`;
+  assert.notStrictEqual(queueReport(subs, NOW)[0], wrong);
 });
 
 console.log(`\n${passed} launchpad tests passed`);

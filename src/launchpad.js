@@ -292,20 +292,70 @@ class Launchpad {
   }
 }
 
-module.exports = { Launchpad, sniffImage, cleanAttributes };
+const MINUTE = 60 * 1000, HOUR = 60 * MINUTE, DAY = 24 * HOUR;
+
+/** How long ago, in words. The queue is read by a person, so it says "3 days" not a timestamp. */
+function ago(then, now = Date.now()) {
+  const d = Math.max(0, now - then);
+  const say = (n, unit) => `${n} ${unit}${n === 1 ? '' : 's'} ago`;
+  if (d < MINUTE) return 'just now';
+  if (d < HOUR) return say(Math.floor(d / MINUTE), 'minute');
+  if (d < DAY) return say(Math.floor(d / HOUR), 'hour');
+  return say(Math.floor(d / DAY), 'day');
+}
+
+/**
+ * The review queue as printable lines. The FIRST line answers the only question worth asking
+ * from a terminal: has anybody submitted a collection and is it still waiting on me. Everything
+ * else is detail underneath it, so the answer is readable without reading the rest.
+ */
+function queueReport(subs, now = Date.now()) {
+  const waiting = subs.filter((d) => d.status === 'pending')
+    .sort((x, y) => (x.finalizedAt || x.createdAt) - (y.finalizedAt || y.createdAt));
+  const lines = [waiting.length
+    ? `${waiting.length} collection${waiting.length === 1 ? '' : 's'} waiting for review`
+    : 'nothing waiting for review'];
+
+  if (waiting.length) {
+    lines.push('');
+    for (const d of waiting) {
+      const when = ago(d.finalizedAt || d.createdAt, now);
+      const who = d.creator ? ` by ${d.creator}` : '';
+      const size = `${d.items.length} item${d.items.length === 1 ? '' : 's'}`;
+      lines.push(`  ${d.id}  ${when.padEnd(14)}${size.padStart(10)}  ${d.name}${who}`);
+    }
+    lines.push('');
+    lines.push('  show <id> to look at one, then approve <id> <slug>, or reject <id> [reason]');
+  }
+
+  // Half-finished drafts and already-reviewed ones are not the answer, but their absence would
+  // be confusing when the counts are visible elsewhere, so they get one line at the bottom.
+  const rest = ['draft', 'approved', 'rejected']
+    .map((st) => [st, subs.filter((d) => d.status === st).length])
+    .filter(([, n]) => n > 0)
+    .map(([st, n]) => `${n} ${st}`);
+  if (rest.length) lines.push('', 'also on file: ' + rest.join(', '));
+  return lines;
+}
+
+module.exports = { Launchpad, sniffImage, cleanAttributes, ago, queueReport };
 
 // --- operator CLI (curation happens here, over SSH, never over HTTP) -------------------------
 // Usage, from the app root on the server:
-//   node src/launchpad.js list
+//   node src/launchpad.js              what is waiting for review
+//   node src/launchpad.js all          every submission, whatever its state
 //   node src/launchpad.js show <id>
 //   node src/launchpad.js approve <id> <slug>
 //   node src/launchpad.js reject <id> [reason]
 if (require.main === module) {
   const dataDir = process.env.VERGINALS_DATA_DIR || path.join(__dirname, '..', 'data');
   const lp = new Launchpad({ dataDir });
-  const [cmd, a, b] = process.argv.slice(2);
+  const [raw, a, b] = process.argv.slice(2);
+  const cmd = raw || 'list'; // asking with no argument at all is the common case
   try {
     if (cmd === 'list') {
+      console.log(queueReport(lp.listSubmissions()).join('\n'));
+    } else if (cmd === 'all') {
       const subs = lp.listSubmissions();
       if (!subs.length) console.log('no submissions');
       for (const d of subs) {
@@ -322,7 +372,7 @@ if (require.main === module) {
     } else if (cmd === 'reject' && a) {
       console.log(JSON.stringify(lp.reject(a, b)));
     } else {
-      console.log('usage: node src/launchpad.js list | show <id> | approve <id> <slug> | reject <id> [reason]');
+      console.log('usage: node src/launchpad.js [list] | all | show <id> | approve <id> <slug> | reject <id> [reason]');
       process.exitCode = 1;
     }
   } catch (e) {

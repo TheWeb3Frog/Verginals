@@ -263,6 +263,86 @@ async function main() {
     assert.strictEqual(s.listedCount, 0); // not Alpha
   });
 
+  // --- windows, and one book serving more than one collection ---------------------------------
+  //
+  // The market page could say what was listed and never what had traded, because nothing asked the
+  // sales log a question narrower than "ever". These read the same records the activity feed does.
+
+  await test('A 24 HOUR WINDOW COUNTS ONLY WHAT SOLD INSIDE IT', async () => {
+    const chain = fakeChain();
+    const book = freshBook(chain);
+    const DAY = 86400;
+    const NOW = 2_000_000_000;
+    book.state.sales = [
+      { collectionNumber: 1, collectionSlug: null, priceUnits: 100, at: NOW - 60 },
+      { collectionNumber: 2, collectionSlug: null, priceUnits: 200, at: NOW - 3600 },
+      { collectionNumber: 3, collectionSlug: null, priceUnits: 400, at: NOW - 2 * DAY },
+    ];
+    const day = book.window(DAY);
+    assert.strictEqual(day.sales, 2);
+    assert.strictEqual(day.volumeUnits, 300, 'the two-day-old sale is outside the window');
+    const week = book.window(7 * DAY);
+    assert.strictEqual(week.sales, 3);
+    assert.strictEqual(week.volumeUnits, 700);
+    assert.strictEqual((await book.stats()).volumeUnits, 700, 'lifetime still counts everything');
+  });
+
+  await test('a millisecond stamp lands in the right window rather than the far future', async () => {
+    // The unit bug that already cost this project a broken activity feed. A sale written in
+    // milliseconds is a thousand times the number, so an unnormalised compare puts it in every
+    // window for ever.
+    const book = freshBook(fakeChain());
+    const NOW = 2_000_000_000;
+    book.state.sales = [{ collectionNumber: 1, collectionSlug: null, priceUnits: 500, at: (NOW - 3 * 86400) * 1000 }];
+    assert.strictEqual(book.window(86400).sales, 0, 'three days ago is not inside a day');
+    assert.strictEqual(book.window(7 * 86400).sales, 1);
+  });
+
+  await test('ONE BOOK, TWO COLLECTIONS, AND NEITHER SEES THE OTHER', async () => {
+    // What "scalable to any collection" has to mean in the data: a launchpad collection asks the
+    // same questions and gets answers about itself.
+    const book = freshBook(fakeChain());
+    const NOW = 2_000_000_000;
+    book.state.sales = [
+      { collectionNumber: 1, collectionSlug: null, priceUnits: 100, at: NOW - 60 },
+      { collectionNumber: 7, collectionSlug: 'kittens', priceUnits: 900, at: NOW - 60 },
+      { collectionNumber: 8, collectionSlug: 'kittens', priceUnits: 50, at: NOW - 60 },
+    ];
+    assert.deepStrictEqual(
+      [book.window(86400).sales, book.window(86400).volumeUnits], [1, 100], 'Alpha');
+    assert.deepStrictEqual(
+      [book.window(86400, 'kittens').sales, book.window(86400, 'kittens').volumeUnits], [2, 950], 'kittens');
+    assert.strictEqual(book.window(86400, 'nobody').sales, 0, 'a collection with no history is zero');
+    // Compared as a set: Array.sort stringifies, so null sorts after "kittens" and the literal
+    // order here would be a fact about JavaScript rather than about the book.
+    const seen = book.collections();
+    assert.strictEqual(seen.length, 2);
+    assert.ok(seen.includes(null) && seen.includes('kittens'));
+    assert.strictEqual(book.activity(50, 'kittens').length, 2);
+    assert.strictEqual(book.activity(50).length, 1);
+  });
+
+  await test('CONTROL: without the slug filter the two collections would pool', async () => {
+    const book = freshBook(fakeChain());
+    const NOW = 2_000_000_000;
+    book.state.sales = [
+      { collectionNumber: 1, collectionSlug: null, priceUnits: 100, at: NOW - 60 },
+      { collectionNumber: 7, collectionSlug: 'kittens', priceUnits: 900, at: NOW - 60 },
+    ];
+    const pooled = book.state.sales.reduce((n, x) => n + x.priceUnits, 0);
+    assert.strictEqual(pooled, 1000);
+    assert.notStrictEqual(book.window(86400).volumeUnits, pooled,
+      'Alpha volume must not include the launchpad sale');
+  });
+
+  await test('the floor is readable per collection without a pruning pass', async () => {
+    const book = freshBook(fakeChain());
+    assert.strictEqual(book.floorOf(), null, 'no listings, no floor, and not a zero');
+    await book.addListing(mkListing());
+    assert.strictEqual(book.floorOf(), 150_000_000);
+    assert.strictEqual(book.floorOf('kittens'), null);
+  });
+
   console.log(`\n${passed} order book tests passed`);
 }
 

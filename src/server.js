@@ -55,6 +55,7 @@ const { computeRarity } = require('./rarity');
 const { comboBonus } = require('./combos');
 const { Launchpad } = require('./launchpad');
 const { OrderBook } = require('./orderbook');
+const { PriceLog, collectionKey, coinKey, DAY } = require('./pricelog');
 const { RuneBook } = require('./runes/book');
 const { GameAuth } = require('./gameauth');
 const { verifyMessage } = require('./message');
@@ -1084,29 +1085,62 @@ function handleLeaderboard(res, limitStr, mintedOnly) {
  * (floor, listed count, holders, minted supply, lifetime sales + volume). Marketplace numbers come
  * from the order book; supply/holders are read from our index (Alpha = a mint with no launchpad slug).
  */
-async function handleCollectionMarket(res) {
+async function handleCollectionMarket(res, slugParam) {
   if (!orderbook) return sendJSON(res, 404, { error: 'marketplace disabled' });
-  const s = await orderbook.stats();
-  const r = getRarity();
-  // Minted count comes from the authoritative Alpha mint state (immediate, survives a restart). We
-  // deliberately do NOT force a full index sync here (it can block for a long time after a restart
-  // and time the request out); holder counts are derived on the client from /api/inscriptions.
-  const minted = mintCtl ? Object.keys(mintCtl.state.minted).length : 0;
+  // No slug is the Alpha collection, which is how the book has always described it. A launchpad
+  // slug asks the same questions of the same records and gets answers about itself.
+  const slug = /^[a-z0-9][a-z0-9-]{2,31}$/.test(String(slugParam || '')) ? String(slugParam) : null;
+  const s = await orderbook.stats(slug);
+
+  let total = null;
+  let minted = 0;
+  if (slug) {
+    const c = launchpad && launchpad.get(slug);
+    if (!c) return sendJSON(res, 404, { error: 'no such collection' });
+    const st = c.ctl.status();
+    total = st.supply != null ? st.supply : null;
+    minted = st.minted != null ? st.minted : 0;
+  } else {
+    const r = getRarity();
+    total = r ? r.supply : null; // full collection size (minted + still sealed)
+    // Minted count comes from the authoritative Alpha mint state (immediate, survives a restart).
+    // We deliberately do NOT force a full index sync here (it can block for a long time after a
+    // restart and time the request out); holder counts are derived on the client from
+    // /api/inscriptions.
+    minted = mintCtl ? Object.keys(mintCtl.state.minted).length : 0;
+  }
+
+  // What TRADED, inside a window, as opposed to what somebody hopes to get. Read off the sales log,
+  // which has always carried a price and a timestamp, so none of this needed new recording.
+  const day = orderbook.window(DAY, slug);
+  const week = orderbook.window(7 * DAY, slug);
+  // And the change, which is null whenever it cannot be stated honestly: a log younger than the
+  // window, or nothing listed at one end of it. See src/pricelog.js.
+  const floorChange = pricelog ? pricelog.changeOver(collectionKey(slug), DAY) : null;
+
   sendJSON(res, 200, {
-    total: r ? r.supply : null, // full collection size (minted + still sealed)
-    minted, // Alpha items minted so far
+    slug,
+    total,
+    minted,
     listedCount: s.listedCount,
     floorUnits: s.floorUnits,
     salesCount: s.salesCount,
     volumeUnits: s.volumeUnits,
+    dayVolumeUnits: day.volumeUnits,
+    daySales: day.sales,
+    weekVolumeUnits: week.volumeUnits,
+    weekSales: week.sales,
+    floorChange,
+    trackedSince: pricelog ? pricelog.since(collectionKey(slug)) : null,
   });
 }
 
 /** GET /api/collection/activity: recent Alpha sales + live listings, newest first. */
-function handleCollectionActivity(res, limitStr) {
+function handleCollectionActivity(res, limitStr, slugParam) {
   if (!orderbook) return sendJSON(res, 404, { error: 'marketplace disabled' });
   const limit = Math.max(1, Math.min(100, Number(limitStr) || 50));
-  sendJSON(res, 200, { activity: orderbook.activity(limit) });
+  const slug = /^[a-z0-9][a-z0-9-]{2,31}$/.test(String(slugParam || '')) ? String(slugParam) : null;
+  sendJSON(res, 200, { activity: orderbook.activity(limit, slug) });
 }
 
 /**
@@ -1270,6 +1304,10 @@ async function handleLaunchpadSubmitFinalize(res, id) {
 // counterparty broadcasting the fully-signed swap from their own wallet. See swap.js + spec.
 let orderbook = null;
 let runebook = null;
+// What every market on this server cost, over time. Nothing here knows what a collection or a coin
+// is: it takes a key and a number, which is what lets a launchpad collection or a coin etched
+// tomorrow have a price history with no change in this file.
+let pricelog = null;
 
 function initOrderBook() {
   const { network } = pickNetwork(NETWORK);
@@ -1295,6 +1333,7 @@ function initOrderBook() {
     },
   };
   orderbook = new OrderBook({ dataDir: DATA_DIR, network, chain, feeBps: MARKET_FEE_BPS, feeAddress: MARKET_FEE_ADDRESS }).load();
+  pricelog = new PriceLog({ file: path.join(DATA_DIR, 'pricelog.json') }).load();
 
   // The rune book reads the same chain, plus what a carrier holds, which only the rune index knows.
   runebook = new RuneBook({
@@ -1832,13 +1871,9 @@ function handleRuneCoin(req, res, url) {
   // page decide whether to offer the upload at all rather than showing a button that will be
   // refused, and the refusal itself is still enforced by the endpoint.
   const etcher = service.etchers.get(ref) || null;
-  const hasImage = coinimage.TYPES.some((t) => {
-    const f = coinimage.fileFor(coinImageDir(), ref, t.ext);
-    return f && fs.existsSync(f);
-  });
   return sendJSON(res, 200, Object.assign({}, c, {
     etcher,
-    image: hasImage ? coinimage.urlFor(ref) : null,
+    image: coinImageIndex()(ref),
     imageMaxBytes: coinimage.MAX_BYTES,
   }));
 }
@@ -1864,6 +1899,26 @@ async function readJsonBody(req) {
 // A separate handshake from the Arena's, so a challenge minted for one is not spendable on the
 // other even though both verify the same way.
 const imageAuth = new GameAuth({ prefix: 'verginals-coin-image' });
+
+/**
+ * A lookup from coin to stored picture, built from ONE directory read.
+ *
+ * The list endpoint answers for every coin at once, and a stat per coin per accepted format is a
+ * few hundred syscalls on a page nobody has to wait for. Reading the directory once and asking the
+ * set is the same answer for one read.
+ */
+function coinImageIndex() {
+  let names;
+  try { names = new Set(fs.readdirSync(coinImageDir())); }
+  catch (_) { return () => null; } // no directory yet means no pictures yet
+  return (ref) => {
+    for (const t of coinimage.TYPES) {
+      const f = coinimage.fileFor(coinImageDir(), ref, t.ext);
+      if (f && names.has(path.basename(f))) return coinimage.urlFor(ref);
+    }
+    return null;
+  };
+}
 
 /** POST /api/runes/image/challenge: a one-time string for this address to sign. */
 function handleCoinImageChallenge(req, res, body) {
@@ -2064,6 +2119,22 @@ async function handleRuneCoins(req, res, url) {
   }
 
   const coins = directory(service.runes, { height, ordersByRune });
+  // How the asking price has moved. This is a change in what sellers WANT, not in what anything
+  // traded for: settlement of a coin swap happens in the counterparty's own wallet and never
+  // touches this server, so a traded price is not ours to report. The field is named for what it
+  // measures and is null whenever the history is too short to say (see src/pricelog.js).
+  const imageFor = coinImageIndex();
+  for (const c of coins) {
+    c.market = c.market || {};
+    c.image = imageFor(c.runeRef);
+    if (pricelog) {
+      c.market.askChange24h = pricelog.changeOver(coinKey(c.runeRef), DAY);
+      c.market.askTrackedSince = pricelog.since(coinKey(c.runeRef));
+    }
+    // Null until the first sweep has resolved this coin's outputs. `carriers` stays alongside it
+    // and keeps meaning what it always meant: outputs, not people.
+    c.holders = coinHolders.has(c.runeRef) ? coinHolders.get(c.runeRef) : null;
+  }
   const q = (url.searchParams.get('q') || '').trim().toUpperCase();
   const filtered = q ? coins.filter((c) => c.ticker.includes(q) || c.runeRef === q) : coins;
 
@@ -3032,6 +3103,87 @@ const MAX_DRIVE_ATTEMPTS = 12;
  *     reads empty: the payment is spent into the commit outputs, so freeing the number would take
  *     it from someone who has already paid.
  */
+/**
+ * Write down what every market costs right now.
+ *
+ * This is the only thing standing between the site and a price change figure, because a floor is a
+ * reading of one instant and cannot be compared to anything on its own.
+ *
+ * It runs on a clock rather than on a request, so a market nobody visits still gets a history, and
+ * it REFUSES TO RECORD WHILE THE INDEX IS BEHIND. During a rescan the rune index has not seen most
+ * carriers yet, so every coin reads as having no ask. Writing that down would put a fictional gap
+ * in every coin's history after every restart, and the gap would then be reported as a crash and a
+ * recovery. A missing sample is a hole; a wrong sample is a lie.
+ */
+// How many DIFFERENT PEOPLE hold a coin, which is not the same question as how many outputs hold
+// it. The directory has only ever counted carriers, and one wallet splitting a balance across ten
+// outputs counted as ten holders. The rune index knows the outputs but not who owns them, so the
+// addresses are resolved against the node here, on the sweep, and cached: it is far too many
+// lookups to do inside a request, and it changes on the timescale of blocks anyway.
+const coinHolders = new Map(); // runeRef -> distinct owning addresses
+const HOLDER_BUDGET = 5000;    // hard stop, so one sweep can never run away on a popular chain
+
+async function sweepHolders() {
+  const byRune = new Map();
+  for (const [outpoint, held] of service.runes.balances) {
+    for (const [ref, amount] of held) {
+      if (!(Number(amount) > 0)) continue;
+      let set = byRune.get(ref);
+      if (!set) { set = new Set(); byRune.set(ref, set); }
+      set.add(outpoint);
+    }
+  }
+  let budget = HOLDER_BUDGET;
+  for (const [ref, outpoints] of byRune) {
+    const addrs = new Set();
+    let looked = 0;
+    for (const op of outpoints) {
+      if (budget-- <= 0) return; // finish next sweep rather than hold the node
+      const i = op.lastIndexOf(':');
+      const out = await client.call('gettxout', [op.slice(0, i), Number(op.slice(i + 1)), true])
+        .catch(() => null);
+      looked++;
+      const spk = out && out.scriptPubKey;
+      const a = spk && (spk.address || (spk.addresses || [])[0]);
+      if (a) addrs.add(a);
+    }
+    // Nothing resolved means the node could not answer, not that nobody holds it. Leaving the
+    // previous count in place beats replacing a true number with a zero.
+    if (addrs.size || !looked) coinHolders.set(ref, addrs.size);
+  }
+}
+
+async function snapshotPrices() {
+  if (!pricelog) return;
+  try {
+    const tip = await chain.getBlockCount().catch(() => null);
+    if (tip === null || tip - (service.scannedThrough || 0) > 2) return; // still reading
+
+    if (orderbook) {
+      const slugs = new Set(orderbook.collections());
+      if (launchpad) for (const slug of launchpad.live.keys()) slugs.add(slug);
+      for (const slug of slugs) pricelog.record(collectionKey(slug), orderbook.floorOf(slug));
+    }
+
+    if (RUNES_ENABLED && runebook) {
+      const { directory } = require('./runes/directory');
+      const ordersByRune = new Map();
+      for (const row of runebook.orders({})) {
+        const list = ordersByRune.get(row.order.runeRef) || [];
+        list.push(row);
+        ordersByRune.set(row.order.runeRef, list);
+      }
+      for (const c of directory(service.runes, { height: service.runes.height || 0, ordersByRune })) {
+        pricelog.record(coinKey(c.runeRef), c.market ? c.market.bestAskWhole : null);
+      }
+    }
+    pricelog.save();
+    await sweepHolders();
+  } catch (e) {
+    console.warn('price snapshot skipped: ' + e.message);
+  }
+}
+
 async function reapMintReservations() {
   // Alpha plus every live launchpad collection: each controller reaps its own reservations.
   const ctls = [];
@@ -3890,9 +4042,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/collection/rarity') return handleRarity(res);
     if (req.method === 'GET' && p.startsWith('/api/collection/rarity/')) return handleRarityItem(res, p.slice('/api/collection/rarity/'.length));
     if (req.method === 'GET' && p === '/api/collection/leaderboard') return handleLeaderboard(res, url.searchParams.get('limit'), url.searchParams.get('minted') === '1');
-    if (req.method === 'GET' && p === '/api/collection/market') return await handleCollectionMarket(res);
+    if (req.method === 'GET' && p === '/api/collection/market') return await handleCollectionMarket(res, url.searchParams.get('slug'));
     if (req.method === 'GET' && p === '/api/collection/items') return handleCollectionItems(res);
-    if (req.method === 'GET' && p === '/api/collection/activity') return handleCollectionActivity(res, url.searchParams.get('limit'));
+    if (req.method === 'GET' && p === '/api/collection/activity') return handleCollectionActivity(res, url.searchParams.get('limit'), url.searchParams.get('slug'));
     if (req.method === 'GET' && p.startsWith('/api/collection/image/')) return handleCollectionImage(res, p.slice('/api/collection/image/'.length));
     if (p === '/api/launchpad' && req.method === 'GET') return handleLaunchpadList(res);
     if (p === '/api/launchpad/submit' && req.method === 'POST') return await handleLaunchpadSubmit(req, res);
@@ -4068,6 +4220,8 @@ server.listen(PORT, HOST, () => {
   console.log(`Marketplace: order book ready (${Object.keys(orderbook.state.listings).length} listing(s))`);
   cleanupJobs();
   setInterval(cleanupJobs, 3600 * 1000).unref();
+  snapshotPrices();
+  setInterval(snapshotPrices, 5 * 60 * 1000).unref();
   reapMintReservations();
   setInterval(reapMintReservations, 5 * 60 * 1000).unref();
   // Keep the index moving on its own. It used to advance only when a request happened to call

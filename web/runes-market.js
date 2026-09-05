@@ -38,6 +38,9 @@ function compact(n) {
 
 let coins = [];
 let tip = 0;          // chain tip, so a coin's age can be read off its etching height
+// Spot XVG/USD, fetched once. Purely indicative: coins are paid for in XVG and the dollar figure
+// is a convenience, so it is simply left out when we have no rate rather than guessed at.
+let usdRate = null;
 let sort = 'live';
 let query = '';
 let scanning = false;
@@ -58,10 +61,28 @@ function val(host, label, value, quiet) {
   return box;
 }
 
+/** "$0.0031" for an amount of XVG, or '' when no rate is known. */
+function usd(xvg) {
+  if (usdRate == null || !(xvg > 0)) return '';
+  const v = xvg * usdRate;
+  if (v >= 1000) return '$' + Math.round(v).toLocaleString();
+  if (v >= 1) return '$' + v.toFixed(2);
+  if (v >= 0.0001) return '$' + v.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
+  // Below a hundredth of a cent, a decimal string is a row of zeros and toPrecision hands back
+  // "$2.7e-7", which is not a price anybody reads. Say it is under the smallest figure worth
+  // printing: that is true, and it is the same information.
+  return '<$0.0001';
+}
+
 async function load() {
   let res;
   try {
-    res = await fetch('/api/runes/coins').then((r) => (r.ok ? r.json() : null));
+    const [coinsRes, priceRes] = await Promise.all([
+      fetch('/api/runes/coins').then((r) => (r.ok ? r.json() : null)),
+      fetch('/api/price').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    ]);
+    res = coinsRes;
+    if (priceRes && typeof priceRes.usd === 'number') usdRate = priceRes.usd;
   } catch { res = null; }
 
   if (!res || !Array.isArray(res.coins)) {
@@ -99,17 +120,24 @@ function paintStats(res) {
   box.textContent = '';
   const listed = coins.filter((c) => c.market.asks > 0).length;
   const minting = coins.filter((c) => c.mint && c.mint.open).length;
+  const asks = coins.reduce((n, c) => n + (c.market.asks || 0), 0);
+  const holders = coins.reduce((n, c) => n + (c.holders || 0), 0);
   const stat = (label, value, sub, cls) => {
-    const d = el('div', 'vg-stat');
-    d.append(el('span', 'vg-label', label), el('b', 'vg-num vg-n-lg' + (cls ? ' ' + cls : ''), value));
-    if (sub) d.append(el('span', 'vg-stat-sub', sub));
+    const d = el('div', 'vg-strip-stat' + (cls ? ' ' + cls : ''));
+    const dt = el('dt', '', label);
+    const dd = el('dd', '', value);
+    if (sub) dd.append(el('span', 'sub', sub));
+    d.append(dt, dd);
     box.append(d);
   };
-  stat('Coins', fmtN(coins.length), 'etched so far');
-  stat('Minting now', fmtN(minting), minting ? 'open to anyone' : 'none open', minting ? 'vg-accent' : '');
-  // Listed is the honest headline for a market, and today it is zero. Saying so beats dressing the
-  // page with a figure that measures nothing.
-  stat('Listed', fmtN(listed), listed ? 'on the book' : 'nobody selling yet', listed ? '' : 'vg-muted');
+  stat('Coins', fmtN(coins.length), 'etched');
+  stat('Minting now', fmtN(minting), minting ? 'open to anyone' : 'none open');
+  // Listed is the honest headline for a market. When it is zero, saying so beats dressing the page
+  // with a figure that measures nothing.
+  stat('Listed', fmtN(listed), listed ? `${asks} ask${asks === 1 ? '' : 's'}` : 'nobody selling yet',
+    listed ? 'is-floor' : '');
+  if (holders) stat('Holders', fmtN(holders), 'across all coins');
+  stat('Fee', '0 XVG', 'we take nothing', 'is-free');
 }
 
 // The mark colour, drawn from the collection's own palette.
@@ -163,7 +191,20 @@ function sorted() {
   if (sort === 'minted') {
     return rows.sort((a, b) => (b.mintedShare || 0) - (a.mintedShare || 0) || byNew(a, b));
   }
-  if (sort === 'holders') return rows.sort((a, b) => b.carriers - a.carriers || byNew(a, b));
+  if (sort === 'change') {
+    // Coins with no measurable change go last: an unknown is not a zero and must not sort as one.
+    const pct = (c) => (c.market.askChange24h ? c.market.askChange24h.pct : null);
+    return rows.sort((a, b) => {
+      const x = pct(a), y = pct(b);
+      if (x === null && y === null) return byNew(a, b);
+      if (x === null) return 1;
+      if (y === null) return -1;
+      return Math.abs(y) - Math.abs(x) || byNew(a, b);
+    });
+  }
+  if (sort === 'holders') {
+    return rows.sort((a, b) => (b.holders || 0) - (a.holders || 0) || b.carriers - a.carriers || byNew(a, b));
+  }
   if (sort === 'new') return rows.sort(byNew);
   // The default. Newest-first was the default and it opened the market on whatever was etched last,
   // which is reliably a coin with no asks, no holders and nothing to do, so the first thing anybody
@@ -250,18 +291,67 @@ function ageOf(height, tip) {
   return Math.round(secs / 86400) + 'd';
 }
 
+/**
+ * A cell with a figure and, underneath it, the second question that figure always raises.
+ *
+ * The label rides along and is hidden on desktop, where the column heading says it once for the
+ * whole table. On a phone the row becomes a card, the headings are gone, and without this every
+ * figure would be a bare number with nothing to say what it counts.
+ */
+function cell(host, label, main, sub, quiet, cls) {
+  const box = el('div', 'rm-val' + (cls ? ' ' + cls : '') + (quiet ? ' quiet' : ''));
+  box.append(el('b', '', main), el('span', 'rm-lab', label));
+  if (sub) box.append(el('span', 'rm-sub', sub));
+  host.append(box);
+  return box;
+}
+
+/** The change chip, or a dash. Never a zero: see the null contract in src/pricelog.js. */
+function changeCell(host, change) {
+  const box = el('div', 'rm-val rm-chg');
+  if (!change || typeof change.pct !== 'number') {
+    box.classList.add('none');
+    box.textContent = '-';
+    box.title = 'not enough price history yet';
+  } else {
+    const flat = Math.abs(change.pct) < 0.005;
+    box.classList.add(flat ? 'none' : change.pct > 0 ? 'up' : 'down');
+    box.textContent = (flat ? '' : change.pct > 0 ? '+' : '') + change.pct.toFixed(2) + '%';
+    box.title = 'change in the lowest asking price over 24 hours';
+  }
+  box.append(el('span', 'rm-lab', '24h'));
+  host.append(box);
+  return box;
+}
+
+const MEDALS = ['\u{1F947}', '\u{1F948}', '\u{1F949}'];
+
 function rowFor(c, rank) {
   const li = document.createElement('li');
   li.className = 'rm-row';
   const href = '/runes/coin?rune=' + encodeURIComponent(c.runeRef);
 
-  li.append(el('span', 'rm-rank', String(rank)));
+  const r = el('span', 'rm-rank');
+  if (rank <= 3) { r.classList.add('rm-medal'); r.textContent = MEDALS[rank - 1]; r.title = 'rank ' + rank; }
+  else r.textContent = String(rank);
+  li.append(r);
 
-  const id = el('div', 'rm-id');
-  const face = markFor(c.ticker + c.runeRef);
-  const mark = el('div', 'rm-mark', c.symbol || c.ticker.slice(0, 1));
-  mark.style.background = face.bg;
-  mark.style.color = face.fg;
+  // The etcher's own picture when there is one, and the generated mark when there is not. The
+  // colour is derived from the coin's permanent identity, so the same coin is the same colour on
+  // every device for ever.
+  const id = el('div', 'rm-id-cell');
+  const mark = el('div', 'rm-mark');
+  if (c.image) {
+    mark.classList.add('has-img');
+    const img = el('img');
+    img.src = c.image; img.alt = ''; img.loading = 'lazy'; img.decoding = 'async';
+    mark.append(img);
+  } else {
+    const face = markFor(c.ticker + c.runeRef);
+    mark.textContent = c.symbol || c.ticker.slice(0, 1);
+    mark.style.background = face.bg;
+    mark.style.color = face.fg;
+  }
   const names = el('div', 'rm-names');
   const name = el('a', 'rm-name', c.display);
   name.href = href;
@@ -270,30 +360,37 @@ function rowFor(c, rank) {
   id.append(mark, names);
   li.append(id);
 
-  // The floor, per whole coin. `null` is "nobody is selling", which is a different fact from
-  // "cheap", and it is shown as words rather than as a zero.
+  // The price, per whole coin. `null` is "nobody is selling", which is a different fact from
+  // "cheap", and it is said in words rather than shown as a zero.
   if (c.market.bestAsk === null) {
-    val(li, 'floor', 'No asks', true);
+    cell(li, 'price', 'No asks', '', true, 'rm-num');
   } else {
-    const box = val(li, 'floor', fmtXvg(c.market.bestAsk));
-    box.append(el('span', 'sub', 'XVG'));
+    const xvg = c.market.bestAsk / COIN;
+    cell(li, 'price', fmtXvg(c.market.bestAsk) + ' XVG', usd(xvg), false, 'rm-num');
   }
+
+  changeCell(li, c.market.askChange24h);
 
   if (c.market.forSale > 0) {
-    const box = val(li, 'for sale', compact(c.market.forSaleWhole));
-    box.append(el('span', 'sub', `${c.market.asks} listing${c.market.asks === 1 ? '' : 's'}`));
+    cell(li, 'for sale', compact(c.market.forSaleWhole),
+      `${c.market.asks} ask${c.market.asks === 1 ? '' : 's'}`, false, 'rm-num');
   } else {
-    val(li, 'for sale', '-', true);
+    cell(li, 'for sale', '-', '', true, 'rm-num');
   }
 
-  val(li, 'holders', fmtN(c.carriers), c.carriers === 0);
+  // People, not outputs. The count is resolved against the node on a timer, so it is null until
+  // the first sweep has seen this coin.
+  if (c.holders == null) cell(li, 'holders', '-', '', true, 'rm-num');
+  else cell(li, 'holders', fmtN(c.holders), c.carriers > c.holders ? compact(c.carriers) + ' outputs' : '', false, 'rm-num');
 
   li.append(progressFor(c));
 
   const age = ageOf(c.etchedAtHeight, tip);
-  val(li, 'age', age || '-', !age);
+  // The exact block, not a rounded one: a height is an address in the chain, and "9.4M" cannot be
+  // looked up. The age above it is the part that is meant to be read at a glance.
+  cell(li, 'etched', age || '-', c.etchedAtHeight ? fmtN(c.etchedAtHeight) : '', !age, 'rm-num');
 
-  // What you can actually do, rather than a single word for every row.
+  // What you can actually do, rather than one word for every row.
   const go = el('a', 'vg-btn rm-go' + (c.market.asks > 0 ? ' primary' : ''),
     c.market.asks > 0 ? 'Buy' : (c.mint && c.mint.open ? 'Mint' : 'View'));
   go.href = href;
@@ -306,9 +403,11 @@ $('q').addEventListener('input', (e) => {
   render();
 });
 
-for (const b of document.querySelectorAll('.rm-sort')) {
+for (const b of document.querySelectorAll('#rm-sorts [data-sort]')) {
   b.addEventListener('click', () => {
-    for (const other of document.querySelectorAll('.rm-sort')) other.classList.toggle('is-on', other === b);
+    for (const other of document.querySelectorAll('#rm-sorts [data-sort]')) {
+      other.classList.toggle('is-on', other === b);
+    }
     sort = b.dataset.sort;
     render();
   });

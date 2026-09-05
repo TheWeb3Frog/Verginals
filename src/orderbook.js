@@ -22,6 +22,15 @@ const MAX_BIDS_PER_CARRIER = 50;
 const MAX_LISTINGS = 5000;
 const MAX_SALES = 1000; // rolling activity log
 
+/**
+ * Seconds, whatever unit the record was written in.
+ *
+ * A sale was once stamped with Date.now() and a listing with seconds, and the two were sorted
+ * against each other. Normalised at the read, not in the stored records: the records are the truth
+ * of what was written at the time.
+ */
+const secs = (t) => (Number(t) > 1e11 ? Math.round(Number(t) / 1000) : Number(t)) || 0;
+
 class OrderBook {
   /**
    * @param {object} opts
@@ -183,7 +192,20 @@ class OrderBook {
 
   /** True for an Alpha Verginal (a collection mint with no launchpad slug). */
   static _isAlpha(x) {
-    return x && x.collectionNumber != null && !x.collectionSlug;
+    return OrderBook._inCollection(x, null);
+  }
+
+  /**
+   * Rows belonging to one collection. `slug` null means the Alpha collection, which is a mint with
+   * no launchpad slug on it.
+   *
+   * This is the whole of what made the market Alpha-only. Every figure below takes a slug now, so a
+   * launchpad collection gets its floor, its volume and its history from the same code on the day
+   * it goes live, with nothing here to change.
+   */
+  static _inCollection(x, slug) {
+    if (!x || x.collectionNumber == null) return false;
+    return slug ? x.collectionSlug === slug : !x.collectionSlug;
   }
 
   /**
@@ -191,14 +213,46 @@ class OrderBook {
    * listed price), lifetime sale count and volume from the activity log. Supply and holders are
    * chain facts the caller adds. Prunes stale listings first so the counts are live.
    */
-  async stats() {
+  async stats(slug = null) {
     for (const key of Object.keys(this.state.listings)) await this._pruneListing(key);
     this._save();
-    const listed = Object.values(this.state.listings).filter((l) => OrderBook._isAlpha(l) && !l.pendingSale);
+    const listed = Object.values(this.state.listings)
+      .filter((l) => OrderBook._inCollection(l, slug) && !l.pendingSale);
     const floorUnits = listed.reduce((m, l) => (m == null || l.priceUnits < m ? l.priceUnits : m), null);
-    const sales = this.state.sales.filter(OrderBook._isAlpha);
+    const sales = this.state.sales.filter((x) => OrderBook._inCollection(x, slug));
     const volumeUnits = sales.reduce((s, x) => s + (x.priceUnits || 0), 0);
     return { listedCount: listed.length, floorUnits, salesCount: sales.length, volumeUnits };
+  }
+
+  /**
+   * What actually traded inside a window: the only figure on a marketplace that cannot be produced
+   * by wishful listing. Read straight off the sales log, which has always carried a timestamp and
+   * a price, so this needed no new recording anywhere.
+   */
+  window(seconds, slug = null) {
+    const cutoff = this.now() - seconds;
+    const sales = this.state.sales
+      .filter((x) => OrderBook._inCollection(x, slug) && secs(x.at) >= cutoff);
+    return {
+      sales: sales.length,
+      volumeUnits: sales.reduce((n, x) => n + (x.priceUnits || 0), 0),
+      window: seconds,
+    };
+  }
+
+  /** The current floor for a collection, without the pruning pass stats() does. */
+  floorOf(slug = null) {
+    return Object.values(this.state.listings)
+      .filter((l) => OrderBook._inCollection(l, slug) && !l.pendingSale)
+      .reduce((m, l) => (m == null || l.priceUnits < m ? l.priceUnits : m), null);
+  }
+
+  /** Every collection slug the book has ever seen, Alpha included as null. */
+  collections() {
+    const out = new Set([null]);
+    for (const l of Object.values(this.state.listings)) if (l.collectionSlug) out.add(l.collectionSlug);
+    for (const x of this.state.sales) if (x.collectionSlug) out.add(x.collectionSlug);
+    return [...out];
   }
 
   /** Recent Alpha activity: sales and live listings, newest first, capped at `limit`. */
@@ -219,11 +273,11 @@ class OrderBook {
    * Normalised here rather than in the stored records: the records are the truth of what was
    * written at the time, and a feed is the right place to make them comparable.
    */
-  activity(limit = 50) {
-    const secs = (t) => (Number(t) > 1e11 ? Math.round(Number(t) / 1000) : Number(t)) || 0;
-    const sales = this.state.sales.filter(OrderBook._isAlpha)
+  activity(limit = 50, slug = null) {
+    const sales = this.state.sales.filter((x) => OrderBook._inCollection(x, slug))
       .map((s) => ({ type: 'sale', at: secs(s.at), collectionNumber: s.collectionNumber, priceUnits: s.priceUnits, sellerAddress: s.sellerAddress, buyerAddress: s.buyerAddress }));
-    const lists = Object.values(this.state.listings).filter((l) => OrderBook._isAlpha(l) && !l.pendingSale)
+    const lists = Object.values(this.state.listings)
+      .filter((l) => OrderBook._inCollection(l, slug) && !l.pendingSale)
       .map((l) => ({ type: 'list', at: secs(l.at), collectionNumber: l.collectionNumber, priceUnits: l.priceUnits, sellerAddress: l.sellerAddress }));
     return sales.concat(lists).sort((a, b) => b.at - a.at).slice(0, limit);
   }

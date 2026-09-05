@@ -2,24 +2,36 @@
 
 /* --- head -------------------------------------------------------------------------------------- */
 
-.rm-head {
-  display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(300px, .85fr);
-  gap: 44px; align-items: end;
-  padding: 52px 0 40px;
+.rm-id {
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  padding: 26px 0 16px;
 }
-.rm-head-say { display: flex; flex-direction: column; gap: 18px; align-items: flex-start; }
-.rm-head-acts { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 2px; }
-/* Three figures, not four: the fourth was always the one nobody read. */
-.rm-head-stats { grid-template-columns: repeat(3, 1fr); }
+.rm-who { flex: 1 1 280px; min-width: 0; }
+.rm-title {
+  font-family: var(--display); font-weight: 700; font-size: 30px; line-height: 1.05;
+  letter-spacing: -.03em; margin: 0 0 4px;
+}
+/* Not .rm-claim: that name already belongs to the three cards at the foot of this page, and one
+   line of header prose was inheriting a card's padding and background from them. */
+.rm-lede { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; max-width: 62ch; }
+.rm-lede a { color: var(--accent); }
+.rm-etch { flex: none; }
 
 /* --- search and sort ---------------------------------------------------------------------------- */
 
-.rm-bar {
-  display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
-  margin: 0 0 18px;
+/* Sticky, because a sort control at the top of a long list is a control nobody reaches. */
+.rm-tools {
+  position: sticky; top: var(--top-h, 56px); z-index: 8;
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  padding: 9px 0; margin-bottom: 6px;
+  background: var(--bg); border-bottom: 1px solid var(--line);
 }
-.rm-search { flex: 1 1 200px; max-width: 260px; }
-.rm-search .vg-input { padding: 9px 13px; font-size: 13px; }
+.rm-ctl {
+  background: var(--bg2); color: var(--txt); border: 1px solid var(--line);
+  border-radius: var(--r-ctl, 8px); padding: 7px 11px; font: 400 13px/1.2 var(--sans); height: 34px;
+}
+.rm-search { flex: 1 1 160px; min-width: 140px; max-width: 260px; width: auto; }
+.rm-search::placeholder { color: var(--dim); }
 .rm-sorts { display: flex; flex-wrap: wrap; gap: 6px; }
 
 /* --- the table ----------------------------------------------------------------------------------- */
@@ -29,15 +41,16 @@
 .rm-thead, .rm-row {
   display: grid;
   grid-template-columns:
-    28px                    /* rank */
-    minmax(0, 1.8fr)        /* coin */
-    minmax(84px, .8fr)      /* floor */
-    minmax(76px, .7fr)      /* for sale */
+    30px                    /* rank */
+    minmax(0, 1.7fr)        /* name */
+    minmax(88px, .9fr)      /* price */
+    minmax(62px, .55fr)     /* 24h */
+    minmax(74px, .7fr)      /* for sale */
     minmax(58px, .5fr)      /* holders */
-    minmax(150px, 1.4fr)    /* minted */
-    minmax(44px, .4fr)      /* age */
+    minmax(140px, 1.3fr)    /* minted */
+    minmax(66px, .55fr)     /* etched */
     auto;                   /* action */
-  gap: 20px; align-items: center;
+  gap: 16px; align-items: center;
 }
 /* The header stays put while the list scrolls.
    IT MUST NOT SIT INSIDE A SCROLL CONTAINER. The table carried vg-scroll, which makes it
@@ -68,7 +81,7 @@
 }
 .rm-row:hover { border-color: var(--line2); background: #18232f; }
 
-.rm-id { display: flex; align-items: center; gap: 13px; min-width: 0; }
+.rm-id-cell { display: flex; align-items: center; gap: 13px; min-width: 0; }
 .rm-mark {
   flex: none; width: 38px; height: 38px; border-radius: 10px;
   display: grid; place-items: center;
@@ -131,8 +144,7 @@
 }
 
 @media (max-width: 900px) {
-  .rm-head { grid-template-columns: 1fr; gap: 30px; padding: 34px 0 30px; align-items: start; }
-  .rm-head-stats { grid-template-columns: repeat(3, 1fr); }
+  .rm-id { align-items: flex-start; }
 }
 
 @media (max-width: 760px) {
@@ -141,9 +153,56 @@
   /* The row stops being a table row and becomes a card: identity across the top, figures in a line
      under it, the action full width. Labels come back because no heading carries them here. */
   .rm-row { grid-template-columns: 1fr 1fr; gap: 14px 16px; }
-  .rm-id { grid-column: 1 / -1; }
+  .rm-id-cell { grid-column: 1 / -1; }
   .rm-val { text-align: left; }
   .rm-val span { display: block; }
+  .rm-lab { display: block; }
+  .rm-chg { text-align: left; }
   .rm-prog { grid-column: 1 / -1; }
   .rm-go { grid-column: 1 / -1; width: 100%; padding: 11px; }
+}
+
+/* --- what the redesign added ------------------------------------------------------------------- */
+
+/* The coin's own picture when its etcher has set one, and the generated mark when not. Same box
+   either way, so a row does not change height the day somebody uploads. */
+.rm-mark img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: inherit; }
+.rm-mark.has-img { background: var(--card) !important; }
+
+/* The top three read as a leaderboard, which is the one place on this page where rank is a claim
+   about standing rather than a row number. */
+.rm-medal { font-size: 13px; line-height: 1; }
+
+/* A price with the dollars under it, the way every market people already use presents one. The
+   secondary line is the whole device: it lets a column answer two questions in one glance.
+
+   Written as `.rm-val .rm-sub` and not `.rm-sub`, because `.rm-val span { display: none }` above
+   is more specific than a lone class and silently won: every second line was in the DOM, correct,
+   and invisible. */
+.rm-val .rm-sub { display: block; font: 400 11px/1.35 var(--mono); color: var(--dim); margin-top: 2px; }
+.rm-chg { font: 600 12.5px/1.2 var(--mono); color: var(--muted); text-align: right; }
+.rm-chg.up { color: var(--ok); }
+.rm-chg.down { color: var(--danger); }
+.rm-chg.none { color: var(--dim); font-weight: 400; }
+
+@media (max-width: 900px) {
+  .rm-id { padding: 18px 0 12px; }
+  .rm-search { max-width: none; flex: 1 1 100%; }
+}
+
+/* The column heading says what a figure counts, once, for the whole table. On a phone the headings
+   are gone and each row is a card, so the label travels inside the cell and only shows there. */
+.rm-val .rm-lab { display: none; }
+.rm-lab {
+  font: 500 9.5px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--dim); margin-top: 4px;
+}
+@media (max-width: 760px) { .rm-val .rm-lab { display: block; } }
+
+/* The card layout's alignment, restated after the base rules above it.
+   `.rm-chg { text-align: right }` is declared later in this file than the media query that first
+   tried to undo it, and at equal specificity the later rule wins: the change cell stayed
+   right-aligned while every figure beside it went left. */
+@media (max-width: 760px) {
+  .rm-val, .rm-chg { text-align: left; }
 }

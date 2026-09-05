@@ -459,3 +459,38 @@
   .vg-top-in { padding: 0 14px; gap: 10px; }
   .vg-tip { display: none; }
 }
+
+/* --- the figure strip ------------------------------------------------------------------------- */
+
+/* One row of numbers, hairline-separated, with a tiny label over each. It lives here rather than on
+   a page because both markets are read the same way and a second copy is how two pages start
+   disagreeing about what a floor looks like.
+
+   No boxes around the figures on purpose: boxes make six readings of one market look like six
+   separate decisions. */
+.vg-strip {
+  display: flex; flex-wrap: wrap; gap: 0; margin: 0; flex: 0 1 auto;
+  border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden;
+}
+.vg-strip-stat { padding: 9px 16px; min-width: 84px; border-left: 1px solid var(--line); }
+.vg-strip-stat:first-child { border-left: 0; }
+.vg-strip-stat dt {
+  font: 500 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--dim); margin: 0 0 5px;
+}
+.vg-strip-stat dd { margin: 0; font: 600 15px/1.1 var(--mono); color: var(--txt); white-space: nowrap; }
+.vg-strip-stat dd .sub { font-size: 11px; font-weight: 400; color: var(--muted); margin-left: 5px; }
+.vg-strip-stat.is-floor dd { color: var(--accent); }
+.vg-strip-stat.is-free dd { color: var(--ok); }
+
+/* A change is the most trusted number on a marketplace, so it is the one place a colour carries
+   meaning rather than decoration. Nothing is drawn at all when the server declines to state one:
+   see the null contract in src/pricelog.js. */
+.vg-chg { margin-left: 7px; font: 600 11.5px/1 var(--mono); color: var(--muted); }
+.vg-chg.up { color: var(--ok); }
+.vg-chg.down { color: var(--danger); }
+
+@media (max-width: 860px) {
+  .vg-strip { flex: 1 1 100%; }
+  .vg-strip-stat { flex: 1 1 auto; }
+}

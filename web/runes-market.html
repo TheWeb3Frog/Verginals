@@ -7,38 +7,34 @@
 <link rel="icon" href="/favicon.svg">
 <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/vg.css?v=39">
-<link rel="stylesheet" href="/runes-market.css?v=37">
+<link rel="stylesheet" href="/vg.css?v=49">
+<link rel="stylesheet" href="/runes-market.css?v=53">
 </head>
 <body class="vg">
 <main class="vg-wrap">
 
-  <header class="rm-head">
-    <div class="rm-head-say">
-      <h1 class="vg-d1">Every coin<br>on Verge.</h1>
-      <p class="vg-say">
-        Etched on chain, counted by an indexer anyone can rerun, and traded without a custodian.
-        Open a coin to claim from its mint, buy some, or sell what you hold.
-      </p>
-      <div class="rm-head-acts">
-        <a class="vg-btn primary" href="/etch">Etch a coin</a>
-        <a class="vg-btn" href="/runes">How it works</a>
-      </div>
+  <!-- A market is opened with a question about price, so the figures come before the pitch. What
+       used to be here was a half-screen headline and the first coin below the fold. -->
+  <header class="rm-id">
+    <div class="rm-who">
+      <h1 class="rm-title">Coins on Verge</h1>
+      <p class="rm-lede">Etched on chain, counted by an indexer anyone can rerun, and traded
+        without a custodian. <a href="/runes">How it works</a></p>
     </div>
-    <dl class="vg-stats rm-head-stats" id="rm-stats"></dl>
+    <dl class="vg-strip" id="rm-stats"></dl>
+    <a class="vg-btn primary rm-etch" href="/etch">Etch a coin</a>
   </header>
 
-  <div class="rm-bar">
-    <div class="rm-search">
-      <input id="q" class="vg-input" type="search" autocomplete="off" spellcheck="false"
-             placeholder="search ticker" aria-label="Search by ticker">
-    </div>
+  <div class="rm-tools">
+    <input id="q" class="rm-ctl rm-search" type="search" autocomplete="off" spellcheck="false"
+           placeholder="Search by name" aria-label="Search by ticker">
     <div class="rm-sorts" id="rm-sorts" role="group" aria-label="Sort">
       <button type="button" class="vg-pill is-on" data-sort="live">Active</button>
-      <button type="button" class="vg-pill" data-sort="new">Newest</button>
       <button type="button" class="vg-pill" data-sort="price">Cheapest</button>
+      <button type="button" class="vg-pill" data-sort="change">Movers</button>
       <button type="button" class="vg-pill" data-sort="minted">Most minted</button>
       <button type="button" class="vg-pill" data-sort="holders">Most held</button>
+      <button type="button" class="vg-pill" data-sort="new">Newest</button>
     </div>
   </div>
 
@@ -47,12 +43,13 @@
   <div class="rm-table" id="rm-table" hidden>
     <div class="rm-thead">
       <span class="rm-rankh">#</span>
-      <span>Coin</span>
-      <span class="rm-num">Floor</span>
+      <span>Name</span>
+      <span class="rm-num">Price</span>
+      <span class="rm-num">24h</span>
       <span class="rm-num">For sale</span>
       <span class="rm-num">Holders</span>
       <span>Minted</span>
-      <span class="rm-num">Age</span>
+      <span class="rm-num">Etched</span>
       <span></span>
     </div>
     <ul id="rm-list" class="rm-list"></ul>
@@ -86,7 +83,7 @@
   </section>
 
 </main>
-<script src="/wallet.js?v=29"></script>
-<script type="module" src="/runes-market.js?v=37"></script>
+<script src="/wallet.js?v=49"></script>
+<script type="module" src="/runes-market.js?v=50"></script>
 </body>
 </html>

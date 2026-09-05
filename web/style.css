@@ -1172,22 +1172,8 @@ main:has(#panel-market.active) { max-width: 1560px; }
 }
 .mkx-note p { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.6; max-width: 78ch; }
 
-/* One row of figures, hairline-separated. No boxes: boxes around numbers make six of them look
-   like six decisions, and these are one reading of one market. */
-.mkx-stats {
-  display: flex; flex-wrap: wrap; gap: 0; margin: 0; flex: 0 1 auto;
-  border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
-}
-.mkx-stat { padding: 9px 16px; min-width: 84px; border-left: 1px solid var(--line); }
-.mkx-stat:first-child { border-left: 0; }
-.mkx-stat dt {
-  font: 500 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
-  color: var(--dim); margin: 0 0 5px;
-}
-.mkx-stat dd { margin: 0; font: 600 15px/1.1 var(--mono); color: var(--txt); white-space: nowrap; }
-.mkx-stat dd .sub { font-size: 11px; font-weight: 400; color: var(--muted); margin-left: 5px; }
-.mkx-stat.is-floor dd { color: var(--accent); }
-.mkx-stat.is-free dd { color: var(--ok); }
+/* The figure strip itself is in vg.css: both markets are read the same way and a second copy is
+   how two pages start disagreeing about what a floor looks like. */
 
 /* --- the toolbar ------------------------------------------------------------------------------ */
 
@@ -1346,8 +1332,6 @@ button.mkx-ctl[aria-expanded="true"] { border-color: var(--accent); color: var(-
 @media (max-width: 860px) {
   .mkx-body:has(.mkx-traits:not(.hidden)) { grid-template-columns: 1fr; }
   .mkx-traits { position: static; max-height: 320px; }
-  .mkx-stats { flex: 1 1 100%; }
-  .mkx-stat { flex: 1 1 auto; }
   .mkx-search { flex: 1 1 100%; max-width: none; }  /* its own row, so the placeholder is not cut */
   .mkx-act { grid-template-columns: 44px 1fr auto; gap: 10px; }
   .mkx-act .mkx-kind, .mkx-act .mkx-act-who { display: none; }

@@ -72,11 +72,22 @@ test('AND IT NO LONGER CLAMPS A FUTURE STAMP TO ZERO', () => {
 const book = fs.readFileSync(path.join(__dirname, '..', 'src', 'orderbook.js'), 'utf8');
 
 test('the server emits one unit, so the client is a second line of defence and not the only one', () => {
-  const fn = /activity\(limit = 50\) \{([\s\S]*?)\n  \}/.exec(book);
+  // The normaliser moved to module scope when windowed volume needed it too. What matters is
+  // unchanged: nothing in the feed passes a raw stamp through.
+  const fn = /activity\(limit = 50, slug = null\) \{([\s\S]*?)\n  \}/.exec(book);
   assert.ok(fn, 'activity() should still exist');
-  assert.match(fn[1], /const secs =/, 'the feed should normalise before it sorts');
+  assert.match(book, /^const secs = /m, 'the module should own one normaliser');
+  assert.match(fn[1], /secs\(/, 'and the feed should apply it before it sorts');
   assert.ok(!/at: s\.at\b/.test(fn[1]), 'a raw sale stamp is still being passed through');
   assert.ok(!/at: l\.at\b/.test(fn[1]), 'a raw listing stamp is still being passed through');
+});
+
+test('AND SO DOES THE WINDOW, which reads the same stamps for volume', () => {
+  // A window that compared raw stamps would put every millisecond-stamped sale inside every
+  // window for ever, which is the same bug wearing different clothes.
+  const fn = /window\(seconds, slug = null\) \{([\s\S]*?)\n  \}/.exec(book);
+  assert.ok(fn, 'window() should exist');
+  assert.match(fn[1], /secs\(x\.at\)/, 'the window must normalise the stamp it compares');
 });
 
 console.log('\n' + passed + ' activity time tests passed');

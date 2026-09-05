@@ -884,27 +884,48 @@ const mkt = {
   bound: false, loading: false, loaded: false,
 };
 
+/** A signed percentage, coloured, or nothing at all when the server would not state one. */
+function changeChip(change, since) {
+  // The server returns null rather than 0 when it cannot honestly compare (a price history younger
+  // than the window, or nothing listed at one end of it). Drawing "0.00%" there would be a claim
+  // about a flat market, which is a different thing from having no answer, so nothing is drawn.
+  if (!change || typeof change.pct !== 'number') return null;
+  const el = document.createElement('span');
+  const up = change.pct > 0, flat = Math.abs(change.pct) < 0.005;
+  el.className = 'vg-chg' + (flat ? '' : up ? ' up' : ' down');
+  el.textContent = (flat ? '' : up ? '+' : '') + change.pct.toFixed(2) + '%';
+  if (since) el.title = 'against the floor 24 hours ago, tracked since ' + new Date(since * 1000).toLocaleString();
+  return el;
+}
+
 /** The seven figures a marketplace is read for, straight from the server's own tallies. */
 function mktStats(m, owners) {
   const box = $('#market-stats');
   if (!box) return;
   box.innerHTML = '';
-  const add = (label, value, sub, cls) => {
+  const add = (label, value, sub, cls, extra) => {
     const d = document.createElement('div');
-    d.className = 'mkx-stat' + (cls ? ' ' + cls : '');
+    d.className = 'vg-strip-stat' + (cls ? ' ' + cls : '');
     const dt = document.createElement('dt'); dt.textContent = label;
     const dd = document.createElement('dd'); dd.textContent = value;
+    if (extra) dd.append(extra);
     if (sub) { const s = document.createElement('span'); s.className = 'sub'; s.textContent = sub; dd.append(s); }
     d.append(dt, dd);
     box.append(d);
   };
+  const xvg = (units) => fmt((units || 0) / MKT_COIN) + ' XVG';
+  const plural = (n, one) => fmt(n) + ' ' + one + (n === 1 ? '' : 's');
   const floor = m && m.floorUnits ? m.floorUnits / MKT_COIN : null;
+
   // No listings means no floor. Reported as absent rather than as nought, which would read as
   // somebody giving one away.
-  add('Floor', floor ? fmt(floor) + ' XVG' : 'no asks', floor ? usdStr(floor) : '', 'is-floor');
+  add('Floor', floor ? fmt(floor) + ' XVG' : 'no asks', floor ? usdStr(floor) : '', 'is-floor',
+    m ? changeChip(m.floorChange, m.trackedSince) : null);
+  // Volume is the one figure on a marketplace that wishful listing cannot produce, so it comes
+  // before the count of what is merely on offer.
+  add('24h volume', xvg(m && m.dayVolumeUnits), m ? plural(m.daySales || 0, 'sale') : '');
+  add('Total volume', xvg(m && m.volumeUnits), m ? plural(m.salesCount || 0, 'sale') : '');
   add('Listed', fmt((m && m.listedCount) || 0), m && m.minted ? 'of ' + fmt(m.minted) : '');
-  add('Volume', m && m.volumeUnits ? fmt(m.volumeUnits / MKT_COIN) + ' XVG' : '0 XVG');
-  add('Sales', fmt((m && m.salesCount) || 0));
   add('Owners', owners ? fmt(owners) : '--');
   add('Minted', fmt((m && m.minted) || 0), m && m.total ? 'of ' + fmt(m.total) : '');
   add('Fee', '0 XVG', 'we take nothing', 'is-free');

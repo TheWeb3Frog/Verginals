@@ -80,8 +80,11 @@ test('an unreachable node is null in the app too, not "finished"', () => {
   assert.match(app, /catch \{ return null; \}/, 'indexProgress must answer null when it cannot ask');
 });
 
-test('the market checks before it claims nobody is selling', () => {
-  const at = app.indexOf('Nobody is selling right now');
+test('the market checks before it claims there is nothing here', () => {
+  // The sentence moved with the page. The market grid is the whole collection now, not the order
+  // book, so its empty state is "nothing is minted" rather than "nobody is selling": an empty book
+  // is an ordinary Tuesday and no longer empties the grid.
+  const at = app.indexOf('Nothing is minted yet');
   assert.ok(at > 0, 'the sentence exists for the case where it is true');
   const before = app.slice(Math.max(0, at - 500), at);
   assert.match(before, /prog && prog\.scanning/, 'the scanning branch must come first');
@@ -95,7 +98,7 @@ test('and explore checks before it claims nothing is inscribed', () => {
 });
 
 test('both come back on their own', () => {
-  assert.match(app, /scanningNotice\(prog, loadMarket\)/);
+  assert.match(app, /scanningNotice\(prog, \(\) => loadMarket\(true\)\)/);
   assert.match(app, /scanningNotice\(prog, loadInscriptions\)/);
   assert.match(app, /setTimeout\(again, 15000\)/, 'the notice reschedules the caller');
 });

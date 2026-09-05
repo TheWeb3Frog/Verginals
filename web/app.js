@@ -572,7 +572,7 @@ function openDetail(ins, push = true) {
     // Alpha mint: the rarity engine is keyed by COLLECTION number (never the inscription counter).
     api('/api/collection/rarity/' + ins.collectionNumber).then((r) => {
       const badges = (r.badges || []).map((b) => `<span class="rarity-badge ${badgeClass(b)}">${esc(b)}</span>`).join('');
-      rankEl.innerHTML = `Rarity rank <b>#${fmt(r.rank)}</b> of ${fmt(r.supply)} · score ${fmt(r.score)}`
+      rankEl.innerHTML = `Rarity rank <b>#${r.rank}</b> of ${fmt(r.supply)} · score ${fmt(r.score)}`
         + (badges ? `<div class="rarity-badges">${badges}</div>` : '');
       rankEl.classList.remove('hidden');
       traitsEl.innerHTML = '';
@@ -824,28 +824,6 @@ function btn(label, cls, onClick) {
   return b;
 }
 
-/** The three figures a market is actually read for, from the listings themselves. */
-function paintMarketStats(listings) {
-  const box = $('#market-stats');
-  if (!box) return;
-  box.innerHTML = '';
-  const stat = (label, value, sub) => {
-    const d = document.createElement('div');
-    d.className = 'vg-stat';
-    const l = document.createElement('span'); l.className = 'vg-label'; l.textContent = label;
-    const b = document.createElement('b'); b.className = 'vg-num vg-n-md'; b.textContent = value;
-    d.append(l, b);
-    if (sub) { const x = document.createElement('span'); x.className = 'vg-stat-sub'; x.textContent = sub; d.append(x); }
-    box.append(d);
-  };
-  const prices = listings.map((l) => Number(l.priceUnits)).filter((n) => n > 0);
-  stat('Listed', fmt(listings.length));
-  // The floor is the lowest ask, and with nothing listed there is no floor. Reported as absent
-  // rather than as nought, which would read as somebody giving one away.
-  stat('Floor', prices.length ? fmt(Math.min(...prices) / 1e6) + ' XVG' : 'no asks');
-  stat('Fee', '0 XVG', 'we take nothing');
-}
-
 /**
  * Is the index still reading the chain?
  *
@@ -882,106 +860,403 @@ function scanningNotice(p, again) {
   return box;
 }
 
-// --- market tab: all Verginals currently for sale -------------------------------------------
+// --- the market: the trading surface ----------------------------------------------------------
+//
+// This shows the WHOLE collection, not only the handful of items listed at this moment. A grid of
+// twelve cards is not a market, it is a noticeboard with four pins in it: it gave a visitor no way
+// to see what they would be buying into, and no reason to stay once they had read the twelve
+// prices. Listed items come first and carry a price, the rest carry the offer that can be made on
+// them, which is exactly what the detail view already accepts.
+//
+// It is also what makes the trait rail worth building. Filtering twelve items by fur colour is
+// theatre. Filtering thirteen hundred is how somebody actually finds their cat.
+const CHUNK = 120; // cards drawn per pass, so a slow phone paints something before it finishes
 
-// Floor first, because that is the question a marketplace is opened with. The listings used to be
-// drawn in whatever order the book returned them, so the cheapest one could be anywhere on the page
-// and the floor figure at the top pointed at a card nobody could find.
-const mkt = { sort: 'price-asc', ranks: new Map(), bound: false };
+const mkt = {
+  sort: 'price-asc', dense: 'md', view: 'items', q: '', forSale: false,
+  picked: new Map(),      // trait_type -> Set of chosen values (OR inside a group, AND across)
+  items: [], traitDefs: [],
+  priceBy: new Map(),     // collection number -> price in units
+  atBy: new Map(),        // collection number -> when it was listed
+  insByNum: new Map(),    // collection number -> its inscription (art, owner, carrier)
+  loose: [],              // listings that are not Alphas, so they still have somewhere to appear
+  rows: [], shown: 0, io: null,
+  bound: false, loading: false, loaded: false,
+};
 
-/** Collection number to rarity rank, fetched once. Rank is half of what a buyer is comparing. */
-async function marketRanks() {
-  if (mkt.ranks.size) return mkt.ranks;
-  try {
-    const r = await api('/api/collection/items');
-    for (const it of (r && r.items) || []) if (it.rank != null) mkt.ranks.set(it.number, it.rank);
-  } catch (_) { /* the price is still worth showing without it */ }
-  return mkt.ranks;
+/** The seven figures a marketplace is read for, straight from the server's own tallies. */
+function mktStats(m, owners) {
+  const box = $('#market-stats');
+  if (!box) return;
+  box.innerHTML = '';
+  const add = (label, value, sub, cls) => {
+    const d = document.createElement('div');
+    d.className = 'mkx-stat' + (cls ? ' ' + cls : '');
+    const dt = document.createElement('dt'); dt.textContent = label;
+    const dd = document.createElement('dd'); dd.textContent = value;
+    if (sub) { const s = document.createElement('span'); s.className = 'sub'; s.textContent = sub; dd.append(s); }
+    d.append(dt, dd);
+    box.append(d);
+  };
+  const floor = m && m.floorUnits ? m.floorUnits / MKT_COIN : null;
+  // No listings means no floor. Reported as absent rather than as nought, which would read as
+  // somebody giving one away.
+  add('Floor', floor ? fmt(floor) + ' XVG' : 'no asks', floor ? usdStr(floor) : '', 'is-floor');
+  add('Listed', fmt((m && m.listedCount) || 0), m && m.minted ? 'of ' + fmt(m.minted) : '');
+  add('Volume', m && m.volumeUnits ? fmt(m.volumeUnits / MKT_COIN) + ' XVG' : '0 XVG');
+  add('Sales', fmt((m && m.salesCount) || 0));
+  add('Owners', owners ? fmt(owners) : '--');
+  add('Minted', fmt((m && m.minted) || 0), m && m.total ? 'of ' + fmt(m.total) : '');
+  add('Fee', '0 XVG', 'we take nothing', 'is-free');
 }
 
-function bindMarketSorts() {
-  if (mkt.bound) return;
-  const bar = $('#mk-sorts');
-  if (!bar) return;
-  mkt.bound = true;
-  bar.addEventListener('click', (e) => {
-    const b = e.target.closest('[data-msort]');
-    if (!b) return;
-    mkt.sort = b.dataset.msort;
-    $$('#mk-sorts .vg-pill').forEach((p) => p.classList.toggle('is-on', p === b));
-    loadMarket();
+/** Build the trait rail from the collection's own distribution. Groups start closed. */
+function mktTraits() {
+  const rail = $('#mkx-traits');
+  if (!rail || rail.children.length) return;
+  mkt.traitDefs.forEach((g) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'mkx-tgroup';
+    const head = document.createElement('button');
+    head.type = 'button';
+    head.className = 'mkx-thead';
+    head.setAttribute('aria-expanded', 'false');
+    head.innerHTML = `<span><span class="caret">&#9656;</span> ${esc(g.trait_type)}</span>`
+      + `<span class="n">${g.values.length}</span>`;
+    const list = document.createElement('div');
+    list.className = 'mkx-tlist hidden';
+    g.values.forEach((v) => {
+      const opt = document.createElement('label');
+      opt.className = 'mkx-topt';
+      opt.innerHTML = `<input type="checkbox" /><span class="v">${esc(v.value)}</span>`
+        + `<span class="c">${fmt(v.count)}</span>`;
+      opt.querySelector('input').addEventListener('change', (e) => {
+        mktPick(g.trait_type, v.value, e.target.checked);
+      });
+      list.append(opt);
+    });
+    head.addEventListener('click', () => {
+      const open = head.getAttribute('aria-expanded') === 'true';
+      head.setAttribute('aria-expanded', String(!open));
+      list.classList.toggle('hidden', open);
+    });
+    wrap.append(head, list);
+    rail.append(wrap);
   });
 }
 
-/** Order the listings the way the pressed pill says. */
-function sortListings(listings, byLoc) {
-  const numOf = (l) => { const i = byLoc.get(l.carrier); return i && i.collectionNumber != null ? i.collectionNumber : null; };
-  const rankOf = (l) => { const n = numOf(l); const r = n == null ? null : mkt.ranks.get(n); return r == null ? Infinity : r; };
-  const rows = [...listings];
-  if (mkt.sort === 'price-desc') return rows.sort((a, b) => b.priceUnits - a.priceUnits);
-  if (mkt.sort === 'rank') return rows.sort((a, b) => rankOf(a) - rankOf(b) || a.priceUnits - b.priceUnits);
-  if (mkt.sort === 'new') return rows.sort((a, b) => (b.at || 0) - (a.at || 0));
-  return rows.sort((a, b) => a.priceUnits - b.priceUnits);
+/** Add or drop one chosen trait value, then redraw. */
+function mktPick(type, value, on) {
+  let set = mkt.picked.get(type);
+  if (!set) { set = new Set(); mkt.picked.set(type, set); }
+  if (on) set.add(value); else set.delete(value);
+  if (!set.size) mkt.picked.delete(type);
+  mktPaint(true);
 }
 
-async function loadMarket() {
-  bindMarketSorts();
+/** Every active trait, as a chip that removes itself. A filter you cannot see is a filter you
+    forget you set, and then the empty grid looks like a broken page. */
+function mktChips() {
+  const box = $('#mkx-chips');
+  if (!box) return;
+  box.innerHTML = '';
+  for (const [type, set] of mkt.picked) {
+    for (const value of set) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'mkx-chip';
+      b.innerHTML = `${esc(type)} <b>${esc(value)}</b> <span class="x">&times;</span>`;
+      b.title = 'Remove this filter';
+      b.addEventListener('click', () => {
+        mktPick(type, value, false);
+        const rail = $('#mkx-traits');
+        if (rail) rail.querySelectorAll('.mkx-topt').forEach((o) => {
+          if (o.querySelector('.v').textContent === value) o.querySelector('input').checked = false;
+        });
+      });
+      box.append(b);
+    }
+  }
+}
+
+/** Does this row survive the search box and the trait rail? */
+function mktKeep(r) {
+  if (mkt.forSale && r.price == null) return false;
+  for (const [type, set] of mkt.picked) {
+    const t = (r.traits || []).find((x) => x.trait_type === type);
+    if (!t || !set.has(t.value)) return false;
+  }
+  if (mkt.q) {
+    const q = mkt.q.toLowerCase();
+    const hits = String(r.n).includes(q)
+      || (r.rank != null && String(r.rank) === q)
+      || (r.traits || []).some((x) => x.value.toLowerCase().includes(q));
+    if (!hits) return false;
+  }
+  return true;
+}
+
+/** Filter and order. Whatever the sort, something buyable comes before something that is not. */
+function mktRows() {
+  const rows = mkt.rows.filter(mktKeep);
+  const listed = (r) => (r.price == null ? 1 : 0);
+  const byNum = (a, b) => (a.n || 0) - (b.n || 0);
+  if (mkt.sort === 'price-desc') {
+    rows.sort((a, b) => listed(a) - listed(b) || (b.price || 0) - (a.price || 0) || byNum(a, b));
+  } else if (mkt.sort === 'rank') {
+    rows.sort((a, b) => (a.rank == null ? 1e9 : a.rank) - (b.rank == null ? 1e9 : b.rank));
+  } else if (mkt.sort === 'new') {
+    rows.sort((a, b) => listed(a) - listed(b) || (b.at || 0) - (a.at || 0) || byNum(a, b));
+  } else if (mkt.sort === 'number') {
+    rows.sort(byNum);
+  } else {
+    rows.sort((a, b) => listed(a) - listed(b) || (a.price || 0) - (b.price || 0) || byNum(a, b));
+  }
+  return rows;
+}
+
+/** One card: the art at full bleed, its rank on it, and the action it actually offers. */
+function mktCard(r) {
+  const c = document.createElement('div');
+  c.className = 'mkx-card' + (r.price != null ? ' is-listed' : '');
+  const xvg = r.price == null ? null : r.price / MKT_COIN;
+  const usd = xvg == null ? '' : usdStr(xvg);
+  const art = r.ins
+    ? `<img src="/api/content/${esc(r.ins.txid)}" loading="lazy" decoding="async" alt="" />`
+    : '<div class="blob">&#10022;</div>';
+  // The top hundredth of a collection is the part people hunt for, so it is the one rank that is
+  // allowed to shout. Every other rank is information, not decoration.
+  const top = r.rank != null && mkt.items.length && r.rank <= Math.max(1, Math.round(mkt.items.length / 100));
+  const rank = r.rank == null ? '' : `<span class="mkx-rank${top ? ' is-top' : ''}">#${r.rank}</span>`;
+  const buy = r.ins
+    ? `<button type="button" class="mkx-buy">${xvg == null ? 'Make an offer' : 'Buy ' + fmt(xvg) + ' XVG'}</button>`
+    : '';
+  c.innerHTML = `<div class="mkx-art">${art}${rank}${buy}</div>
+    <div class="mkx-cbody">
+      <div class="mkx-num">${r.n == null ? 'Inscription' : '#' + r.n}</div>
+      ${xvg == null
+        ? '<div class="mkx-unlisted">Not listed</div>'
+        : `<div class="mkx-price">${fmt(xvg)} XVG</div>${usd ? `<div class="mkx-usd">${usd}</div>` : ''}`}
+    </div>`;
+  if (r.ins) c.addEventListener('click', () => openDetail(r.ins));
+  return c;
+}
+
+/** Draw the next chunk. `reset` re-filters and starts the grid again from the top. */
+function mktPaint(reset) {
   const g = $('#market-gallery');
-  // Say what is happening BEFORE the wait, not after it. This function needs the inscription list
-  // to match a listing to its art, and during a rescan that request is slow, so the panel sat on
-  // "Loading" for twenty minutes with listings it already had. The notice is drawn first and
-  // replaced by the grid the moment the data lands.
+  if (!g) return;
+  if (reset) {
+    mkt.view = mkt.view || 'items';
+    mkt.shown = 0;
+    g.innerHTML = '';
+    mkt.filtered = mktRows();
+    mktChips();
+    const total = mkt.rows.length;
+    const n = mkt.filtered.length;
+    const forSale = mkt.filtered.filter((r) => r.price != null).length;
+    $('#market-meta').textContent = n === total
+      ? `${fmt(total)} Verginals, ${fmt(forSale)} for sale`
+      : `${fmt(n)} of ${fmt(total)} match, ${fmt(forSale)} for sale`;
+  }
+  const rows = mkt.filtered || [];
+  if (!rows.length) {
+    g.innerHTML = '<div class="vg-empty"><p><b>Nothing matches that.</b></p>'
+      + '<p>Clear a filter, or search by number, rank or trait.</p></div>';
+    $('#mkx-tail').innerHTML = '';
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  const end = Math.min(rows.length, mkt.shown + CHUNK);
+  for (let i = mkt.shown; i < end; i++) frag.append(mktCard(rows[i]));
+  g.append(frag);
+  mkt.shown = end;
+  const tail = $('#mkx-tail');
+  tail.innerHTML = mkt.shown < rows.length
+    ? `<span class="hint">${fmt(mkt.shown)} of ${fmt(rows.length)}</span>` : '';
+}
+
+/** What has happened here lately. Listings and sales, newest first. */
+async function mktActivity() {
+  const box = $('#mkx-activity');
+  box.innerHTML = '<div class="empty">Loading&#8230;</div>';
+  let rows = [];
+  try {
+    const r = await api('/api/collection/activity?limit=60');
+    rows = (r && r.activity) || [];
+  } catch (_) { /* handled by the empty state below */ }
+  if (!rows.length) {
+    box.innerHTML = '<div class="vg-empty"><p><b>Nothing has happened yet.</b></p>'
+      + '<p>Listings and sales show up here as they land on the chain.</p></div>';
+    return;
+  }
+  box.innerHTML = '';
+  rows.forEach((a) => {
+    const ins = mkt.insByNum.get(a.collectionNumber);
+    const row = document.createElement('div');
+    row.className = 'mkx-act';
+    const xvg = a.priceUnits ? a.priceUnits / MKT_COIN : null;
+    const who = a.buyerAddress || a.sellerAddress || '';
+    row.innerHTML = `<span class="mkx-kind k-${esc(a.type)}">${esc(a.type)}</span>
+      ${ins ? `<img src="/api/content/${esc(ins.txid)}" loading="lazy" alt="" />` : '<span></span>'}
+      <span class="mkx-act-num">#${a.collectionNumber}</span>
+      <span class="mkx-act-who">${who ? esc(short(who)) : ''}</span>
+      <span class="mkx-act-price">${xvg == null ? '' : fmt(xvg) + ' XVG'}</span>
+      <span class="mkx-act-when">${esc(collAgo(a.at))}</span>`;
+    if (ins) { row.style.cursor = 'pointer'; row.addEventListener('click', () => openDetail(ins)); }
+    box.append(row);
+  });
+}
+
+/** Wire every control once. Each one redraws from state rather than refetching. */
+function mktBind() {
+  if (mkt.bound) return;
+  mkt.bound = true;
+
+  const note = $('#mkx-note'), more = $('#mkx-more');
+  if (more && note) more.addEventListener('click', () => note.classList.toggle('hidden'));
+
+  const rail = $('#mkx-traits'), filter = $('#mkx-filter');
+  if (filter && rail) filter.addEventListener('click', () => {
+    const open = rail.classList.toggle('hidden');
+    filter.setAttribute('aria-expanded', String(!open));
+  });
+
+  const views = $('#mkx-views');
+  if (views) views.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-mview]');
+    if (!b) return;
+    mkt.view = b.dataset.mview;
+    $$('#mkx-views .mkx-view').forEach((v) => v.classList.toggle('is-on', v === b));
+    const items = mkt.view === 'items';
+    $('#market-gallery').classList.toggle('hidden', !items);
+    $('#mkx-tail').classList.toggle('hidden', !items);
+    $('#mkx-activity').classList.toggle('hidden', items);
+    if (!items) mktActivity();
+  });
+
+  const search = $('#mkx-search');
+  if (search) search.addEventListener('input', () => {
+    mkt.q = search.value.trim();
+    mktPaint(true);
+  });
+
+  const sort = $('#mkx-sort');
+  if (sort) sort.addEventListener('change', () => { mkt.sort = sort.value; mktPaint(true); });
+
+  const only = $('#mkx-forsale');
+  if (only) only.addEventListener('change', () => { mkt.forSale = only.checked; mktPaint(true); });
+
+  const dens = $('#mkx-density');
+  if (dens) dens.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-dense]');
+    if (!b) return;
+    mkt.dense = b.dataset.dense;
+    $$('#mkx-density .mkx-dense').forEach((x) => x.classList.toggle('is-on', x === b));
+    const g = $('#market-gallery');
+    g.classList.remove('d-lg', 'd-sm');
+    if (mkt.dense !== 'md') g.classList.add('d-' + mkt.dense);
+  });
+
+  const refresh = $('#btn-market-refresh');
+  if (refresh) refresh.addEventListener('click', () => loadMarket(true));
+
+  // More cards as the bottom comes into view, rather than thirteen hundred images at once.
+  const tail = $('#mkx-tail');
+  if (tail && 'IntersectionObserver' in window) {
+    mkt.io = new IntersectionObserver((entries) => {
+      if (entries.some((x) => x.isIntersecting) && mkt.filtered && mkt.shown < mkt.filtered.length) {
+        mktPaint(false);
+      }
+    }, { rootMargin: '600px' });
+    mkt.io.observe(tail);
+  }
+}
+
+async function loadMarket(force) {
+  mktBind();
+  const g = $('#market-gallery');
+  if (!g) return;
+  if (mkt.loading) return;
+  if (mkt.loaded && !force) { mktPaint(true); return; }
+  mkt.loading = true;
+
+  // Say what is happening BEFORE the wait. A restart costs a full rescan, and during one this
+  // panel sat on "Loading" for twenty minutes with listings it already had.
   indexProgress().then((prog) => {
-    if (prog && prog.scanning && !g.querySelector('.ins-card')) {
+    if (prog && prog.scanning && !g.querySelector('.mkx-card')) {
       g.innerHTML = '';
-      g.append(scanningNotice(prog, loadMarket));
+      g.append(scanningNotice(prog, () => loadMarket(true)));
     }
   });
+
   try {
-    const [data, list] = await Promise.all([
-      api('/api/market/listings'),
-      lastList.length ? Promise.resolve(lastList) : loadInscriptions(),
+    const [m, itemsResp, listResp, insResp] = await Promise.all([
+      api('/api/collection/market').catch(() => null),
+      api('/api/collection/items').catch(() => ({ items: [], traits: [] })),
+      api('/api/market/listings').catch(() => ({ listings: [] })),
+      api('/api/inscriptions').catch(() => ({ inscriptions: [] })),
     ]);
-    // Guarded: an answer without a listings array used to throw here, and the throw took the
-    // whole market panel with it rather than showing an empty one.
-    const listings = (data && Array.isArray(data.listings)) ? data.listings : [];
-    await marketRanks();
-    $('#market-meta').textContent = `${listings.length} for sale`;
-    paintMarketStats(listings);
-    if (!listings.length) {
-      // An empty market is the screen most visitors see, so it makes an offer rather than an
-      // apology, and it says where the button actually is.
-      // Empty and unfinished are different facts, and only one of them is this page's to claim.
+
+    const insByNum = new Map();
+    const insByLoc = new Map();
+    const owners = new Set();
+    (insResp.inscriptions || []).forEach((i) => {
+      if (i.location) insByLoc.set(i.location, i);
+      if (i.collectionNumber != null && !i.collectionSlug) {
+        insByNum.set(i.collectionNumber, i);
+        if (i.ownerAddress) owners.add(i.ownerAddress);
+      }
+    });
+
+    // A listing is keyed by the outpoint holding the coin, so it has to be walked back to the
+    // inscription to learn which Verginal it is.
+    mkt.priceBy = new Map();
+    mkt.atBy = new Map();
+    mkt.loose = [];
+    (listResp.listings || []).forEach((l) => {
+      const ins = insByLoc.get(l.carrier);
+      const n = ins && ins.collectionNumber != null && !ins.collectionSlug ? ins.collectionNumber : null;
+      if (n == null) { if (ins) mkt.loose.push({ ins, price: l.priceUnits, at: l.at }); return; }
+      mkt.priceBy.set(n, l.priceUnits);
+      mkt.atBy.set(n, l.at);
+    });
+
+    mkt.items = itemsResp.items || [];
+    mkt.traitDefs = itemsResp.traits || [];
+    mkt.insByNum = insByNum;
+
+    // Anything listed that is not an Alpha still belongs in a market, so it leads the list rather
+    // than falling out of the page entirely.
+    mkt.rows = mkt.loose.map((x) => ({
+      n: x.ins.collectionNumber != null ? x.ins.collectionNumber : x.ins.number,
+      ins: x.ins, price: x.price, at: x.at, rank: null, traits: [],
+    })).concat(mkt.items.map((it) => ({
+      n: it.number, it, ins: insByNum.get(it.number), rank: it.rank,
+      traits: it.traits || [], price: mkt.priceBy.get(it.number) ?? null, at: mkt.atBy.get(it.number) || 0,
+    })));
+
+    mktStats(m, owners.size);
+    mktTraits();
+    mkt.loaded = mkt.rows.length > 0;
+    mktPaint(true);
+
+    // An empty grid and an unfinished index look identical, and only one of them is this page's
+    // to claim.
+    if (!mkt.rows.length) {
       const prog = await indexProgress();
       g.innerHTML = '';
-      if (prog && prog.scanning) { g.append(scanningNotice(prog, loadMarket)); return; }
+      if (prog && prog.scanning) { g.append(scanningNotice(prog, () => loadMarket(true))); return; }
       g.innerHTML = '<div class="vg-empty">'
-        + '<p><b>Nobody is selling right now.</b></p>'
-        + '<p>Open one of your Verginals in My Wallet and list it. You set the price, the coin stays '
-        + 'in your wallet until somebody takes it, and the sale settles in one transaction.</p>'
-        + '<a class="vg-btn primary" href="#wallet" data-goto="wallet">Open My Wallet</a>'
+        + '<p><b>Nothing is minted yet.</b></p>'
+        + '<p>Mint an Alpha Verginal and it shows up here, yours to list at your own price.</p>'
+        + '<a class="vg-btn primary" href="#mint" data-goto="mint">Mint one</a>'
         + '</div>';
-      return;
     }
-    const byLoc = new Map(list.map((i) => [i.location, i]));
-    g.innerHTML = '';
-    sortListings(listings, byLoc).forEach((l) => {
-      const ins = byLoc.get(l.carrier);
-      const c = document.createElement('div');
-      c.className = 'ins-card clickable';
-      const img = ins ? thumbHtml(ins) : '<div class="blob">🏷️</div>';
-      const label = ins ? (ins.collectionNumber != null ? `#${ins.collectionNumber}` : (ins.number != null ? `#${ins.number}` : 'Inscription')) : 'Inscription';
-      const xvg = l.priceUnits / MKT_COIN, usd = usdStr(xvg);
-      const num = ins && ins.collectionNumber != null ? ins.collectionNumber : null;
-      const rank = num == null ? null : mkt.ranks.get(num);
-      c.innerHTML = `<div class="ins-media">${img}${rank != null ? `<span class="mk-rank">rank ${fmt(rank)}</span>` : ''}</div>
-        <div class="ins-body"><div class="num">${label}</div>
-        <div class="mk-price">${fmt(xvg)} XVG</div>${usd ? `<div class="mk-usd">${usd}</div>` : ''}</div>`;
-      if (ins) c.addEventListener('click', () => openDetail(ins));
-      g.appendChild(c);
-    });
   } catch (e) {
     g.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`;
+  } finally {
+    mkt.loading = false;
   }
 }
 
@@ -1682,7 +1957,7 @@ async function checkRarity() {
           <img src="/api/collection/image/${n}" alt="${esc(r.name)}" />
           <div>
             <div class="num">${esc(r.name)} <span class="badge ok">minted</span></div>
-            <div class="detail-rank">Rarity rank <b>#${fmt(r.rank)}</b> of ${fmt(r.supply)} · score <b>${fmt(r.score)}</b></div>
+            <div class="detail-rank">Rarity rank <b>#${r.rank}</b> of ${fmt(r.supply)} · score <b>${fmt(r.score)}</b></div>
             <div class="traits">${traits}</div>
             <button class="link" id="rarity-open" type="button">open its full page →</button>
           </div>
@@ -1694,7 +1969,7 @@ async function checkRarity() {
           <span class="lb-mystery lookup-mystery">?</span>
           <div>
             <div class="num">Verginal #${fmt(n)} <span class="badge pending">still sealed</span></div>
-            <div class="detail-rank">Rarity rank <b>#${fmt(r.rank)}</b> of ${fmt(r.supply)} · score <b>${fmt(r.score)}</b></div>
+            <div class="detail-rank">Rarity rank <b>#${r.rank}</b> of ${fmt(r.supply)} · score <b>${fmt(r.score)}</b></div>
             <div class="hint">Not minted yet: its image and traits stay sealed in the vault. The committed-random draw decides who gets it.</div>
           </div>
         </div>`;

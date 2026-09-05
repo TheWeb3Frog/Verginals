@@ -224,4 +224,56 @@ test('CONTROL: a page that mounts the bar without wallet.js is reported', () => 
     'the check would not notice a page that dropped wallet.js');
 });
 
+// --- the other direction: a control that exists and does nothing -------------------------------
+//
+// The check above asks whether every id a script reaches for exists. The market shipped the mirror
+// of that fault: a Refresh button sat in the markup with an id, looked exactly like every other
+// button on the page, and no script had ever named it. Nothing threw, nothing logged, and clicking
+// it did nothing at all. A dead control is worse than a missing one, because the missing one is
+// visible.
+
+/** Every id-carrying <button> in a page, in document order. */
+function buttonsIn(page) {
+  return [...read(page).matchAll(/<button[^>]*\bid="([a-zA-Z][\w-]*)"/g)].map((m) => m[1]);
+}
+
+/** The scripts a page loads, as one blob of source. */
+function scriptsOf(page) {
+  const src = read(page);
+  // Attributes come before src on several pages (type="module"), so this must not anchor on
+  // <script being immediately followed by src, or every module page reads as scriptless.
+  return [...src.matchAll(/<script[^>]*\ssrc="\/([^"?]+)/g)]
+    .map((m) => m[1])
+    .filter((f) => f.endsWith('.js') && fs.existsSync(path.join(WEB, f)))
+    .map((f) => read(f))
+    .join('\n');
+}
+
+test('the harness finds buttons and scripts, so an empty check is not a pass', () => {
+  assert.ok(buttonsIn('index.html').length > 25, 'index.html has more id-carrying buttons than that');
+  assert.ok(scriptsOf('index.html').length > 50000, 'and it loads more script than that');
+});
+
+test('EVERY BUTTON WITH AN ID IS NAMED BY A SCRIPT THE SAME PAGE LOADS', () => {
+  const dead = [];
+  for (const page of PAGES) {
+    const src = scriptsOf(page);
+    if (!src) continue;
+    for (const id of buttonsIn(page)) {
+      if (!src.includes(id)) dead.push(page + ' #' + id);
+    }
+  }
+  assert.deepStrictEqual(dead, [],
+    'these buttons are on the page and nothing wires them:\n  ' + dead.join('\n  '));
+});
+
+test('CONTROL: a button no script mentions is reported', () => {
+  // The real one, as it shipped: present in the markup, absent from every script.
+  const src = scriptsOf('index.html');
+  assert.ok(!src.includes('btn-market-refresh-that-nothing-wires'));
+  const pretend = ['btn-market-refresh-that-nothing-wires'].filter((id) => !src.includes(id));
+  assert.deepStrictEqual(pretend, ['btn-market-refresh-that-nothing-wires'],
+    'the comparison would not have caught the dead Refresh button');
+});
+
 console.log(`\n${passed} wired-id tests passed`);

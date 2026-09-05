@@ -7,8 +7,8 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/vg.css?v=45" />
-  <link rel="stylesheet" href="/style.css?v=45" />
+  <link rel="stylesheet" href="/vg.css?v=48" />
+  <link rel="stylesheet" href="/style.css?v=48" />
 </head>
 <body class="vg vg-hosted">
 
@@ -516,33 +516,64 @@
 
     <!-- ============ MARKET ============ -->
     <section class="panel" id="panel-market">
-      <header class="mk-head">
-        <div>
-          <h2 class="vg-d2">Verginals for sale</h2>
-          <!-- The claim that actually distinguishes this market, said once and at size instead of
-               buried in a paragraph. Every other marketplace has a moment where one side has given
-               something up and is waiting. This one does not. -->
-          <p class="vg-d4 mk-claim">One transaction. The seller is paid and the buyer receives it in
-            the same instant.</p>
-          <p class="vg-say">No escrow, no middleman holding either side, and no moment where either
-            of you is exposed. This site is a notice board: your keys never leave your wallet, and we
-            take nothing.</p>
+      <!-- A marketplace is opened with a question about price, so the figures are the first thing
+           on the screen. The pitch that used to fill this space is true and worth saying, but it
+           is not what somebody arriving here came to read, so it says itself in one line. -->
+      <header class="mkx-id">
+        <img class="mkx-avatar" src="/alpha-avatar.webp" alt="Alpha Verginals" width="60" height="60" />
+        <div class="mkx-who">
+          <h2 class="mkx-title">Verginals</h2>
+          <p class="mkx-claim">One transaction. The seller is paid and the buyer receives it in the
+            same instant. <button type="button" class="mkx-link" id="mkx-more">How it works</button></p>
         </div>
-        <div class="mk-side">
-          <dl class="vg-stats mk-stats" id="market-stats"></dl>
-          <button class="vg-btn" id="btn-market-refresh">Refresh</button>
-        </div>
+        <dl class="mkx-stats" id="market-stats"></dl>
       </header>
-      <span class="hint hidden" id="market-meta"></span>
-      <div class="mk-bar">
-        <div class="mk-sorts" id="mk-sorts" role="group" aria-label="Sort listings">
-          <button type="button" class="vg-pill is-on" data-msort="price-asc">Floor first</button>
-          <button type="button" class="vg-pill" data-msort="price-desc">Priciest</button>
-          <button type="button" class="vg-pill" data-msort="rank">Rarest</button>
-          <button type="button" class="vg-pill" data-msort="new">Just listed</button>
+      <div class="mkx-note hidden" id="mkx-note">
+        <p>No escrow, no middleman holding either side, and no moment where either of you is exposed.
+          This site is a notice board: the coin stays in the seller's wallet until somebody takes it,
+          your keys never leave your device, and we take nothing on the way through.</p>
+      </div>
+
+      <div class="mkx-tools">
+        <div class="mkx-views" id="mkx-views" role="group" aria-label="View">
+          <button type="button" class="mkx-view is-on" data-mview="items">Items</button>
+          <button type="button" class="mkx-view" data-mview="activity">Activity</button>
+        </div>
+        <button type="button" class="mkx-ctl mkx-traits-btn" id="mkx-filter" aria-expanded="false"
+          aria-controls="mkx-traits">Traits</button>
+        <input class="mkx-ctl mkx-search" id="mkx-search" type="search" autocomplete="off"
+          placeholder="Number, rank or trait" aria-label="Search the collection" />
+        <select class="mkx-ctl mkx-sort" id="mkx-sort" aria-label="Sort">
+          <option value="price-asc">Floor first</option>
+          <option value="price-desc">Priciest first</option>
+          <option value="rank">Rarest first</option>
+          <option value="new">Just listed</option>
+          <option value="number">By number</option>
+        </select>
+        <label class="mkx-only"><input type="checkbox" id="mkx-forsale" /> For sale</label>
+        <div class="mkx-density" id="mkx-density" role="group" aria-label="Grid size">
+          <button type="button" class="mkx-dense" data-dense="lg" aria-label="Large cards">
+            <svg viewBox="0 0 12 12" aria-hidden="true"><rect x="0" y="0" width="5" height="5"/><rect x="7" y="0" width="5" height="5"/><rect x="0" y="7" width="5" height="5"/><rect x="7" y="7" width="5" height="5"/></svg>
+          </button>
+          <button type="button" class="mkx-dense is-on" data-dense="md" aria-label="Medium cards">
+            <svg viewBox="0 0 12 12" aria-hidden="true"><rect x="0" y="0" width="3" height="3"/><rect x="4.5" y="0" width="3" height="3"/><rect x="9" y="0" width="3" height="3"/><rect x="0" y="4.5" width="3" height="3"/><rect x="4.5" y="4.5" width="3" height="3"/><rect x="9" y="4.5" width="3" height="3"/><rect x="0" y="9" width="3" height="3"/><rect x="4.5" y="9" width="3" height="3"/><rect x="9" y="9" width="3" height="3"/></svg>
+          </button>
+          <button type="button" class="mkx-dense" data-dense="sm" aria-label="Small cards">
+            <svg viewBox="0 0 12 12" aria-hidden="true"><rect x="0" y="0" width="2" height="2"/><rect x="3.3" y="0" width="2" height="2"/><rect x="6.6" y="0" width="2" height="2"/><rect x="10" y="0" width="2" height="2"/><rect x="0" y="3.3" width="2" height="2"/><rect x="3.3" y="3.3" width="2" height="2"/><rect x="6.6" y="3.3" width="2" height="2"/><rect x="10" y="3.3" width="2" height="2"/><rect x="0" y="6.6" width="2" height="2"/><rect x="3.3" y="6.6" width="2" height="2"/><rect x="6.6" y="6.6" width="2" height="2"/><rect x="10" y="6.6" width="2" height="2"/><rect x="0" y="10" width="2" height="2"/><rect x="3.3" y="10" width="2" height="2"/><rect x="6.6" y="10" width="2" height="2"/><rect x="10" y="10" width="2" height="2"/></svg>
+          </button>
+        </div>
+        <button type="button" class="mkx-ctl" id="btn-market-refresh">Refresh</button>
+      </div>
+
+      <div class="mkx-body">
+        <aside class="mkx-traits hidden" id="mkx-traits" aria-label="Filter by trait"></aside>
+        <div class="mkx-main">
+          <div class="mkx-meta"><span id="market-meta"></span><span class="mkx-chips" id="mkx-chips"></span></div>
+          <div class="mkx-grid" id="market-gallery"><div class="empty">Loading…</div></div>
+          <div class="mkx-tail" id="mkx-tail"></div>
+          <div class="mkx-acts hidden" id="mkx-activity"></div>
         </div>
       </div>
-      <div class="gallery" id="market-gallery"><div class="empty">Loading…</div></div>
     </section>
 
     <!-- ============ ALPHA COLLECTION ============ -->
@@ -1019,7 +1050,7 @@
 
   <script src="/vendor/qrcode.js"></script>
   <script type="module" src="/app-chrome.js"></script>
-<script src="/app.js?v=45"></script>
-  <script src="/wallet.js?v=45"></script>
+<script src="/app.js?v=48"></script>
+  <script src="/wallet.js?v=48"></script>
 </body>
 </html>

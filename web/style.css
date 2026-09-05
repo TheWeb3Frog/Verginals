@@ -286,17 +286,6 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 .reveal-box.revealed { animation: pop .6s ease; }
 @keyframes pop { 0% { transform: scale(.96); } 55% { transform: scale(1.04); } 100% { transform: scale(1); } }
 
-/* Alpha Verginals showcase */
-  display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase;
-  color: var(--accent); background: #4cc2f11a; border: 1px solid #4cc2f155; border-radius: 999px; padding: 5px 12px;
-}
-  background: var(--bg2); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
-  transition: transform .18s ease, border-color .18s ease;
-}
-  width: 10px; height: 10px; padding: 0; border-radius: 999px; cursor: pointer;
-  background: var(--line); border: 1px solid var(--line); transition: background .18s ease, border-color .18s ease, transform .18s ease;
-}
-
 /* Long-form prose (Vision / Terms) */
 .prose { max-width: 760px; }
 .prose h2 { font-size: 22px; margin: 0 0 6px; }
@@ -467,7 +456,6 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 .mk-offer { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; padding: 4px 0; }
 .mk-status { font-size: 12.5px; color: var(--muted); min-height: 1em; word-break: break-all; }
 .mk-status code { color: var(--accent); }
-#market-gallery .mk-price { margin-top: 4px; font-weight: 700; color: var(--accent); }
 .badge.sale { background: #1aa3e022; color: var(--accent); border: 1px solid var(--accent2); }
 .card-sale { margin: 4px 0 2px; }
 
@@ -795,14 +783,6 @@ footer .hint { max-width: 980px; margin: 0 auto; }
    Market head, launchpad hero, and the payment wait.
    ================================================================================================ */
 
-.mk-head {
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, .7fr);
-  gap: 32px; align-items: start; padding: 8px 0 26px;
-}
-.mk-head h2 { margin: 0 0 12px; }
-.mk-claim { margin: 0 0 12px; color: var(--accent); max-width: 26ch; }
-.mk-side { display: flex; flex-direction: column; gap: 12px; align-items: stretch; }
-.mk-stats { grid-template-columns: repeat(3, 1fr); }
 
 .lp-hero {
   display: flex; flex-direction: column; align-items: flex-start; gap: 16px;
@@ -832,7 +812,6 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 }
 
 @media (max-width: 860px) {
-  .mk-head { grid-template-columns: 1fr; gap: 22px; }
   .lp-hero { padding: 26px 22px; }
 }
 
@@ -913,8 +892,6 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 
 /* --- the Verginals market: sorting, and the rank a buyer shops on -------------------------------- */
 
-.mk-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 0 0 16px; }
-.mk-sorts { display: flex; flex-wrap: wrap; gap: 6px; }
 
 /* The media box has to be a positioning context for the badge to sit inside the art. */
 .ins-media { position: relative; }
@@ -1153,3 +1130,225 @@ footer .hint { max-width: 980px; margin: 0 auto; }
    anybody has about a sale. They look like the links they now are. */
 .ca-link { color: var(--accent); text-decoration: none; cursor: pointer; }
 .ca-link:hover { text-decoration: underline; }
+
+/* --- the market: a trading surface, not a landing page ----------------------------------------
+ *
+ * The old version opened with a headline, three paragraphs and a stat box, and the first Verginal
+ * for sale was below the fold. A marketplace is opened with a question about price, so this one
+ * answers it in the first inch and gives the rest of the screen to the art.
+ *
+ * Density is the whole design. The chrome is near-black and almost silent on purpose: these cats
+ * are painted on saturated grounds, and they are the only colour that should be competing for
+ * attention. Every figure is monospaced, because a column of prices that does not line up reads
+ * as an estimate.
+ */
+
+/* The page is 980px wide everywhere else, which is right for reading and wrong for a grid. This
+   widens it for the market alone. Browsers without :has() keep the 980px they already had, which
+   is the layout this replaces, so there is nothing to fall back to. */
+main:has(#panel-market.active) { max-width: 1560px; }
+
+/* --- identity and the figures ---------------------------------------------------------------- */
+
+.mkx-id { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+.mkx-avatar {
+  width: 60px; height: 60px; border-radius: 14px; object-fit: cover;
+  border: 1px solid var(--line); background: var(--bg2); flex: none;
+}
+.mkx-who { flex: 1 1 260px; min-width: 0; }
+.mkx-title {
+  font-family: var(--display); font-weight: 700; font-size: 30px; line-height: 1.05;
+  letter-spacing: -.03em; margin: 0 0 3px;
+}
+.mkx-claim { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; max-width: 62ch; }
+.mkx-link {
+  background: none; border: 0; padding: 0; font: inherit; color: var(--accent);
+  cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
+}
+.mkx-link:hover { color: var(--txt); }
+.mkx-note {
+  margin: 0 0 14px; padding: 12px 14px; background: var(--bg2);
+  border: 1px solid var(--line); border-radius: var(--radius);
+}
+.mkx-note p { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.6; max-width: 78ch; }
+
+/* One row of figures, hairline-separated. No boxes: boxes around numbers make six of them look
+   like six decisions, and these are one reading of one market. */
+.mkx-stats {
+  display: flex; flex-wrap: wrap; gap: 0; margin: 0; flex: 0 1 auto;
+  border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
+}
+.mkx-stat { padding: 9px 16px; min-width: 84px; border-left: 1px solid var(--line); }
+.mkx-stat:first-child { border-left: 0; }
+.mkx-stat dt {
+  font: 500 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--dim); margin: 0 0 5px;
+}
+.mkx-stat dd { margin: 0; font: 600 15px/1.1 var(--mono); color: var(--txt); white-space: nowrap; }
+.mkx-stat dd .sub { font-size: 11px; font-weight: 400; color: var(--muted); margin-left: 5px; }
+.mkx-stat.is-floor dd { color: var(--accent); }
+.mkx-stat.is-free dd { color: var(--ok); }
+
+/* --- the toolbar ------------------------------------------------------------------------------ */
+
+/* Sticky, because the controls are useless at the top of a grid this long. It sits directly under
+   the site's own bar, so the offset is that bar's height and not a guess. */
+.mkx-tools {
+  position: sticky; top: var(--top-h); z-index: 25;
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  padding: 9px 0; margin-bottom: 10px;
+  background: var(--bg); border-bottom: 1px solid var(--line);
+}
+.mkx-views { display: inline-flex; background: var(--bg2); border-radius: var(--r-ctl, 8px); padding: 3px; }
+.mkx-view {
+  background: none; border: 0; border-radius: 6px; padding: 6px 14px; cursor: pointer;
+  font: 500 13px/1 var(--sans); color: var(--muted);
+}
+.mkx-view:hover { color: var(--txt); }
+.mkx-view.is-on { background: var(--card); color: var(--txt); box-shadow: 0 1px 4px #0006; }
+.mkx-ctl {
+  background: var(--bg2); color: var(--txt); border: 1px solid var(--line);
+  border-radius: var(--r-ctl, 8px); padding: 7px 11px; font: 400 13px/1.2 var(--sans);
+  cursor: pointer; height: 34px;
+}
+.mkx-ctl:hover { border-color: var(--line2); }
+button.mkx-ctl[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+.mkx-search { flex: 1 1 150px; min-width: 130px; max-width: 260px; width: auto; cursor: text; }
+.mkx-search::placeholder { color: var(--dim); }
+/* style.css sets `select { width: 100% }` for every form on the site, which is right for a field in
+   a column and wrong for a control in a toolbar: it pushed the sort onto a line of its own and
+   stretched it across the page. */
+.mkx-sort { cursor: pointer; width: auto; flex: none; max-width: 190px; }
+.mkx-only {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted);
+  cursor: pointer; white-space: nowrap;
+}
+.mkx-only input { accent-color: var(--accent); }
+.mkx-density { display: inline-flex; gap: 2px; background: var(--bg2); border-radius: var(--r-ctl, 8px); padding: 3px; }
+.mkx-dense {
+  background: none; border: 0; border-radius: 6px; padding: 5px 7px; cursor: pointer;
+  display: grid; place-items: center; color: var(--muted);
+}
+.mkx-dense svg { width: 13px; height: 13px; fill: currentColor; }
+.mkx-dense:hover { color: var(--txt); }
+.mkx-dense.is-on { background: var(--card); color: var(--accent); }
+
+/* --- rail plus grid ---------------------------------------------------------------------------- */
+
+.mkx-body { display: grid; grid-template-columns: 1fr; gap: 18px; align-items: start; }
+.mkx-body:has(.mkx-traits:not(.hidden)) { grid-template-columns: 232px 1fr; }
+.mkx-main { min-width: 0; }
+.mkx-meta {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font: 400 12px/1.4 var(--mono); color: var(--muted); margin-bottom: 10px; min-height: 22px;
+}
+.mkx-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.mkx-chip {
+  display: inline-flex; align-items: center; gap: 6px; background: var(--bg2);
+  border: 1px solid var(--line); border-radius: var(--r-pill, 999px); padding: 3px 6px 3px 10px;
+  font: 400 11.5px/1.4 var(--mono); color: var(--txt); cursor: pointer;
+}
+.mkx-chip:hover { border-color: var(--danger); color: var(--danger); }
+.mkx-chip b { font-weight: 600; }
+.mkx-chip .x { font-size: 13px; line-height: 1; opacity: .7; }
+
+.mkx-traits {
+  position: sticky; top: calc(var(--top-h) + 62px);
+  max-height: calc(100vh - var(--top-h) - 84px); overflow: auto;
+  background: var(--bg2); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 6px;
+}
+.mkx-tgroup + .mkx-tgroup { border-top: 1px solid var(--line); }
+.mkx-thead {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  background: none; border: 0; padding: 10px 8px; cursor: pointer; color: var(--txt);
+  font: 500 13px/1.2 var(--sans); text-align: left;
+}
+.mkx-thead:hover { color: var(--accent); }
+.mkx-thead .n { font: 400 11px/1 var(--mono); color: var(--dim); }
+.mkx-thead .caret { transition: transform .15s ease; font-size: 10px; color: var(--muted); }
+.mkx-thead[aria-expanded="true"] .caret { transform: rotate(90deg); }
+.mkx-tlist { max-height: 260px; overflow: auto; padding: 0 2px 8px; }
+.mkx-topt {
+  display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px;
+  font-size: 12.5px; color: var(--muted); cursor: pointer;
+}
+.mkx-topt:hover { background: var(--card); color: var(--txt); }
+.mkx-topt input { accent-color: var(--accent); flex: none; }
+.mkx-topt .v { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mkx-topt .c { font: 400 11px/1 var(--mono); color: var(--dim); }
+
+/* --- the cards -------------------------------------------------------------------------------- */
+
+.mkx-grid {
+  display: grid; gap: var(--mkx-gap, 12px);
+  grid-template-columns: repeat(auto-fill, minmax(var(--mkx-col, 152px), 1fr));
+}
+.mkx-grid.d-lg { --mkx-col: 210px; --mkx-gap: 14px; }
+.mkx-grid.d-sm { --mkx-col: 112px; --mkx-gap: 8px; }
+.mkx-card {
+  background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+  display: flex; flex-direction: column; cursor: pointer;
+  transition: border-color .14s ease, transform .14s ease;
+}
+.mkx-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.mkx-card.is-listed { border-color: var(--line2); }
+.mkx-art { position: relative; aspect-ratio: 1 / 1; background: var(--card); overflow: hidden; }
+.mkx-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mkx-art .blob { width: 100%; height: 100%; display: grid; place-items: center; font-size: 26px; color: var(--muted); }
+.mkx-rank {
+  position: absolute; right: 6px; top: 6px; padding: 2px 6px; border-radius: 5px;
+  font: 500 10.5px/1.4 var(--mono); color: #dceaf5; background: rgba(6, 12, 20, .68);
+  backdrop-filter: blur(3px); pointer-events: none;
+}
+.mkx-rank.is-top { color: #06121b; background: var(--accent); }
+/* The buy band lives under the art and rides up on hover. It is the only motion on the page. */
+.mkx-buy {
+  position: absolute; inset: auto 0 0 0; transform: translateY(101%);
+  background: var(--accent); color: #06121b; border: 0; width: 100%;
+  padding: 8px 6px; font: 600 12px/1.2 var(--mono); cursor: pointer;
+  transition: transform .16s cubic-bezier(.2, .8, .2, 1);
+}
+.mkx-card:hover .mkx-buy, .mkx-card:focus-within .mkx-buy { transform: none; }
+.mkx-cbody { padding: 8px 9px 9px; display: flex; flex-direction: column; gap: 3px; }
+.mkx-num { font: 500 12px/1.2 var(--mono); color: var(--muted); }
+.mkx-price { font: 600 13.5px/1.2 var(--mono); color: var(--txt); }
+.mkx-usd { font: 400 11px/1.2 var(--mono); color: var(--dim); }
+.mkx-unlisted { font: 400 12px/1.2 var(--mono); color: var(--dim); }
+.mkx-grid.d-sm .mkx-cbody { padding: 6px 7px 7px; }
+.mkx-grid.d-sm .mkx-num { font-size: 11px; }
+.mkx-grid.d-sm .mkx-price { font-size: 12px; }
+.mkx-grid.d-sm .mkx-usd { display: none; }
+
+.mkx-tail { display: grid; place-items: center; padding: 22px 0 6px; min-height: 10px; }
+.mkx-tail .hint { font: 400 12px/1 var(--mono); color: var(--dim); }
+
+/* --- activity ---------------------------------------------------------------------------------- */
+
+.mkx-acts { display: flex; flex-direction: column; }
+.mkx-act {
+  display: grid; grid-template-columns: 74px 44px 1fr auto auto; align-items: center; gap: 12px;
+  padding: 9px 10px; border-bottom: 1px solid var(--line); font-size: 13px;
+}
+.mkx-act:hover { background: var(--bg2); }
+.mkx-act img { width: 40px; height: 40px; border-radius: 7px; object-fit: cover; background: var(--card); }
+.mkx-kind {
+  justify-self: start; padding: 3px 9px; border-radius: var(--r-pill, 999px);
+  font: 500 10.5px/1.4 var(--mono); text-transform: uppercase; letter-spacing: .06em;
+  border: 1px solid var(--line2); color: var(--muted);
+}
+.mkx-kind.k-sale { border-color: var(--ok); color: var(--ok); }
+.mkx-kind.k-list { border-color: var(--accent); color: var(--accent); }
+.mkx-act-who { font: 400 12px/1.3 var(--mono); color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.mkx-act-price { font: 600 13px/1.2 var(--mono); color: var(--txt); white-space: nowrap; }
+.mkx-act-when { font: 400 11.5px/1.2 var(--mono); color: var(--dim); white-space: nowrap; }
+
+@media (max-width: 860px) {
+  .mkx-body:has(.mkx-traits:not(.hidden)) { grid-template-columns: 1fr; }
+  .mkx-traits { position: static; max-height: 320px; }
+  .mkx-stats { flex: 1 1 100%; }
+  .mkx-stat { flex: 1 1 auto; }
+  .mkx-search { flex: 1 1 100%; max-width: none; }  /* its own row, so the placeholder is not cut */
+  .mkx-act { grid-template-columns: 44px 1fr auto; gap: 10px; }
+  .mkx-act .mkx-kind, .mkx-act .mkx-act-who { display: none; }
+}

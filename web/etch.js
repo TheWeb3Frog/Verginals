@@ -605,6 +605,132 @@ refresh();
 
 // --- paying for it, and watching it happen --------------------------------------------------------
 
+// --- the optional picture -------------------------------------------------------------------
+//
+// Asked for while somebody is naming their coin, because that is the moment they care most about
+// how it looks, and almost nobody comes back to a settings page afterwards. Coins with a picture
+// are what makes a market look like a market rather than a spreadsheet.
+//
+// It cannot be uploaded until the coin EXISTS: the endpoint checks that the wallet asking is the
+// one the chain says etched it, and until a miner has placed the etching there is no such fact.
+// So the file is held here and attached at the end, which is also why nothing about the etching
+// itself depends on it.
+const MAX_IMAGE_BYTES = 100 * 1024;
+let picked = null; // { dataBase64, name, url }
+
+function wirePicture() {
+  const input = $('#et-image');
+  const slot = $('#et-pic-slot');
+  const note = $('#et-pic-note');
+  const drop = $('#et-pic-drop');
+  if (!input || !slot || !note || !drop) return;
+  const said = note.textContent;
+
+  const clear = () => {
+    if (picked && picked.url) URL.revokeObjectURL(picked.url);
+    picked = null;
+    slot.textContent = '\u25C7';
+    slot.classList.remove('has-img');
+    drop.hidden = true;
+    input.value = '';
+    note.textContent = said;
+    note.classList.remove('et-pic-bad', 'et-pic-ok');
+  };
+
+  drop.addEventListener('click', clear);
+
+  input.addEventListener('change', async () => {
+    const file = input.files && input.files[0];
+    if (!file) return clear();
+    note.classList.remove('et-pic-bad', 'et-pic-ok');
+    // Checked here as a courtesy so somebody learns in the moment rather than after paying. The
+    // real enforcement reads the bytes on the server and believes nothing it is told.
+    if (file.size > MAX_IMAGE_BYTES) {
+      note.textContent = `That is ${Math.round(file.size / 1024)} KB, and the limit is 100 KB.`;
+      note.classList.add('et-pic-bad');
+      input.value = '';
+      return;
+    }
+    if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type)) {
+      note.textContent = 'PNG, JPEG, WEBP or GIF only.';
+      note.classList.add('et-pic-bad');
+      input.value = '';
+      return;
+    }
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let bin = '';
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      const url = URL.createObjectURL(file);
+      picked = { dataBase64: btoa(bin), name: file.name, url };
+      slot.textContent = '';
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = '';
+      slot.append(img);
+      slot.classList.add('has-img');
+      drop.hidden = false;
+      note.textContent = `${file.name}, ${Math.max(1, Math.round(file.size / 1024))} KB. Attached once your coin is on the chain.`;
+    } catch (e) {
+      note.textContent = 'That file could not be read.';
+      note.classList.add('et-pic-bad');
+      input.value = '';
+    }
+  });
+}
+
+/**
+ * Attach the held picture to the coin that has just come into existence.
+ *
+ * Retried, because the coin can be known to the etch job a little before the index has finished
+ * reading the block that carries it, and until it has, the server does not yet know who etched it.
+ * That is a wait, not a refusal, and the difference is worth the few seconds.
+ */
+async function attachPicture(runeRef, host) {
+  if (!picked) return;
+  const line = el('p', 'et-note', 'Attaching your picture...');
+  host.append(line);
+
+  const w = window.VerginalsArena;
+  const address = w && w.address ? w.address() : null;
+  if (!address || typeof w.signMessage !== 'function') {
+    line.textContent = 'Your picture was not attached: this needs a connected wallet to sign for '
+      + 'the coin. You can add it from the coin\'s own page whenever you like.';
+    return;
+  }
+
+  for (let attempt = 0; attempt < 8; attempt++) {
+    try {
+      const ch = await fetch('/api/runes/image/challenge', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ address }),
+      }).then((r) => r.json());
+      if (ch.error) throw new Error(ch.error);
+
+      const signature = await w.signMessage(ch.challenge);
+      const r = await fetch('/api/runes/image', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ runeRef, address, nonce: ch.nonce, signature, dataBase64: picked.dataBase64 }),
+      }).then((x) => x.json());
+      if (r.error) throw new Error(r.error);
+
+      line.textContent = 'Your picture is on your coin.';
+      line.className = 'et-note et-pic-ok';
+      return;
+    } catch (e) {
+      const waiting = /no such coin|cannot be set yet|index/i.test(e.message || '');
+      if (!waiting || attempt === 7) {
+        line.textContent = 'Your picture was not attached: ' + (e.message || 'that did not work')
+          + '. Nothing else was affected, and you can add it from the coin\'s own page.';
+        line.className = 'et-note et-pic-bad';
+        return;
+      }
+      line.textContent = 'Waiting for the chain to show who etched this, then attaching your picture...';
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+  }
+}
+
 /**
  * Quote, then poll until the coin exists.
  *
@@ -700,6 +826,10 @@ async function startEtch(payload, host) {
         .toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }));
       host.append(done);
 
+      // Optional, and deliberately not awaited: the release below is the thing that must not be
+      // missed, and a slow upload must never sit in front of it.
+      attachPicture(s.runeRef, host);
+
       // The release: sign the transaction that reopens this deposit, and write it down for ever.
       //
       // After this the key becomes OPTIONAL, which is the whole point of the scheme. The bytes go on
@@ -785,6 +915,8 @@ $('#et-connect').addEventListener('click', async () => {
   btn.disabled = false; btn.textContent = 'Connect wallet';
   if (!addr) $('#et-noext').hidden = false;
 });
+
+wirePicture();
 
 (function bootWallet() {
   const tryIt = () => { if (window.verge && window.verge.isVerginals) connectWallet(false); };

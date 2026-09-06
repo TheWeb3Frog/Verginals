@@ -182,26 +182,46 @@ test('the status endpoint publishes the schedule, so a page can say when', () =>
   }
 });
 
-// --- one item is not a draw -----------------------------------------------------------------------
+// --- a collection is at least two things ------------------------------------------------------
 
-test('A SINGLE PIECE IS NOT SOLD AS A PROVABLY FAIR DRAW', () => {
-  // A draw with one possible outcome is not a draw. Decided from the SUPPLY, so nothing has to be
-  // declared at submission and no collection approved before this existed needs a field it was
-  // never given.
-  const app = fs.readFileSync(path.join(__dirname, '..', 'web', 'app.js'), 'utf8');
-  const fair = /\$\('#lp-fair'\)\.innerHTML = [\s\S]*?;\n/.exec(app);
-  assert.ok(fair, 'the fairness line should exist');
-  assert.match(fair[0], /s\.supply > 1/, 'it has to branch on how many there are');
-  assert.match(fair[0], /A single piece\. There is nothing to draw/);
-  assert.match(fair[0], /Provably fair/, 'and still say it for a real collection');
+test('ONE ITEM IS NOT A COLLECTION, and finalize refuses it', () => {
+  // One item put through a committed random draw is a draw with a single possible outcome, and
+  // every sentence the mint page says about fairness would be a sentence about nothing.
+  const l = fresh();
+  const { id } = l.createDraft({ name: 'Lonely', address: ADDR });
+  l.addItem(id, { dataBase64: b64 });
+  assert.throws(() => l.finalize(id), /at least 2 items, and this one has 1/);
+  l.addItem(id, { dataBase64: b64 });
+  assert.ok(l.finalize(id), 'and two is a collection');
 });
 
-test('and the launch window is shown where somebody would look for it', () => {
+test('AND APPROVE REFUSES IT TOO, for anything already in the queue', () => {
+  // A submission accepted under an older rule must not be waved through by an operator who did not
+  // count the items.
+  const l = fresh();
+  const { id } = l.createDraft({ name: 'Lonely', address: ADDR });
+  l.addItem(id, { dataBase64: b64 });
+  const d = l._loadDraft(id);
+  d.status = 'pending';       // exactly the shape a pre-rule submission has on disk
+  d.finalizedAt = Date.now();
+  l._saveDraft(d);
+  assert.throws(() => l.approve(id, 'lonely'), /at least 2 items/);
+});
+
+test('the form states the floor and checks against it', () => {
   const app = fs.readFileSync(path.join(__dirname, '..', 'web', 'app.js'), 'utf8');
-  assert.match(app, /Alpha holders only until/);
-  assert.match(app, /per wallet`/);
-  assert.match(app, /XVG to the creator/);
-  assert.match(html, /id="lp-schedule"/, 'and there is somewhere to put it');
+  assert.match(app, /From \$\{lpLimits\.minItems\} to/);
+  assert.match(app, /A collection is at least \$\{lim\.minItems\} items/);
+});
+
+test('and nothing is left of the single piece door', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'web', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'web', 'style.css'), 'utf8');
+  for (const [what, src] of [['app.js', app], ['index.html', html], ['style.css', css]]) {
+    assert.ok(!/lps-door|lps-only-many|lpsSetDoor/.test(src), 'door leftovers in ' + what);
+  }
+  assert.ok(!/A single piece\. There is nothing to draw/.test(app),
+    'and no sentence about a supply that can no longer exist');
 });
 
 console.log('\n' + passed + ' launchpad schedule tests passed');

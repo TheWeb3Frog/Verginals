@@ -39,6 +39,7 @@ const coinimage = require('./coinimage');
  *
  * The draft budget is DERIVED. Typing it is what let it contradict the other two.
  */
+const MIN_ITEMS = 2;                           // a collection, not a piece
 const MAX_ITEMS = 10000;                       // the classic 10k collection standard
 const MAX_IMAGE_BYTES = 16 * 1024;             // above every image on the chain, with room
 const MAX_IMAGE_SIDE = coinimage.MAX_SIDE;     // one definition of "too big to draw"
@@ -133,6 +134,7 @@ function cleanLink(kind, value) {
 
 /** Everything a page or a test needs to state the same rules the server enforces. */
 const LIMITS = Object.freeze({
+  minItems: MIN_ITEMS,
   maxItems: MAX_ITEMS,
   maxImageBytes: MAX_IMAGE_BYTES,
   maxImageSide: MAX_IMAGE_SIDE,
@@ -418,7 +420,12 @@ class Launchpad {
   finalize(id) {
     const d = this._loadDraft(id);
     if (d.status !== 'draft') throw new Error('this submission is closed');
-    if (d.items.length < 1) throw new Error('add at least one item first');
+    // A collection is at least two things. One item put through a committed random draw is a draw
+    // with a single possible outcome, and every sentence the mint page says about fairness would be
+    // a sentence about nothing.
+    if (d.items.length < MIN_ITEMS) {
+      throw new Error(`a collection needs at least ${MIN_ITEMS} items, and this one has ${d.items.length}`);
+    }
     d.status = 'pending';
     d.finalizedAt = Date.now();
     this._saveDraft(d);
@@ -461,6 +468,11 @@ class Launchpad {
   approve(id, slug, opts = {}) {
     const d = this._loadDraft(id);
     if (d.status !== 'pending') throw new Error(`submission is ${d.status}, not pending`);
+    // Checked here as well as at finalize, so a submission that was accepted into the queue under
+    // an older rule cannot be waved through by an operator who did not count the items.
+    if ((d.items || []).length < MIN_ITEMS) {
+      throw new Error(`a collection needs at least ${MIN_ITEMS} items, and this one has ${(d.items || []).length}`);
+    }
     if (d.mintPriceUnits > 0 || d.royaltyBps > 0) {
       if (!d.payoutAddress) throw new Error('this collection is paid and has no payout address');
       if (opts.validAddress && !opts.validAddress(d.payoutAddress)) {

@@ -2055,7 +2055,7 @@ function paintLaunchpadLimits() {
   const kb = Math.round(lpLimits.maxImageBytes / 1024);
   const names = lpLimits.formats.map((f) => f.split('/')[1].toUpperCase()).join(', ');
   box.textContent = `${names}, one format for the whole collection, up to ${kb} KB and `
-    + `${lpLimits.maxImageSide} pixels a side, up to ${fmt(lpLimits.maxItems)} items. `
+    + `${lpLimits.maxImageSide} pixels a side. From ${lpLimits.minItems} to ${fmt(lpLimits.maxItems)} items. `
     + `Your browser shrinks anything larger before it is sent.`;
 }
 
@@ -2103,12 +2103,7 @@ async function openLaunchpadCollection(slug, push = true) {
     const pct = s.supply ? Math.min(100, (s.minted / s.supply) * 100) : 0;
     $('#lp-bar').style.width = pct.toFixed(1) + '%';
     $('#lp-count').textContent = `${fmt(s.minted)} / ${fmt(s.supply)} minted · ${fmt(s.remaining)} left`;
-    // A draw with one possible outcome is not a draw, and a page saying "provably fair" about it
-    // reads as theatre. The supply is the fact that decides this, so nothing has to be declared at
-    // submission and no old collection needs a field it was never given.
-    $('#lp-fair').innerHTML = s.supply > 1
-      ? `Provably fair · commitment <code>${esc(short(s.commitment))}</code> · images stay sealed until minted`
-      : 'A single piece. There is nothing to draw and nothing sealed: what you see is what you mint.';
+    $('#lp-fair').innerHTML = `Provably fair · commitment <code>${esc(short(s.commitment))}</code> · images stay sealed until minted`;
 
     // The launch window, and what stands between somebody and minting right now.
     const gateSay = [];
@@ -2253,32 +2248,14 @@ $('#lp-again').addEventListener('click', () => {
 // --- launchpad: creator submission wizard ---------------------------------------------------
 let lpsFileList = [];
 
-// --- the two doors, and the traits table -----------------------------------------------------
+// --- the traits table -------------------------------------------------------------------------
 //
-// A single piece put through a provably fair random draw is a draw with one possible outcome, and
-// a page saying so about itself reads as theatre. The door is asked first and the rest of the form
-// follows it.
-//
-// The table is built from the files that were just dropped, so nobody invents a filename column by
-// hand and gets it wrong. Past a hundred rows it stops being an editor and says so: nobody types
-// three thousand rows, and a table that pretends otherwise freezes the page while they find out.
+// Built from the files that were just dropped, so nobody has to invent a filename column by hand
+// and get it wrong. Past a hundred rows it stops being an editor and says so: nobody types three
+// thousand rows, and a table that pretends otherwise freezes the page while they find out.
 const LPS_EDIT_ROWS = 100;
-let lpsDoor = 'many';
 let lpsRows = []; // { filename, name, traits: { [type]: value } }
 let lpsTraitCols = [];
-
-function lpsSetDoor(door) {
-  lpsDoor = door;
-  $$('#lps-doors .lps-door').forEach((b) => b.classList.toggle('is-on', b.dataset.door === door));
-  $$('.lps-only-many').forEach((el) => el.classList.toggle('hidden', door !== 'many'));
-  const many = door === 'many';
-  $('#lps-files').multiple = many;
-  $('#lps-images-label').textContent = many ? 'Images' : 'Your image';
-  $('#lps-drop-say').textContent = many
-    ? 'or click to choose them (the file order sets the item numbers; item 1 is the public cover)'
-    : 'or click to choose it';
-  $('#lps-traits').classList.toggle('hidden', !many || !lpsRows.length);
-}
 
 /** Rebuild the rows from the dropped files, keeping anything already typed against a filename. */
 function lpsSyncRows() {
@@ -2294,7 +2271,7 @@ function lpsPaintTable() {
   const box = $('#lps-traits');
   const table = $('#lps-table');
   if (!box || !table) return;
-  box.classList.toggle('hidden', lpsDoor !== 'many' || !lpsRows.length);
+  box.classList.toggle('hidden', !lpsRows.length);
   if (!lpsRows.length) return;
 
   const shown = lpsRows.slice(0, LPS_EDIT_ROWS);
@@ -2383,11 +2360,7 @@ function lpsSetFiles(files) {
   lpsSyncRows();
 }
 
-if ($('#lps-doors')) {
-  $('#lps-doors').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-door]');
-    if (b) lpsSetDoor(b.dataset.door);
-  });
+if ($('#lps-add-trait')) {
   $('#lps-add-trait').addEventListener('click', () => {
     const name = prompt('What is the trait called? (Background, Eyes, Hat...)');
     const c = String(name || '').trim().slice(0, 40);
@@ -2513,6 +2486,10 @@ $('#lps-submit').addEventListener('click', async () => {
   // The server's numbers, never our own copy of them.
   const lim = lpLimits;
   if (!lim) { err.textContent = '✗ Still reading the current limits, try again in a moment.'; return; }
+  if (lpsFileList.length < lim.minItems) {
+    err.textContent = `✗ A collection is at least ${lim.minItems} items, and this is ${lpsFileList.length}.`;
+    return;
+  }
   if (lpsFileList.length > lim.maxItems) {
     err.textContent = `✗ ${fmt(lpsFileList.length)} images, and the limit is ${fmt(lim.maxItems)}.`;
     return;

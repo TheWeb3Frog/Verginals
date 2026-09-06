@@ -7,8 +7,8 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/vg.css?v=66" />
-  <link rel="stylesheet" href="/style.css?v=66" />
+  <link rel="stylesheet" href="/vg.css?v=67" />
+  <link rel="stylesheet" href="/style.css?v=67" />
 </head>
 <body class="vg vg-hosted">
 
@@ -805,21 +805,6 @@
       <div class="card" id="lp-submit-card">
         <h2>Launch your collection</h2>
         <p class="hint">Anyone can submit. Submissions are <strong>reviewed before going live</strong> (that keeps the launchpad clean and lawful; see the Terms). Once approved, it gets its own mint page here.</p>
-        <!-- Asked before anything else, because these are two different jobs. A single piece put
-             through a provably fair random draw is a draw with one possible outcome, and the page
-             saying so about itself reads as theatre. -->
-        <div class="lps-doors" id="lps-doors" role="group" aria-label="What are you launching">
-          <button type="button" class="lps-door is-on" data-door="many">
-            <b>A collection</b>
-            <span>Many images, minted in a random order nobody can steer.</span>
-          </button>
-          <button type="button" class="lps-door" data-door="one">
-            <b>A single piece</b>
-            <span>One image, or a handful. No draw, no rarity, no ceremony.</span>
-          </button>
-        </div>
-        <!-- The limits are written by the server, never here: the moment this sentence carried its
-             own numbers they drifted from the ones actually enforced. -->
         <p class="hint" id="lps-limits">Reading the current limits&#8230;</p>
         <div class="grid2">
           <div>
@@ -846,8 +831,8 @@
         <label class="lbl">Paid to</label>
         <div class="lps-payout" id="lps-payout">Connect your wallet</div>
 
-        <label class="lbl lps-only-many">The launch <span class="hint">all optional</span></label>
-        <div class="grid2 lps-only-many">
+        <label class="lbl">The launch <span class="hint">all optional</span></label>
+        <div class="grid2">
           <div>
             <label class="lbl">Opens</label>
             <input type="datetime-local" id="lps-opens" />
@@ -857,7 +842,7 @@
             <input type="datetime-local" id="lps-closes" />
           </div>
         </div>
-        <div class="grid2 lps-only-many">
+        <div class="grid2">
           <div>
             <label class="lbl">Alpha holders first, until</label>
             <input type="datetime-local" id="lps-allowlist" />
@@ -867,7 +852,7 @@
             <input type="text" id="lps-perwallet" inputmode="numeric" placeholder="0" />
           </div>
         </div>
-        <p class="hint lps-only-many">Leave the times empty and it opens the moment it is approved
+        <p class="hint">Leave the times empty and it opens the moment it is approved
           and never closes. The window is kept by this server, so it is real to the minute and it is
           not a rule of the chain. <strong>There is no hidden reveal:</strong> the art is written on
           chain as each item is minted, so anybody reading the chain sees it immediately. Hiding it
@@ -911,10 +896,10 @@
           <br><strong>About the royalty:</strong> it is applied by this marketplace, not by the
           chain. A wallet-to-wallet transfer pays nothing and no chain of this kind can prevent
           that. Better you read it here than find it out later.</p>
-        <label class="lbl" id="lps-images-label">Images</label>
+        <label class="lbl">Images</label>
         <div class="dropzone" id="lps-dropzone">
           <input type="file" id="lps-files" multiple accept=".png,.webp,.jpg,.jpeg,.gif" hidden />
-          <div id="lps-drop-empty"><strong>Drop your images here</strong><br /><span class="hint" id="lps-drop-say">or click to choose them (the file order sets the item numbers; item 1 is the public cover)</span></div>
+          <div id="lps-drop-empty"><strong>Drop your images here</strong><br /><span class="hint">or click to choose them (the file order sets the item numbers; item 1 is the public cover)</span></div>
           <div id="lps-drop-filled" class="hidden"></div>
         </div>
 
@@ -933,14 +918,14 @@
           <div class="lps-dist" id="lps-dist"></div>
         </div>
 
-        <label class="lbl lps-only-many">Traits manifest (optional)</label>
-        <input type="file" id="lps-manifest" accept=".json,.csv" class="lps-only-many" />
-        <div class="hint lps-only-many">Two files do the same job. Without one, items are numbered in the order you
+        <label class="lbl">Traits manifest (optional)</label>
+        <input type="file" id="lps-manifest" accept=".json,.csv" />
+        <div class="hint">Two files do the same job. Without one, items are numbered in the order you
           dropped them and carry no traits.</div>
         <!-- Shown rather than described. A shape somebody has to reconstruct from a sentence is a
              shape they get wrong once, upload three thousand images against, and find out about at
              the end. -->
-        <div class="lps-eg lps-only-many">
+        <div class="lps-eg">
           <div class="lps-eg-one">
             <p class="lps-eg-t">frogs.json</p>
             <pre><code>[
@@ -1221,7 +1206,7 @@ frog-02.png,Cosmic Frog #2,Swamp,Half Shut</code></pre>
 
   <script src="/vendor/qrcode.js"></script>
   <script type="module" src="/app-chrome.js"></script>
-<script src="/app.js?v=66"></script>
-  <script src="/wallet.js?v=66"></script>
+<script src="/app.js?v=67"></script>
+  <script src="/wallet.js?v=67"></script>
 </body>
 </html>

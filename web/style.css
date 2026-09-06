@@ -1457,23 +1457,6 @@ button.mkx-ctl[aria-expanded="true"] { border-color: var(--accent); color: var(-
 .lps-eg-say { margin: 8px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.55; }
 .lps-eg-say code { font-size: 11.5px; color: var(--accent); }
 
-/* --- the two doors -------------------------------------------------------------------------------
- * Asked before anything else, because these are two different jobs. A single piece put through a
- * provably fair random draw is a draw with one possible outcome, and a page saying so about itself
- * reads as theatre. */
-.lps-doors { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin: 16px 0 20px; }
-.lps-door {
-  text-align: left; cursor: pointer; padding: 14px 16px;
-  background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-card, 12px);
-  color: var(--muted); font: inherit;
-  transition: border-color .15s ease, color .15s ease;
-}
-.lps-door b { display: block; font-family: var(--display); font-size: 15px; color: var(--txt); margin-bottom: 3px; }
-.lps-door span { display: block; font-size: 12.5px; line-height: 1.5; }
-.lps-door:hover { border-color: var(--line2); }
-.lps-door.is-on { border-color: var(--accent); background: var(--card); }
-.lps-door.is-on b { color: var(--accent); }
-
 /* --- the traits table ------------------------------------------------------------------------------
  * Built from the files that were just dropped, so nobody invents a filename column by hand and gets
  * it wrong. Beyond a hundred rows it stops being an editor and says so: nobody types three thousand

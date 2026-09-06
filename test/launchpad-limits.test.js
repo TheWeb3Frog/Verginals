@@ -135,6 +135,7 @@ test('THREE FINALIZED SUBMISSIONS PER ADDRESS PER DAY', () => {
   for (let i = 0; i < LIMITS.perAddressPerDay; i++) {
     const { id } = l.createDraft({ name: 'C' + i, address: A });
     l.addItem(id, { dataBase64: b64(png()) });
+    l.addItem(id, { dataBase64: b64(png()) }); // a collection is at least two
     l.finalize(id);
   }
   assert.strictEqual(l.recentFor(A), LIMITS.perAddressPerDay);
@@ -163,6 +164,7 @@ test('a day later the allowance is back', () => {
   const l = fresh();
   const A = 'D' + 'e'.repeat(33);
   const { id } = l.createDraft({ name: 'Old', address: A });
+  l.addItem(id, { dataBase64: b64(png()) });
   l.addItem(id, { dataBase64: b64(png()) });
   l.finalize(id);
   const tomorrow = Date.now() + 25 * 60 * 60 * 1000;

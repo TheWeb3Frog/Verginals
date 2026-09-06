@@ -41,6 +41,7 @@ const freshLp = () => new Launchpad({ dataDir: fs.mkdtempSync(path.join(os.tmpdi
 function launch(l, over, slug) {
   const { id } = l.createDraft(Object.assign({ name: 'Frogs', address: ADDR }, over));
   l.addItem(id, { dataBase64: b64 });
+  l.addItem(id, { dataBase64: b64 }); // a collection is at least two
   l.finalize(id);
   l.approve(id, slug);
   return l;
@@ -66,6 +67,7 @@ test('A ROYALTY IS CAPPED AT TEN PER CENT', () => {
 test('a collection that takes a royalty must have a payout address', () => {
   const l = freshLp();
   const { id } = l.createDraft({ name: 'Frogs', address: ADDR, royaltyBps: 500 });
+  l.addItem(id, { dataBase64: b64 });
   l.addItem(id, { dataBase64: b64 });
   l.finalize(id);
   assert.throws(() => l.approve(id, 'frogs', { validAddress: () => false }), /not usable on this network/);

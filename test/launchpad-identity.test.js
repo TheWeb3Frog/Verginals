@@ -109,6 +109,7 @@ test('identity survives approval into the manifest and the grid', () => {
     links: { x: 'x.com/frogs', website: 'frogs.example' },
   });
   l.addItem(id, { dataBase64: b64 });
+  l.addItem(id, { dataBase64: b64 }); // a collection is at least two
   l.setBrandImage(id, 'avatar', b64);
   l.finalize(id);
   l.approve(id, 'frogs');

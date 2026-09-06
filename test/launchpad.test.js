@@ -69,6 +69,7 @@ test('a finalized submission accepts no more items', () => {
   const lp = fresh();
   const { id } = lp.createDraft({ name: 'Frogs' });
   lp.addItem(id, { dataBase64: png64 });
+  lp.addItem(id, { dataBase64: png64 });
   lp.finalize(id);
   assert.throws(() => lp.addItem(id, { dataBase64: png64 }), /closed/);
 });
@@ -120,6 +121,7 @@ test('slugs are validated, reserved names and duplicates refused', () => {
   const mk = () => {
     const { id } = lp.createDraft({ name: 'X' });
     lp.addItem(id, { dataBase64: png64 });
+    lp.addItem(id, { dataBase64: png64 });
     lp.finalize(id);
     return id;
   };
@@ -132,6 +134,7 @@ test('slugs are validated, reserved names and duplicates refused', () => {
 test('reject closes the submission and drops its images from disk', () => {
   const lp = fresh();
   const { id } = lp.createDraft({ name: 'Bad stuff' });
+  lp.addItem(id, { dataBase64: png64 });
   lp.addItem(id, { dataBase64: png64 });
   lp.finalize(id);
   lp.reject(id, 'not suitable');
@@ -177,6 +180,7 @@ test('usage is recounted after a rejection frees space', () => {
   const bigPng = Buffer.concat([PNG, Buffer.alloc(2048)]); // big enough to dominate metadata noise
   const a = lp.createDraft({ name: 'One' });
   lp.addItem(a.id, { dataBase64: bigPng.toString('base64') });
+  lp.addItem(a.id, { dataBase64: bigPng.toString('base64') });
   lp.finalize(a.id);
   const before = lp.usageBytes();
   lp.reject(a.id, 'no');
@@ -187,13 +191,14 @@ test('list() surfaces live collections with mint status', () => {
   const lp = fresh();
   const { id } = lp.createDraft({ name: 'Frogs', description: 'ribbit', creator: '@frog' });
   lp.addItem(id, { dataBase64: png64 });
+  lp.addItem(id, { dataBase64: png64 });
   lp.finalize(id);
   lp.approve(id, 'frogs');
   const list = lp.list();
   assert.strictEqual(list.length, 1);
   assert.strictEqual(list[0].slug, 'frogs');
   assert.strictEqual(list[0].creator, '@frog');
-  assert.strictEqual(list[0].remaining, 1);
+  assert.strictEqual(list[0].remaining, 2, 'two items, none minted');
 });
 
 // --- the review queue, read from a terminal ------------------------------------------------

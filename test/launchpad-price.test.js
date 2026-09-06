@@ -40,6 +40,7 @@ const fresh = () => new Launchpad({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(
 function launch(l, over = {}, slug = 'frogs', opts = {}) {
   const { id } = l.createDraft(Object.assign({ name: 'Frogs', address: ADDR }, over));
   l.addItem(id, { dataBase64: b64 });
+  l.addItem(id, { dataBase64: b64 }); // a collection is at least two
   l.finalize(id);
   l.approve(id, slug, opts);
   return JSON.parse(fs.readFileSync(path.join(l.collsDir, slug, 'collection_manifest.json'), 'utf8'));

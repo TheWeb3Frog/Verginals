@@ -67,6 +67,16 @@ const PER_ADDRESS_PER_DAY = 3;
 const OPEN_DRAFTS_PER_ADDRESS = 2;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * What a creator may charge to mint one item, in atomic units.
+ *
+ * Zero is allowed and is a real choice: a free mint costs the minter only what the network charges
+ * to write the inscription. The ceiling is not a judgement about what art is worth, it is a guard
+ * against a typo: somebody who means 500 and writes 500000000 would otherwise publish a mint page
+ * asking for half a billion XVG, and the first person to notice would be the one who paid it.
+ */
+const MAX_MINT_PRICE_UNITS = 1000000 * 1000000; // one million XVG
+
 /** Everything a page or a test needs to state the same rules the server enforces. */
 const LIMITS = Object.freeze({
   maxItems: MAX_ITEMS,
@@ -78,6 +88,7 @@ const LIMITS = Object.freeze({
   openDraftsPerAddress: OPEN_DRAFTS_PER_ADDRESS,
   nameMax: 60,
   descriptionMax: 500,
+  maxMintPriceUnits: MAX_MINT_PRICE_UNITS,
 });
 const NAME_MAX = 60;
 const DESC_MAX = 500;
@@ -187,7 +198,7 @@ class Launchpad {
     return this.listSubmissions().filter((d) => d.address === address && d.status === 'draft').length;
   }
 
-  createDraft({ name, symbol, description, creator, address }) {
+  createDraft({ name, symbol, description, creator, address, mintPriceUnits }) {
     this.pruneDrafts();
     if (this.pendingCount() >= MAX_PENDING) throw new Error('the review queue is full, please try again later');
     // The caller proves the address before this is reached; here it is only counted.
@@ -199,9 +210,22 @@ class Launchpad {
         throw new Error(`that address already has ${OPEN_DRAFTS_PER_ADDRESS} submissions in progress; finish or abandon one first`);
       }
     }
+    // The price is fixed at submission and reviewed with everything else. A number that could be
+    // edited after approval would be a number the operator did not approve.
+    const price = Math.round(Number(mintPriceUnits || 0));
+    if (!Number.isFinite(price) || price < 0) throw new Error('a mint price must be zero or more');
+    if (price > MAX_MINT_PRICE_UNITS) {
+      throw new Error(`that mint price is over the ${MAX_MINT_PRICE_UNITS / 1000000} XVG ceiling`);
+    }
+
     const d = {
       id: crypto.randomBytes(8).toString('hex'),
       address: address || null,
+      mintPriceUnits: price,
+      // Payouts go to the address that signed the submission and to no other. It is the one
+      // address anybody has proved control of, and an unproven address on a mint page is somebody
+      // else's money going somewhere nobody checked.
+      payoutAddress: address || null,
       name: clean(name, NAME_MAX),
       symbol: clean(symbol, 12).toUpperCase(),
       description: clean(description, DESC_MAX),
@@ -295,9 +319,23 @@ class Launchpad {
 
   // --- curation (operator only, via the CLI below; never exposed over HTTP) ----------------
 
-  approve(id, slug) {
+  /**
+   * @param {string} id
+   * @param {string} slug
+   * @param {object} [opts]
+   * @param {function} [opts.validAddress] (address) => boolean, checked before any money can be
+   *   pointed at it. An unusable payout address would not fail here, it would fail on the first
+   *   person's mint, after they had paid.
+   */
+  approve(id, slug, opts = {}) {
     const d = this._loadDraft(id);
     if (d.status !== 'pending') throw new Error(`submission is ${d.status}, not pending`);
+    if (d.mintPriceUnits > 0) {
+      if (!d.payoutAddress) throw new Error('this collection charges to mint and has no payout address');
+      if (opts.validAddress && !opts.validAddress(d.payoutAddress)) {
+        throw new Error(`the payout address ${d.payoutAddress} is not usable on this network`);
+      }
+    }
     slug = String(slug || '').toLowerCase();
     if (!SLUG_RE.test(slug)) throw new Error('slug must be 3-32 chars of a-z, 0-9, hyphen');
     if (RESERVED_SLUGS.has(slug)) throw new Error('that slug is reserved');
@@ -321,6 +359,9 @@ class Launchpad {
       creator: d.creator || '',
       slug,
       launched_at: new Date().toISOString().slice(0, 10),
+      // What a mint costs and who it pays. Read straight back by the mint route, never recomputed.
+      mint_price_units: d.mintPriceUnits || 0,
+      payout_address: d.mintPriceUnits > 0 ? d.payoutAddress : null,
     };
     const write = (file, obj) => fs.writeFileSync(path.join(dir, file), JSON.stringify(obj, null, 1));
     write('collection_manifest.json', manifest);
@@ -372,7 +413,13 @@ class Launchpad {
   list() {
     this.refresh();
     return [...this.live.entries()].map(([slug, { ctl, manifest }]) => Object.assign(
-      { slug, description: manifest.description || '', creator: manifest.creator || '', mediaType: manifest.media_type },
+      {
+        slug,
+        description: manifest.description || '',
+        creator: manifest.creator || '',
+        mediaType: manifest.media_type,
+        mintPriceUnits: manifest.mint_price_units || 0,
+      },
       ctl.status(),
     ));
   }
@@ -453,7 +500,16 @@ if (require.main === module) {
       if (d.items.length > 5) console.log(`(+ ${d.items.length - 5} more items)`);
       console.log(`review the images in: ${path.join(lp.subsDir, d.id, 'images')}`);
     } else if (cmd === 'approve' && a && b) {
-      console.log(JSON.stringify(lp.approve(a, b)));
+      // The payout address is checked against THIS network before a mint page can point money at
+      // it. bitcoinjs is already a dependency here, so this costs nothing and catches a testnet
+      // address, a truncated paste, or a checksum that never was.
+      const bitcoin = require('bitcoinjs-lib');
+      const { pickNetwork } = require('./cli');
+      const { network } = pickNetwork(process.env.VERGINALS_NETWORK || 'mainnet');
+      const usable = (addr) => {
+        try { bitcoin.address.toOutputScript(addr, network); return true; } catch (_) { return false; }
+      };
+      console.log(JSON.stringify(lp.approve(a, b, { validAddress: usable })));
       console.log('live after the API cache refreshes (about 30 seconds), no restart needed');
     } else if (cmd === 'reject' && a) {
       console.log(JSON.stringify(lp.reject(a, b)));

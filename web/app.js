@@ -2036,6 +2036,18 @@ let lpPending = null; // the assigned item, revealed when payment confirms
 // size or a count reads this instead, so the form cannot promise what the server refuses.
 let lpLimits = null;
 
+/** The payout address is not typed: it is whichever wallet is connected, and it is shown. */
+function paintPayoutAddress() {
+  const box = $('#lps-payout');
+  if (!box) return;
+  const w = window.VerginalsArena;
+  const a = w && w.address ? w.address() : null;
+  box.textContent = a || 'Connect your wallet';
+  box.classList.toggle('is-set', !!a);
+}
+// On document, not window: wallet.js dispatches without bubbles, so a window listener never fires.
+document.addEventListener('vg:wallet', paintPayoutAddress);
+
 /** Say the limits in the form, in the server's own numbers. */
 function paintLaunchpadLimits() {
   const box = $('#lps-limits');
@@ -2053,6 +2065,7 @@ async function loadLaunchpad() {
   try {
     const data = await api('/api/launchpad');
     if (data.limits) { lpLimits = data.limits; paintLaunchpadLimits(); }
+    paintPayoutAddress();
     if (!data.collections.length) {
       g.innerHTML = '<div class="empty">No community collections live yet. Yours could be the first: submit it below. 🚀</div>';
       return;
@@ -2066,6 +2079,7 @@ async function loadLaunchpad() {
         <img src="/api/launchpad/${esc(c.slug)}/image/1" alt="${esc(c.name)}" loading="lazy" />
         <div class="lp-card-body">
           <div class="num">${esc(c.name)} ${c.soldOut ? '<span class="badge ok">sold out</span>' : ''}</div>
+          <div class="lp-price">${c.mintPriceUnits > 0 ? fmt(c.mintPriceUnits / MKT_COIN) + ' XVG to mint' : 'Free to mint'}</div>
           <div class="hint">${esc(c.creator ? 'by ' + c.creator : '')}</div>
           <div class="mint-progress"><div class="mint-bar" style="width:${pct.toFixed(1)}%"></div></div>
           <div class="hint">${fmt(c.minted)} / ${fmt(c.supply)} minted</div>
@@ -2144,8 +2158,13 @@ function renderLpPayment(r) {
   const rows = [
     ['Total to send', fmt(r.totalXVG) + ' XVG'],
     ['Returned to you', fmt(b.carrierReturnedXVG) + ' XVG'],
-    ['Net cost', fmt(b.netCostXVG) + ' XVG'],
   ];
+  // Say who the money reaches. A "service fee" line on a community collection would be wrong in
+  // both directions: the site takes none of it, and the creator receives all of it.
+  if (b.serviceFeeXVG > 0 && b.payoutTo === 'creator') {
+    rows.push(['To the creator', fmt(b.serviceFeeXVG) + ' XVG']);
+  }
+  rows.push(['Net cost', fmt(b.netCostXVG) + ' XVG']);
   $('#lp-summary').innerHTML = rows.map(([k, v]) => `<div class="kv"><b>${v}</b><span>${k}</span></div>`).join('');
   const holder = $('#lp-qrcode');
   holder.innerHTML = '';
@@ -2327,6 +2346,19 @@ $('#lps-submit').addEventListener('click', async () => {
     err.textContent = `✗ ${fmt(lpsFileList.length)} images, and the limit is ${fmt(lim.maxItems)}.`;
     return;
   }
+  // The price, read once and turned into units here rather than anywhere further down: a price
+  // that travels as a decimal string ends up rounded by whoever parses it last.
+  const priceXVG = Number(String($('#lps-price').value || '0').replace(',', '.').trim() || 0);
+  if (!Number.isFinite(priceXVG) || priceXVG < 0) {
+    err.textContent = '✗ A mint price is a number, zero or more.';
+    return;
+  }
+  const mintPriceUnits = Math.round(priceXVG * 1e6);
+  if (mintPriceUnits > lim.maxMintPriceUnits) {
+    err.textContent = `✗ ${fmt(priceXVG)} XVG is over the ${fmt(lim.maxMintPriceUnits / 1e6)} XVG ceiling.`;
+    return;
+  }
+
   const wallet = window.VerginalsArena;
   const address = wallet && wallet.address ? wallet.address() : null;
   if (!address || typeof wallet.signMessage !== 'function') {
@@ -2358,7 +2390,7 @@ $('#lps-submit').addEventListener('click', async () => {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         name, creator: $('#lps-creator').value.trim(), description: $('#lps-desc').value.trim(),
-        address, nonce: ch.nonce, signature,
+        mintPriceUnits, address, nonce: ch.nonce, signature,
       }),
     });
 
@@ -2391,7 +2423,8 @@ $('#lps-submit').addEventListener('click', async () => {
       Reference id: <code>${esc(draft.id)}</code>. It goes live on this page once approved.`;
     ok.classList.remove('hidden');
     lpsSetFiles([]);
-    $('#lps-name').value = ''; $('#lps-desc').value = ''; $('#lps-creator').value = ''; $('#lps-manifest').value = '';
+    $('#lps-name').value = ''; $('#lps-desc').value = ''; $('#lps-creator').value = '';
+    $('#lps-manifest').value = ''; $('#lps-price').value = '';
   } catch (e) {
     err.textContent = '✗ ' + e.message;
   } finally {

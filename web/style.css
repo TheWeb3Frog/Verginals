@@ -1403,3 +1403,22 @@ button.mkx-ctl[aria-expanded="true"] { border-color: var(--accent); color: var(-
 @media (max-width: 860px) {
   .hm-drop { grid-template-columns: 1fr; gap: 26px; padding: 24px 20px; }
 }
+
+/* The payout address, shown rather than typed. It is whatever wallet is connected, because that is
+   the only address anybody has proved control of, and an unproven address on a mint page is
+   somebody else's money going somewhere nobody checked. */
+.lps-payout {
+  font: 400 12.5px/1.5 var(--mono);
+  color: var(--muted);
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl, 8px);
+  padding: 9px 12px;
+  word-break: break-all;
+  min-height: 38px;
+}
+.lps-payout.is-set { color: var(--ok); border-color: var(--line2); }
+
+/* What a collection costs, on its card. "Free" is a feature and is said as one rather than left
+   blank, because a blank price reads as a missing figure. */
+.lp-price { font: 500 12px/1.4 var(--mono); color: var(--accent); margin-top: 3px; }

@@ -819,6 +819,20 @@
         </div>
         <label class="lbl">Description</label>
         <input type="text" id="lps-desc" maxlength="500" placeholder="what is this collection about?" />
+        <div class="grid2">
+          <div>
+            <label class="lbl">Mint price <span class="hint">what each mint pays you</span></label>
+            <input type="text" id="lps-price" inputmode="decimal" placeholder="0" />
+          </div>
+          <div>
+            <label class="lbl">Paid to</label>
+            <div class="lps-payout" id="lps-payout">Connect your wallet</div>
+          </div>
+        </div>
+        <p class="hint" id="lps-price-say">Leave it at 0 for a free mint. Minters always pay the
+          network cost of writing their inscription on top; that part goes to miners, not to us and
+          not to you. <strong>We take nothing.</strong> Payouts go to the address that signs this
+          submission, because that is the only one anybody has proved they control.</p>
         <label class="lbl">Images</label>
         <div class="dropzone" id="lps-dropzone">
           <input type="file" id="lps-files" multiple accept=".png,.webp,.jpg,.jpeg,.gif" hidden />

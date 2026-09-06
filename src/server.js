@@ -545,7 +545,7 @@ function requireDestination(to, network) {
  * to the job (and drives confirmMinted on payout) when this is a collection mint. An explicit `id`
  * lets the mint reserve a collection number under the same job id before the plan is built.
  */
-async function createPaymentJob({ id, body, contentType, filename, to, amountPerInput, networkName, network, mint, metadata, parent }) {
+async function createPaymentJob({ id, body, contentType, filename, to, amountPerInput, networkName, network, mint, metadata, parent, payout }) {
   const plan = buildPlan({ body, contentType, networkName, amount: amountPerInput, file: filename, metadata, parent });
   const numInputs = plan.inputs.length;
   const parented = parent != null;
@@ -559,8 +559,22 @@ async function createPaymentJob({ id, body, contentType, filename, to, amountPer
   // Commit outputs are sized from the reveal fee they must cover rather than at a flat rate, so a
   // heavy item no longer asks the buyer to front several XVG that come straight back in its carrier.
   // amountPerInput acts as the ceiling, so this can only ever lower the asking price.
+  // WHO THE EXTRA OUTPUT PAYS.
+  //
+  // The commit transaction has always been able to carry one payment beyond the cost of writing the
+  // inscription: it is how the operator's service fee was collected. A launchpad collection wants
+  // exactly the same output pointed somewhere else, at the person who made the art. The site takes
+  // nothing from it, so this is not a split: the whole price goes to the creator, and the only
+  // other money in the transaction is what the network charges to carry it.
+  //
+  // The address is not trusted here. It was proven by signature when the collection was submitted
+  // and checked again when it was approved, and this reads it back off the manifest.
+  const pay = payout && payout.units > 0 && payout.address
+    ? { units: payout.units, address: payout.address, to: payout.label || 'creator' }
+    : { units: SERVICE_FEE_UNITS, address: FEE_ADDRESS, to: 'service' };
+
   const { perInput, commitTotal, splitFee, revealFee, serviceFee, total, carrier } = priceInscription({
-    numInputs, parented, maxPerInput: amountPerInput, serviceFee: SERVICE_FEE_UNITS,
+    numInputs, parented, maxPerInput: amountPerInput, serviceFee: pay.units,
   });
   for (const inp of plan.inputs) inp.amount = perInput; // keep the plan consistent with what is paid
   if (carrier < DUST_UNITS) throw new Error('per-input amount too low: the returned inscription would be dust, raise it');
@@ -572,7 +586,7 @@ async function createPaymentJob({ id, body, contentType, filename, to, amountPer
     id: jobId, status: 'awaiting_payment', createdAt: Date.now(),
     networkName, to, contentType, bodySize: body.length, numInputs,
     perInput, splitFee, revealFee, serviceFee,
-    feeAddress: serviceFee > 0 ? FEE_ADDRESS : null, total, carrier,
+    feeAddress: serviceFee > 0 ? pay.address : null, payoutTo: pay.to, total, carrier,
     depositAddress, depositWif, plan,
     splitTxid: null, revealTxid: null, location: null, error: null,
     mint: mint || null, // { number, name } when this job mints an Alpha Verginal
@@ -598,6 +612,8 @@ async function createPaymentJob({ id, body, contentType, filename, to, amountPer
       splitFeeXVG: toXVG(splitFee),
       revealFeeXVG: toXVG(revealFee),
       serviceFeeXVG: toXVG(serviceFee),
+      // Named for who receives it, so a page can say "to the creator" without guessing.
+      payoutTo: pay.to,
       carrierReturnedXVG: toXVG(carrier),
       netCostXVG: toXVG(splitFee + revealFee + serviceFee),
     },
@@ -1249,10 +1265,18 @@ async function handleLaunchpadMint(req, res, slug) {
     const body = fs.readFileSync(c.ctl.imagePath(assignment.number));
     const contentType = c.manifest.media_type || 'image/webp';
     const metadata = c.ctl.metadataCbor(assignment.number);
+    // The creator's price rides in the commit transaction's extra output, the same one the
+    // operator's service fee used. The site takes nothing from it: what the manifest says is what
+    // the creator receives, and the rest of the total is what the network charges to write the
+    // inscription.
+    const priceUnits = Number(c.manifest.mint_price_units) || 0;
     const { response } = await createPaymentJob({
       id: jobId, body, contentType, filename: assignment.filename, to,
       amountPerInput: toUnits(MINT_PER_INPUT_XVG), networkName: NETWORK, network,
       mint: { number: assignment.number, name: assignment.name, collection: slug }, metadata,
+      payout: priceUnits > 0 && c.manifest.payout_address
+        ? { units: priceUnits, address: c.manifest.payout_address, label: 'creator' }
+        : null,
     });
     sendJSON(res, 200, Object.assign(response, {
       verginal: {
@@ -1262,6 +1286,7 @@ async function handleLaunchpadMint(req, res, slug) {
         imageUrl: `/api/launchpad/${slug}/image/${assignment.number}`,
       },
       collection: slug,
+      mintPriceUnits: priceUnits,
       commitment: c.ctl.commitment,
       status: c.ctl.status(),
     }));

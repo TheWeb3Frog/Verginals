@@ -2056,8 +2056,7 @@ function paintLaunchpadLimits() {
   const names = lpLimits.formats.map((f) => f.split('/')[1].toUpperCase()).join(', ');
   box.textContent = `${names}, one format for the whole collection, up to ${kb} KB and `
     + `${lpLimits.maxImageSide} pixels a side, up to ${fmt(lpLimits.maxItems)} items. `
-    + `Your browser shrinks anything larger before it is sent. `
-    + `${lpLimits.perAddressPerDay} submissions per address per day.`;
+    + `Your browser shrinks anything larger before it is sent.`;
 }
 
 async function loadLaunchpad() {

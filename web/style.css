@@ -1440,3 +1440,19 @@ button.mkx-ctl[aria-expanded="true"] { border-color: var(--accent); color: var(-
 .lps-track-out.is-in b { color: var(--ok); }
 .lps-track-out.is-out b { color: var(--danger); }
 .lps-track-out span { color: var(--muted); }
+
+/* The manifest, shown rather than described. A shape somebody has to reconstruct from a sentence is
+   a shape they get wrong once, upload three thousand images against, and learn about at the end. */
+.lps-eg { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 10px; }
+.lps-eg-one { min-width: 0; }
+.lps-eg-t {
+  margin: 0 0 6px; font: 500 10px/1 var(--mono); letter-spacing: .12em;
+  text-transform: uppercase; color: var(--dim);
+}
+.lps-eg pre {
+  margin: 0; padding: 12px 14px; overflow-x: auto;
+  background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-ctl, 8px);
+}
+.lps-eg code { font: 400 11.5px/1.6 var(--mono); color: var(--txt); background: none; border: 0; padding: 0; }
+.lps-eg-say { margin: 8px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+.lps-eg-say code { font-size: 11.5px; color: var(--accent); }

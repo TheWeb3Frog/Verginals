@@ -174,4 +174,50 @@ test('a reference can be typed back in, which is the whole point of having one',
   assert.match(app, /Not accepted/, 'and a refusal says so in words');
 });
 
+// --- the manifest examples ----------------------------------------------------------------------
+//
+// The form used to describe the two shapes in a sentence. A shape somebody reconstructs from prose
+// is a shape they get wrong once, upload three thousand images against, and learn about at the end.
+// So the page shows both, and these run the shown text through the SHIPPED parser: an example that
+// drifts from the code is worse than no example, because it is believed.
+
+/** The text inside a labelled <pre><code> block on the page, HTML entities undone. */
+function shown(label) {
+  const m = new RegExp(label + '<\\/p>\\s*<pre><code>([\\s\\S]*?)<\\/code><\\/pre>').exec(html);
+  assert.ok(m, 'the page should show a ' + label + ' example');
+  return m[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
+}
+
+test('THE JSON EXAMPLE IS VALID AND HAS THE SHAPE THE UPLOADER READS', () => {
+  const recs = JSON.parse(shown('frogs\\.json'));
+  assert.ok(Array.isArray(recs) && recs.length >= 2, 'an array, and enough of it to show a pattern');
+  for (const r of recs) {
+    assert.ok(r.filename && r.name, 'every row needs the two keys the uploader looks up by');
+    for (const a of r.attributes) assert.ok(a.trait_type && a.value);
+  }
+});
+
+test('THE CSV EXAMPLE PARSES WITH THE SHIPPED PARSER, into the same shape', () => {
+  const src = /function parseCsvManifest\([\s\S]*?\n\}\n/.exec(app);
+  assert.ok(src, 'parseCsvManifest should exist');
+  const parseCsvManifest = new Function(src[0] + '; return parseCsvManifest;')();
+  const fromCsv = parseCsvManifest(shown('frogs\\.csv'));
+  const fromJson = JSON.parse(shown('frogs\\.json'));
+  assert.deepStrictEqual(fromCsv, fromJson,
+    'the two examples claim to do the same job and must produce the same records');
+});
+
+test('and the heading really becomes the trait name, as the page says it does', () => {
+  const src = /function parseCsvManifest\([\s\S]*?\n\}\n/.exec(app)[0];
+  const parseCsvManifest = new Function(src + '; return parseCsvManifest;')();
+  const out = parseCsvManifest('filename,name,Mood\nа.png,One,Happy'.replace('а', 'a'));
+  assert.deepStrictEqual(out[0].attributes, [{ trait_type: 'Mood', value: 'Happy' }]);
+});
+
+test('the form no longer quotes the daily allowance at people filling it in', () => {
+  // It is a guard, not a feature, and reading it while uploading art suggests a suspicion of you.
+  assert.ok(!/submissions per address per day/.test(app),
+    'the limits sentence should not carry it');
+});
+
 console.log('\n' + passed + ' launchpad identity tests passed');

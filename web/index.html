@@ -7,8 +7,8 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/vg.css?v=60" />
-  <link rel="stylesheet" href="/style.css?v=60" />
+  <link rel="stylesheet" href="/vg.css?v=62" />
+  <link rel="stylesheet" href="/style.css?v=62" />
 </head>
 <body class="vg vg-hosted">
 
@@ -873,7 +873,44 @@
         </div>
         <label class="lbl">Traits manifest (optional)</label>
         <input type="file" id="lps-manifest" accept=".json,.csv" />
-        <div class="hint">JSON: an array of <code>{"filename", "name", "attributes":[{"trait_type","value"}]}</code>. CSV: a header row <code>filename,name,TraitA,TraitB…</code> then one row per image. Without a manifest, items are numbered automatically with no traits.</div>
+        <div class="hint">Two files do the same job. Without one, items are numbered in the order you
+          dropped them and carry no traits.</div>
+        <!-- Shown rather than described. A shape somebody has to reconstruct from a sentence is a
+             shape they get wrong once, upload three thousand images against, and find out about at
+             the end. -->
+        <div class="lps-eg">
+          <div class="lps-eg-one">
+            <p class="lps-eg-t">frogs.json</p>
+            <pre><code>[
+  {
+    "filename": "frog-01.png",
+    "name": "Cosmic Frog #1",
+    "attributes": [
+      { "trait_type": "Background", "value": "Nebula" },
+      { "trait_type": "Eyes", "value": "Laser" }
+    ]
+  },
+  {
+    "filename": "frog-02.png",
+    "name": "Cosmic Frog #2",
+    "attributes": [
+      { "trait_type": "Background", "value": "Swamp" },
+      { "trait_type": "Eyes", "value": "Half Shut" }
+    ]
+  }
+]</code></pre>
+          </div>
+          <div class="lps-eg-one">
+            <p class="lps-eg-t">frogs.csv</p>
+            <pre><code>filename,name,Background,Eyes
+frog-01.png,Cosmic Frog #1,Nebula,Laser
+frog-02.png,Cosmic Frog #2,Swamp,Half Shut</code></pre>
+            <p class="lps-eg-say">One column per trait after <code>filename</code> and
+              <code>name</code>. The column heading becomes the trait name, so
+              <code>Background</code> above shows as Background on every item. Leave a cell empty
+              and that item simply has no such trait.</p>
+          </div>
+        </div>
         <button class="btn primary" id="lps-submit">Submit for review →</button>
         <div class="lps-track">
           <label class="lbl">Already submitted? Look it up</label>
@@ -1122,7 +1159,7 @@
 
   <script src="/vendor/qrcode.js"></script>
   <script type="module" src="/app-chrome.js"></script>
-<script src="/app.js?v=60"></script>
-  <script src="/wallet.js?v=60"></script>
+<script src="/app.js?v=62"></script>
+  <script src="/wallet.js?v=62"></script>
 </body>
 </html>

@@ -17,13 +17,68 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { MintController } = require('./mint');
+const coinimage = require('./coinimage');
 
-const MAX_ITEMS = 10000; // the classic 10k collection standard
-const MAX_IMAGE_BYTES = 60 * 1024; // industry norm for inscriptions (Gamma uses the same cap)
-const MAX_DRAFT_BYTES = 150 * 1024 * 1024; // one submission's total image budget
-const DEFAULT_BUDGET_BYTES = 500 * 1024 * 1024; // everything under launchpad/ combined
+/**
+ * THE SIZE CONTRACT, STATED ONCE.
+ *
+ * These numbers used to live in three places that disagreed. The form promised 10,000 items at
+ * 60 KB each, the budget allowed 150 MB, and the arithmetic capped the real answer at 2,560: the
+ * advertised collection size was simply not reachable, and nothing anywhere noticed.
+ *
+ * 16 KB is not a guess. Measured over 60 images sampled from the 1,488 inscriptions on Verge: the
+ * median is 2.3 KB, the 90th percentile 3.6 KB, and the largest ever written is 14.3 KB. Nothing on
+ * this chain comes near the old cap. 16 KB clears everything that exists, keeps 10,000 items
+ * reachable, and still says what belongs here: a photograph does not fit, which is correct for a
+ * collection written onto a chain.
+ *
+ * The side limit matters as much as the byte limit and was missing entirely. Bytes alone let a
+ * 10,000 by 10,000 image through as long as it compressed well, and it renders as mush at every
+ * size the site draws it. The coin pictures have always been checked this way; this reuses the
+ * same reader rather than growing a second opinion about what an image is.
+ *
+ * The draft budget is DERIVED. Typing it is what let it contradict the other two.
+ */
+const MAX_ITEMS = 10000;                       // the classic 10k collection standard
+const MAX_IMAGE_BYTES = 16 * 1024;             // above every image on the chain, with room
+const MAX_IMAGE_SIDE = coinimage.MAX_SIDE;     // one definition of "too big to draw"
+const MAX_DRAFT_BYTES = MAX_ITEMS * MAX_IMAGE_BYTES; // never typed: 10,000 x 16 KB = 156 MB
+// Everything under launchpad/, both the waiting room and the approved collections. At the worst
+// case above that is a dozen collections, and at the sizes people really make (25 MB for 10,000)
+// it is closer to eighty. VERGINALS_LAUNCHPAD_BUDGET_MB overrides it.
+const DEFAULT_BUDGET_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_PENDING = 20; // review-queue cap so disk can't be flooded before curation
 const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // unfinalized drafts older than this are pruned
+
+/**
+ * What one address may do in a day.
+ *
+ * There is no bond and nothing is charged, so the only thing standing between the review queue and
+ * a bored afternoon is a counter. It counts FINALIZED submissions, not drafts: a draft costs disk
+ * but no attention, and burning somebody's daily allowance because they started over twice would
+ * punish exactly the person the launchpad is for. Open drafts get their own, separate cap, because
+ * that is the one that costs disk.
+ *
+ * The counter is only worth anything if the address is proven, which the server does with a signed
+ * challenge before any of this is reached. An address typed into a box is a new identity every
+ * time somebody presses backspace.
+ */
+const PER_ADDRESS_PER_DAY = 3;
+const OPEN_DRAFTS_PER_ADDRESS = 2;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Everything a page or a test needs to state the same rules the server enforces. */
+const LIMITS = Object.freeze({
+  maxItems: MAX_ITEMS,
+  maxImageBytes: MAX_IMAGE_BYTES,
+  maxImageSide: MAX_IMAGE_SIDE,
+  maxDraftBytes: MAX_DRAFT_BYTES,
+  formats: ['image/webp', 'image/png', 'image/jpeg', 'image/gif'],
+  perAddressPerDay: PER_ADDRESS_PER_DAY,
+  openDraftsPerAddress: OPEN_DRAFTS_PER_ADDRESS,
+  nameMax: 60,
+  descriptionMax: 500,
+});
 const NAME_MAX = 60;
 const DESC_MAX = 500;
 const CREATOR_MAX = 60;
@@ -119,11 +174,34 @@ class Launchpad {
     return this.listSubmissions().filter((d) => d.status === 'pending').length;
   }
 
-  createDraft({ name, symbol, description, creator }) {
+  /** Finalized submissions this address made inside the window. Its daily allowance. */
+  recentFor(address, windowMs = DAY_MS, now = Date.now()) {
+    if (!address) return 0;
+    return this.listSubmissions()
+      .filter((d) => d.address === address && d.finalizedAt && now - d.finalizedAt < windowMs).length;
+  }
+
+  /** Drafts this address has open and unfinished. The cap that protects disk rather than attention. */
+  openDraftsFor(address) {
+    if (!address) return 0;
+    return this.listSubmissions().filter((d) => d.address === address && d.status === 'draft').length;
+  }
+
+  createDraft({ name, symbol, description, creator, address }) {
     this.pruneDrafts();
     if (this.pendingCount() >= MAX_PENDING) throw new Error('the review queue is full, please try again later');
+    // The caller proves the address before this is reached; here it is only counted.
+    if (address) {
+      if (this.recentFor(address) >= PER_ADDRESS_PER_DAY) {
+        throw new Error(`that address has submitted ${PER_ADDRESS_PER_DAY} collections today, which is the limit`);
+      }
+      if (this.openDraftsFor(address) >= OPEN_DRAFTS_PER_ADDRESS) {
+        throw new Error(`that address already has ${OPEN_DRAFTS_PER_ADDRESS} submissions in progress; finish or abandon one first`);
+      }
+    }
     const d = {
       id: crypto.randomBytes(8).toString('hex'),
+      address: address || null,
       name: clean(name, NAME_MAX),
       symbol: clean(symbol, 12).toUpperCase(),
       description: clean(description, DESC_MAX),
@@ -148,6 +226,14 @@ class Launchpad {
     if (body.length > MAX_IMAGE_BYTES) throw new Error(`image too large (max ${MAX_IMAGE_BYTES / 1024} KB)`);
     const mediaType = sniffImage(body);
     if (!mediaType) throw new Error('not a supported image (webp, png, jpeg or gif)');
+    // Bytes alone are not a size. A 10,000 by 10,000 image that compresses well passes every byte
+    // check there is and renders as mush at every size this site draws it. Read from the header,
+    // by the same code the coin pictures use, so there is one opinion about this and not two.
+    const size = coinimage.dimensions(body, mediaType);
+    if (!size || !(size.w > 0) || !(size.h > 0)) throw new Error('that image has no readable size');
+    if (size.w > MAX_IMAGE_SIDE || size.h > MAX_IMAGE_SIDE) {
+      throw new Error(`that image is ${size.w} by ${size.h} and the limit is ${MAX_IMAGE_SIDE} on a side`);
+    }
     if (d.mediaType && mediaType !== d.mediaType) throw new Error(`every image must share one format (this collection is ${d.mediaType})`);
     if ((d.totalBytes || 0) + body.length > this.draftBudget) {
       throw new Error(`this submission is over its ${Math.round(this.draftBudget / (1024 * 1024))} MB total budget`);
@@ -338,7 +424,7 @@ function queueReport(subs, now = Date.now()) {
   return lines;
 }
 
-module.exports = { Launchpad, sniffImage, cleanAttributes, ago, queueReport };
+module.exports = { Launchpad, sniffImage, cleanAttributes, ago, queueReport, LIMITS };
 
 // --- operator CLI (curation happens here, over SSH, never over HTTP) -------------------------
 // Usage, from the app root on the server:

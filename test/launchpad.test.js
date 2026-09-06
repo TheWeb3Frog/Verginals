@@ -13,8 +13,29 @@ function test(name, fn) {
   console.log(`  ok - ${name}`);
 }
 
-const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
-const WEBP = Buffer.concat([Buffer.from('RIFF'), Buffer.from([4, 0, 0, 0]), Buffer.from('WEBPxxxx')]);
+// Real enough to have a size, because the launchpad now reads one. Three bytes after a signature
+// is not an image: it passed every check there was, which is exactly why the side limit was
+// missing for so long without anybody noticing.
+function png(w = 64, h = 64) {
+  const sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const ihdr = Buffer.alloc(25);
+  ihdr.writeUInt32BE(13, 0);
+  ihdr.write('IHDR', 4);
+  ihdr.writeUInt32BE(w, 8);
+  ihdr.writeUInt32BE(h, 12);
+  return Buffer.concat([sig, ihdr]);
+}
+function webp(w = 64, h = 64) {
+  const b = Buffer.alloc(30);
+  b.write('RIFF', 0, 'latin1');
+  b.writeUInt32LE(22, 4);
+  b.write('WEBPVP8 ', 8, 'latin1');
+  b.writeUInt16LE(w & 0x3fff, 26);
+  b.writeUInt16LE(h & 0x3fff, 28);
+  return b;
+}
+const PNG = png();
+const WEBP = webp();
 const png64 = PNG.toString('base64');
 
 function fresh() {
@@ -129,9 +150,14 @@ test('approve is only possible on pending submissions', () => {
 
 // --- disk budgets --------------------------------------------------------------------------
 test('a submission is capped by its own byte budget', () => {
-  const lp = new Launchpad({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'vlaunch-')), draftBytes: 15 });
+  // Derived from the fixture rather than typed: one image fits, two do not, whatever the fixture
+  // weighs. A literal here is what breaks the moment the fixture becomes a real image.
+  const lp = new Launchpad({
+    dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'vlaunch-')),
+    draftBytes: PNG.length + 1,
+  });
   const { id } = lp.createDraft({ name: 'Frogs' });
-  lp.addItem(id, { dataBase64: png64 }); // 11 bytes, fits
+  lp.addItem(id, { dataBase64: png64 });
   assert.throws(() => lp.addItem(id, { dataBase64: png64 }), /total budget/);
 });
 

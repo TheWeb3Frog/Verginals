@@ -53,7 +53,7 @@ const { MintController } = require('./mint');
 const { PromoController } = require('./promo');
 const { computeRarity } = require('./rarity');
 const { comboBonus } = require('./combos');
-const { Launchpad } = require('./launchpad');
+const { Launchpad, LIMITS: LAUNCHPAD_LIMITS } = require('./launchpad');
 const { OrderBook } = require('./orderbook');
 const { PriceLog, collectionKey, coinKey, DAY } = require('./pricelog');
 const { pickAbandoned } = require('./jobsweep');
@@ -1182,7 +1182,14 @@ function mintCtlForJob(job) {
 }
 
 function handleLaunchpadList(res) {
-  sendJSON(res, 200, { collections: launchpad ? launchpad.list() : [] });
+  // The limits ride along so the submit form can STATE what the server ENFORCES instead of
+  // repeating it. The three numbers used to be written in the module, in the page copy and in the
+  // client-side check, and they disagreed: the form promised 10,000 items at 60 KB while the
+  // budget allowed 2,560. A number written twice is a number that will differ.
+  sendJSON(res, 200, {
+    collections: launchpad ? launchpad.list() : [],
+    limits: LAUNCHPAD_LIMITS,
+  });
 }
 
 function handleLaunchpadStatus(res, slug) {
@@ -1265,14 +1272,54 @@ async function handleLaunchpadMint(req, res, slug) {
 }
 
 // --- launchpad submissions (public, curated before anything goes live) -----------------------
+// A separate handshake again, so a challenge minted for a coin picture is not spendable on a
+// collection submission even though both verify the same way.
+const submitAuth = new GameAuth({ prefix: 'verginals-launchpad-submit' });
+
+/** POST /api/launchpad/submit/challenge: a one-time string for this address to sign. */
+function handleLaunchpadChallenge(req, res, body) {
+  const address = String((body && body.address) || '').trim();
+  if (!VALID_ADDR.test(address)) return sendJSON(res, 400, { error: 'that does not look like a Verge address' });
+  return sendJSON(res, 200, submitAuth.newChallenge(address));
+}
+
+/**
+ * POST /api/launchpad/submit: open a draft.
+ *
+ * THE ADDRESS HAS TO BE PROVEN, or the daily allowance is worth nothing. There is no bond and
+ * nothing is charged here, so a counter is the only thing between the review queue and a bored
+ * afternoon, and a counter keyed on a string somebody typed resets every time they press
+ * backspace. The signature costs an honest submitter one click and costs a spammer a wallet per
+ * three collections.
+ *
+ * The per-IP limit stays as the first line: it is free, it is already here, and it catches the
+ * lazy case before any of this runs.
+ */
 async function handleLaunchpadSubmit(req, res) {
   if (!allowQuote(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
   if (!launchpad) return sendJSON(res, 404, { error: 'launchpad disabled' });
   const raw = await readBody(req);
   const b = JSON.parse(raw.toString('utf8') || '{}');
-  sendJSON(res, 200, launchpad.createDraft({
-    name: b.name, symbol: b.symbol, description: b.description, creator: b.creator,
-  }));
+
+  const address = String(b.address || '').trim();
+  if (!VALID_ADDR.test(address)) {
+    return sendJSON(res, 400, { error: 'connect a wallet: a submission is signed by the address that makes it' });
+  }
+  let challenge;
+  try { challenge = submitAuth.consumeChallenge(address, String(b.nonce || '')); }
+  catch (e) { return sendJSON(res, 400, { error: e.message }); }
+  if (!verifyMessage(address, challenge, String(b.signature || ''), pickNetwork(NETWORK).network)) {
+    return sendJSON(res, 401, { error: 'that signature does not match this address' });
+  }
+
+  try {
+    sendJSON(res, 200, launchpad.createDraft({
+      name: b.name, symbol: b.symbol, description: b.description, creator: b.creator, address,
+    }));
+  } catch (e) {
+    // The allowance and the open-draft cap are refusals, not faults: they say what to do next.
+    sendJSON(res, 429, { error: e.message });
+  }
 }
 
 /** Items arrive in ~4 MB batches (up to 50 per call), the same ballpark bulk uploaders use. */
@@ -4119,6 +4166,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/collection/activity') return handleCollectionActivity(res, url.searchParams.get('limit'), url.searchParams.get('slug'));
     if (req.method === 'GET' && p.startsWith('/api/collection/image/')) return handleCollectionImage(res, p.slice('/api/collection/image/'.length));
     if (p === '/api/launchpad' && req.method === 'GET') return handleLaunchpadList(res);
+    if (p === '/api/launchpad/submit/challenge' && req.method === 'POST') return handleLaunchpadChallenge(req, res, await readJsonBody(req));
     if (p === '/api/launchpad/submit' && req.method === 'POST') return await handleLaunchpadSubmit(req, res);
     {
       let m;

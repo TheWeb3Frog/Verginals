@@ -2032,10 +2032,27 @@ let lpJob = null;
 let lpPollTimer = null;
 let lpPending = null; // the assigned item, revealed when payment confirms
 
+// The rules the server enforces, fetched rather than repeated. Everything that used to hardcode a
+// size or a count reads this instead, so the form cannot promise what the server refuses.
+let lpLimits = null;
+
+/** Say the limits in the form, in the server's own numbers. */
+function paintLaunchpadLimits() {
+  const box = $('#lps-limits');
+  if (!box || !lpLimits) return;
+  const kb = Math.round(lpLimits.maxImageBytes / 1024);
+  const names = lpLimits.formats.map((f) => f.split('/')[1].toUpperCase()).join(', ');
+  box.textContent = `${names}, one format for the whole collection, up to ${kb} KB and `
+    + `${lpLimits.maxImageSide} pixels a side, up to ${fmt(lpLimits.maxItems)} items. `
+    + `Your browser shrinks anything larger before it is sent. `
+    + `${lpLimits.perAddressPerDay} submissions per address per day.`;
+}
+
 async function loadLaunchpad() {
   const g = $('#lp-list');
   try {
     const data = await api('/api/launchpad');
+    if (data.limits) { lpLimits = data.limits; paintLaunchpadLimits(); }
     if (!data.collections.length) {
       g.innerHTML = '<div class="empty">No community collections live yet. Yours could be the first: submit it below. 🚀</div>';
       return;
@@ -2255,6 +2272,46 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
   rd.readAsDataURL(file);
 });
 
+/**
+ * Make one image fit the rules, rather than refusing it.
+ *
+ * The measured reality of this chain is that every image on it is a small WEBP, because that is
+ * what our own pipeline produces. Somebody arriving with 400 by 400 JPEGs out of a design tool has
+ * done nothing wrong and would have been told their file was too big with no way forward. The
+ * canvas re-encodes it here, in their browser, and the server still receives only bytes it checks
+ * itself.
+ *
+ * A file that already passes is sent untouched: re-encoding something that fits only loses quality.
+ */
+async function fitImage(file, lim) {
+  let bmp;
+  try { bmp = await createImageBitmap(file); }
+  catch (_) { return { error: `${file.name} is not an image this browser can read` }; }
+
+  const oversized = bmp.width > lim.maxImageSide || bmp.height > lim.maxImageSide;
+  if (!oversized && file.size <= lim.maxImageBytes && lim.formats.includes(file.type)) {
+    bmp.close && bmp.close();
+    return { blob: file, changed: false };
+  }
+
+  const scale = Math.min(1, lim.maxImageSide / Math.max(bmp.width, bmp.height));
+  const w = Math.max(1, Math.round(bmp.width * scale));
+  const h = Math.max(1, Math.round(bmp.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = scale < 1; // downscaling wants smoothing, pixel art at 1:1 does not
+  ctx.drawImage(bmp, 0, 0, w, h);
+  bmp.close && bmp.close();
+
+  for (const q of [0.92, 0.85, 0.75, 0.65, 0.5]) {
+    const blob = await new Promise((r) => canvas.toBlob(r, 'image/webp', q));
+    if (blob && blob.size <= lim.maxImageBytes) return { blob, changed: true, w, h };
+  }
+  return { error: `${file.name} will not fit in ${Math.round(lim.maxImageBytes / 1024)} KB even reduced` };
+}
+
 $('#lps-submit').addEventListener('click', async () => {
   const err = $('#lps-error');
   const ok = $('#lps-success');
@@ -2263,9 +2320,20 @@ $('#lps-submit').addEventListener('click', async () => {
   const name = $('#lps-name').value.trim();
   if (!name) { err.textContent = '✗ Give your collection a name.'; return; }
   if (!lpsFileList.length) { err.textContent = '✗ Choose your images.'; return; }
-  if (lpsFileList.length > 10000) { err.textContent = '✗ Max 10,000 items.'; return; }
-  const tooBig = lpsFileList.find((f) => f.size > 60 * 1024);
-  if (tooBig) { err.textContent = `✗ ${tooBig.name} is over 60 KB.`; return; }
+  // The server's numbers, never our own copy of them.
+  const lim = lpLimits;
+  if (!lim) { err.textContent = '✗ Still reading the current limits, try again in a moment.'; return; }
+  if (lpsFileList.length > lim.maxItems) {
+    err.textContent = `✗ ${fmt(lpsFileList.length)} images, and the limit is ${fmt(lim.maxItems)}.`;
+    return;
+  }
+  const wallet = window.VerginalsArena;
+  const address = wallet && wallet.address ? wallet.address() : null;
+  if (!address || typeof wallet.signMessage !== 'function') {
+    err.textContent = '✗ Connect your wallet first. A submission is signed by the address that makes '
+      + 'it, which is what keeps the daily limit honest.';
+    return;
+  }
   if (!(await requireConsent())) return;
 
   const btn = $('#lps-submit');
@@ -2279,28 +2347,47 @@ $('#lps-submit').addEventListener('click', async () => {
     const mf = $('#lps-manifest').files[0];
     if (mf) manifest = await readManifestFile(mf);
 
+    ptext.textContent = 'signing...';
+    const ch = await api('/api/launchpad/submit/challenge', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ address }),
+    });
+    const signature = await wallet.signMessage(ch.challenge);
+
     const draft = await api('/api/launchpad/submit', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name, creator: $('#lps-creator').value.trim(), description: $('#lps-desc').value.trim() }),
+      body: JSON.stringify({
+        name, creator: $('#lps-creator').value.trim(), description: $('#lps-desc').value.trim(),
+        address, nonce: ch.nonce, signature,
+      }),
     });
 
     let sent = 0;
+    let shrunk = 0;
     for (let i = 0; i < lpsFileList.length; i += 50) {
       const batch = lpsFileList.slice(i, i + 50);
       const items = [];
       for (const f of batch) {
         const extra = manifest.get(f.name) || {};
-        items.push({ filename: f.name, dataBase64: await fileToBase64(f), name: extra.name, attributes: extra.attributes });
+        // Fitted here, one at a time, so a 3,000 image collection does not build 3,000 canvases
+        // before the first byte leaves.
+        const fitted = await fitImage(f, lim);
+        if (fitted.error) throw new Error(fitted.error);
+        if (fitted.changed) shrunk++;
+        // The ORIGINAL name travels, because that is the key the manifest is written against. The
+        // server picks the name it stores anyway.
+        items.push({ filename: f.name, dataBase64: await fileToBase64(fitted.blob), name: extra.name, attributes: extra.attributes });
       }
       await api('/api/launchpad/submit/' + draft.id + '/items', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ items }),
       });
       sent += batch.length;
       bar.style.width = ((sent / lpsFileList.length) * 100).toFixed(1) + '%';
-      ptext.textContent = `uploading ${sent} / ${lpsFileList.length}`;
+      ptext.textContent = `uploading ${fmt(sent)} / ${fmt(lpsFileList.length)}`;
     }
     await api('/api/launchpad/submit/' + draft.id + '/finalize', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-    ok.innerHTML = `✅ <strong>Submitted for review.</strong> Your collection "${esc(name)}" (${lpsFileList.length} items) is in the queue.
+    ok.innerHTML = `✅ <strong>Submitted for review.</strong> Your collection "${esc(name)}" (${fmt(lpsFileList.length)} items) is in the queue.
+      ${shrunk ? `${fmt(shrunk)} image${shrunk === 1 ? ' was' : 's were'} reduced to fit. ` : ''}
       Reference id: <code>${esc(draft.id)}</code>. It goes live on this page once approved.`;
     ok.classList.remove('hidden');
     lpsSetFiles([]);

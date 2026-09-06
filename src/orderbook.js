@@ -39,7 +39,12 @@ class OrderBook {
    * @param {object} opts.chain    { carrierInfo, outpointSpent } async on-chain reads
    * @param {function} [opts.now]  () => unix seconds
    */
-  constructor({ dataDir, network, chain, now, feeBps, feeAddress }) {
+  /**
+   * @param {function} [opts.royaltyFor] (collectionSlug) => { bps, address } | null. A creator's
+   *   cut of a resale, looked up per collection. Injected rather than read from a file here,
+   *   because this module knows about listings and nothing about launchpads.
+   */
+  constructor({ dataDir, network, chain, now, feeBps, feeAddress, royaltyFor }) {
     this.file = path.join(dataDir, 'market.json');
     this.network = network;
     this.chain = chain;
@@ -48,6 +53,7 @@ class OrderBook {
     // or bid submitted here must carry exactly this fee, or it is rejected (the enforcement point).
     this.feeBps = feeBps || 0;
     this.feeAddress = feeAddress || null;
+    this.royaltyFor = royaltyFor || (() => null);
     // listings: outpoint->listing ; bids: outpoint->[bid] ; sales: rolling log of detected sales
     this.state = { listings: {}, bids: {}, sales: [] };
   }
@@ -86,15 +92,19 @@ class OrderBook {
     if (!(listing.priceUnits > 0)) throw new Error('price must be positive');
     if (!Array.isArray(listing.variants) || !listing.variants.length) throw new Error('no signed variants');
 
-    // Enforce the marketplace fee: the listing must have signed the net (price - fee) to the seller
-    // and name the pool address, or we refuse it. This is where the fee is guaranteed, not the UI.
-    const expectedFee = feeFor(listing.priceUnits, this.feeBps);
-    if ((listing.feeUnits || 0) !== expectedFee) throw new Error('listing fee does not match the marketplace fee');
-    if (expectedFee > 0 && listing.feeAddress !== this.feeAddress) throw new Error('listing fee is not payable to the marketplace');
-
     const info = await this.chain.carrierInfo(carrier.txid, carrier.vout);
     if (!info || info.spent) throw new Error('carrier is spent or unknown');
     if (!info.inscription) throw new Error('this UTXO does not carry a Verginal');
+
+    // Enforce the fee: the listing must have signed the net (price - fee) to the seller and name
+    // the right address, or we refuse it. This is where it is guaranteed, not the UI.
+    //
+    // Checked AFTER the chain read, not before, because who the fee pays depends on which
+    // collection this carrier belongs to and only the chain can say. Reading it first is how this
+    // could only ever have one rate for everything.
+    const fee = this.feeTerms(listing.priceUnits, (info.inscription || {}).collectionSlug || null);
+    if ((listing.feeUnits || 0) !== fee.units) throw new Error(`listing fee does not match the ${fee.to} fee`);
+    if (fee.units > 0 && listing.feeAddress !== fee.address) throw new Error(`listing fee is not payable to the ${fee.to}`);
 
     // Every variant, at the slot it says it signed for. Checking them all against slot 2 would have
     // rejected every listing a wallet makes now, and checking none of them would let a seller
@@ -191,6 +201,25 @@ class OrderBook {
   }
 
   /** True for an Alpha Verginal (a collection mint with no launchpad slug). */
+  /**
+   * What the fee output on this sale must be, and who it pays.
+   *
+   * THERE IS ONE FEE OUTPUT IN THE SIGNED SWAP, not two. So a collection's royalty and a
+   * marketplace cut cannot both be taken: the royalty wins where there is one, and this refuses to
+   * pretend otherwise if somebody ever configures both. Today the site charges nothing, which is
+   * what makes the choice free.
+   */
+  feeTerms(priceUnits, collectionSlug) {
+    const royalty = collectionSlug ? this.royaltyFor(collectionSlug) : null;
+    if (royalty && royalty.bps > 0 && royalty.address) {
+      if (this.feeBps > 0) {
+        throw new Error('a marketplace fee and a creator royalty cannot both be taken: the swap has one fee output');
+      }
+      return { units: feeFor(priceUnits, royalty.bps), address: royalty.address, to: 'creator' };
+    }
+    return { units: feeFor(priceUnits, this.feeBps), address: this.feeAddress, to: 'marketplace' };
+  }
+
   static _isAlpha(x) {
     return OrderBook._inCollection(x, null);
   }
@@ -300,15 +329,15 @@ class OrderBook {
     if (!info || info.spent) throw new Error('carrier is spent or unknown');
     if (!info.inscription) throw new Error('this UTXO does not carry a Verginal');
 
-    // Enforce the marketplace fee on the actual signed outputs (not just the bid's metadata): the
-    // seller output must be the net, and the fee output must pay the pool the exact fee.
-    const expectedFee = feeFor(bid.priceUnits, this.feeBps);
+    // Enforce the fee on the actual signed outputs (not just the bid's metadata): the seller output
+    // must be the net, and the fee output must pay the exact fee to the exact address.
+    const fee = this.feeTerms(bid.priceUnits, (info.inscription || {}).collectionSlug || null);
     const sellerVal = bid.vout && bid.vout[2] ? bid.vout[2].value : -1;
-    if (sellerVal !== bid.priceUnits - expectedFee) throw new Error('bid does not pay the seller the net price');
-    if (expectedFee > 0) {
-      const feeScript = bitcoin.address.toOutputScript(this.feeAddress, this.network).toString('hex');
-      const hasFee = (bid.vout || []).some((o) => o.value === expectedFee && o.script === feeScript);
-      if (!hasFee) throw new Error('bid does not pay the marketplace fee');
+    if (sellerVal !== bid.priceUnits - fee.units) throw new Error('bid does not pay the seller the net price');
+    if (fee.units > 0) {
+      const feeScript = bitcoin.address.toOutputScript(fee.address, this.network).toString('hex');
+      const hasFee = (bid.vout || []).some((o) => o.value === fee.units && o.script === feeScript);
+      if (!hasFee) throw new Error(`bid does not pay the ${fee.to} fee`);
     }
 
     const v = verifyBid({ network: this.network, bid });

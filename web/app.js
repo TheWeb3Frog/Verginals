@@ -2235,6 +2235,111 @@ $('#lp-again').addEventListener('click', () => {
 
 // --- launchpad: creator submission wizard ---------------------------------------------------
 let lpsFileList = [];
+
+// --- the two doors, and the traits table -----------------------------------------------------
+//
+// A single piece put through a provably fair random draw is a draw with one possible outcome, and
+// a page saying so about itself reads as theatre. The door is asked first and the rest of the form
+// follows it.
+//
+// The table is built from the files that were just dropped, so nobody invents a filename column by
+// hand and gets it wrong. Past a hundred rows it stops being an editor and says so: nobody types
+// three thousand rows, and a table that pretends otherwise freezes the page while they find out.
+const LPS_EDIT_ROWS = 100;
+let lpsDoor = 'many';
+let lpsRows = []; // { filename, name, traits: { [type]: value } }
+let lpsTraitCols = [];
+
+function lpsSetDoor(door) {
+  lpsDoor = door;
+  $$('#lps-doors .lps-door').forEach((b) => b.classList.toggle('is-on', b.dataset.door === door));
+  $$('.lps-only-many').forEach((el) => el.classList.toggle('hidden', door !== 'many'));
+  const many = door === 'many';
+  $('#lps-files').multiple = many;
+  $('#lps-images-label').textContent = many ? 'Images' : 'Your image';
+  $('#lps-drop-say').textContent = many
+    ? 'or click to choose them (the file order sets the item numbers; item 1 is the public cover)'
+    : 'or click to choose it';
+  $('#lps-traits').classList.toggle('hidden', !many || !lpsRows.length);
+}
+
+/** Rebuild the rows from the dropped files, keeping anything already typed against a filename. */
+function lpsSyncRows() {
+  const kept = new Map(lpsRows.map((r) => [r.filename, r]));
+  lpsRows = lpsFileList.map((f, i) => kept.get(f.name)
+    || { filename: f.name, name: '', traits: {} });
+  // A trait typed for a file that is no longer here should not silently come back if it returns.
+  for (const r of lpsRows) for (const c of lpsTraitCols) if (!(c in r.traits)) r.traits[c] = '';
+  lpsPaintTable();
+}
+
+function lpsPaintTable() {
+  const box = $('#lps-traits');
+  const table = $('#lps-table');
+  if (!box || !table) return;
+  box.classList.toggle('hidden', lpsDoor !== 'many' || !lpsRows.length);
+  if (!lpsRows.length) return;
+
+  const shown = lpsRows.slice(0, LPS_EDIT_ROWS);
+  const head = document.createElement('tr');
+  head.innerHTML = '<th>File</th><th>Name</th>'
+    + lpsTraitCols.map((c) => `<th>${esc(c)}<button type="button" class="x" data-drop="${esc(c)}" title="Remove this trait">&times;</button></th>`).join('');
+  const body = shown.map((r, i) => {
+    const tr = document.createElement('tr');
+    const cells = [`<td class="file">${esc(r.filename)}</td>`,
+      `<td><input data-row="${i}" data-col="name" value="${esc(r.name)}" placeholder="item ${i + 1}" /></td>`];
+    for (const c of lpsTraitCols) {
+      cells.push(`<td><input data-row="${i}" data-col="${esc(c)}" value="${esc(r.traits[c] || '')}" /></td>`);
+    }
+    tr.innerHTML = cells.join('');
+    return tr;
+  });
+  table.innerHTML = '';
+  table.append(head, ...body);
+
+  $('#lps-table-note').textContent = lpsRows.length > LPS_EDIT_ROWS
+    ? `Showing the first ${LPS_EDIT_ROWS} of ${fmt(lpsRows.length)}. Download the CSV, fill it in a spreadsheet, and load it back: nobody types ${fmt(lpsRows.length)} rows.`
+    : `${fmt(lpsRows.length)} item${lpsRows.length === 1 ? '' : 's'}. Blank names become "item 1", "item 2" and so on.`;
+  lpsPaintDistribution();
+}
+
+/** What the collection is actually made of, counted as it is typed. */
+function lpsPaintDistribution() {
+  const box = $('#lps-dist');
+  if (!box) return;
+  box.innerHTML = '';
+  const total = lpsRows.length;
+  for (const col of lpsTraitCols) {
+    const counts = new Map();
+    for (const r of lpsRows) {
+      const v = (r.traits[col] || '').trim();
+      if (v) counts.set(v, (counts.get(v) || 0) + 1);
+    }
+    if (!counts.size) continue;
+    const g = document.createElement('div');
+    g.className = 'lps-dist-group';
+    g.innerHTML = `<div class="lps-dist-name">${esc(col)}</div>`
+      + [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([v, n]) => {
+        const pct = (n / total) * 100;
+        return `<div class="lps-dist-row${pct < 5 ? ' rare' : ''}"><span>${esc(v)}</span>`
+          + `<b>${n} &middot; ${pct < 1 ? pct.toFixed(2) : pct.toFixed(0)}%</b></div>`;
+      }).join('');
+    box.append(g);
+  }
+}
+
+/** The rows as the manifest the uploader already knows how to read. */
+function lpsManifestFromTable() {
+  const out = new Map();
+  lpsRows.forEach((r, i) => {
+    const attributes = lpsTraitCols
+      .map((c) => ({ trait_type: c, value: (r.traits[c] || '').trim() }))
+      .filter((a) => a.value);
+    const name = r.name.trim();
+    if (name || attributes.length) out.set(r.filename, { name: name || undefined, attributes });
+  });
+  return out;
+}
 const lpsDz = $('#lps-dropzone');
 const lpsFi = $('#lps-files');
 lpsDz.addEventListener('click', () => lpsFi.click());
@@ -2249,6 +2354,8 @@ function lpsSetFiles(files) {
   if (!lpsFileList.length) {
     filled.classList.add('hidden');
     $('#lps-drop-empty').classList.remove('hidden');
+    lpsRows = [];
+    lpsPaintTable();
     return;
   }
   $('#lps-drop-empty').classList.add('hidden');
@@ -2256,6 +2363,54 @@ function lpsSetFiles(files) {
   const totalKB = Math.round(lpsFileList.reduce((s, f) => s + f.size, 0) / 1024);
   filled.innerHTML = `<strong>${lpsFileList.length} image${lpsFileList.length > 1 ? 's' : ''}</strong> · ${fmt(totalKB)} KB total<br>
     <span class="hint">${lpsFileList.slice(0, 3).map((f) => esc(f.name)).join(', ')}${lpsFileList.length > 3 ? '…' : ''} · <u>click to change</u></span>`;
+  lpsSyncRows();
+}
+
+if ($('#lps-doors')) {
+  $('#lps-doors').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-door]');
+    if (b) lpsSetDoor(b.dataset.door);
+  });
+  $('#lps-add-trait').addEventListener('click', () => {
+    const name = prompt('What is the trait called? (Background, Eyes, Hat...)');
+    const c = String(name || '').trim().slice(0, 40);
+    if (!c || lpsTraitCols.includes(c)) return;
+    lpsTraitCols.push(c);
+    for (const r of lpsRows) r.traits[c] = r.traits[c] || '';
+    lpsPaintTable();
+  });
+  $('#lps-table').addEventListener('input', (e) => {
+    const i = e.target.dataset.row;
+    if (i == null) return;
+    const r = lpsRows[Number(i)];
+    if (!r) return;
+    if (e.target.dataset.col === 'name') r.name = e.target.value;
+    else r.traits[e.target.dataset.col] = e.target.value;
+    lpsPaintDistribution(); // the table itself is not rebuilt, or the caret would jump on every key
+  });
+  $('#lps-table').addEventListener('click', (e) => {
+    const c = e.target.dataset && e.target.dataset.drop;
+    if (!c) return;
+    lpsTraitCols = lpsTraitCols.filter((x) => x !== c);
+    for (const r of lpsRows) delete r.traits[c];
+    lpsPaintTable();
+  });
+  $('#lps-export').addEventListener('click', () => {
+    // Every row, not only the hundred on screen: the download exists precisely for the ones that
+    // are not.
+    const esc2 = (v) => (/[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v);
+    const head = ['filename', 'name', ...lpsTraitCols];
+    const lines = [head.join(',')].concat(lpsRows.map((r, i) => [
+      esc2(r.filename), esc2(r.name || 'item ' + (i + 1)),
+      ...lpsTraitCols.map((c) => esc2((r.traits[c] || '').trim())),
+    ].join(',')));
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = ($('#lps-name').value.trim() || 'collection').toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.csv';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  });
 }
 
 function parseCsvManifest(text) {
@@ -2358,6 +2513,17 @@ $('#lps-submit').addEventListener('click', async () => {
     return;
   }
 
+  const royaltyPct = Number(String($('#lps-royalty').value || '0').replace(',', '.').trim() || 0);
+  if (!Number.isFinite(royaltyPct) || royaltyPct < 0) {
+    err.textContent = '✗ A royalty is a percentage, zero or more.';
+    return;
+  }
+  const royaltyBps = Math.round(royaltyPct * 100);
+  if (royaltyBps > lim.maxRoyaltyBps) {
+    err.textContent = `✗ ${royaltyPct}% is over the ${lim.maxRoyaltyBps / 100}% ceiling.`;
+    return;
+  }
+
   const wallet = window.VerginalsArena;
   const address = wallet && wallet.address ? wallet.address() : null;
   if (!address || typeof wallet.signMessage !== 'function') {
@@ -2374,9 +2540,24 @@ $('#lps-submit').addEventListener('click', async () => {
   const ptext = $('#lps-progress-text');
   prog.classList.remove('hidden');
   try {
-    let manifest = new Map();
+    // The table is the manifest. A file, when one is given, fills the table first, so what gets
+    // submitted is always what is on screen: two sources of truth here would mean somebody edits a
+    // row, attaches the CSV they started from, and silently uploads the old values.
     const mf = $('#lps-manifest').files[0];
-    if (mf) manifest = await readManifestFile(mf);
+    if (mf) {
+      const loaded = await readManifestFile(mf);
+      for (const r of lpsRows) {
+        const rec = loaded.get(r.filename);
+        if (!rec) continue;
+        if (rec.name) r.name = rec.name;
+        for (const a of rec.attributes || []) {
+          if (!lpsTraitCols.includes(a.trait_type)) lpsTraitCols.push(a.trait_type);
+          r.traits[a.trait_type] = a.value;
+        }
+      }
+      lpsPaintTable();
+    }
+    const manifest = lpsManifestFromTable();
 
     ptext.textContent = 'signing...';
     const ch = await api('/api/launchpad/submit/challenge', {
@@ -2396,7 +2577,7 @@ $('#lps-submit').addEventListener('click', async () => {
           discord: $('#lps-discord').value.trim(),
           website: $('#lps-website').value.trim(),
         },
-        mintPriceUnits, address, nonce: ch.nonce, signature,
+        mintPriceUnits, royaltyBps, address, nonce: ch.nonce, signature,
       }),
     });
 
@@ -2444,7 +2625,7 @@ $('#lps-submit').addEventListener('click', async () => {
     ok.classList.remove('hidden');
     lpsSetFiles([]);
     $('#lps-name').value = ''; $('#lps-desc').value = ''; $('#lps-creator').value = '';
-    $('#lps-manifest').value = ''; $('#lps-price').value = '';
+    $('#lps-manifest').value = ''; $('#lps-price').value = ''; $('#lps-royalty').value = '';
     for (const id of ['tagline', 'contact', 'x', 'discord', 'website', 'avatar', 'banner']) $('#lps-' + id).value = '';
   } catch (e) {
     err.textContent = '✗ ' + e.message;

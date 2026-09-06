@@ -78,6 +78,16 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_MINT_PRICE_UNITS = 1000000 * 1000000; // one million XVG
 
 /**
+ * A creator's cut of a resale, in basis points, capped at ten per cent.
+ *
+ * Worth saying plainly to anybody who sets one: this is enforced by THIS MARKETPLACE, not by the
+ * chain. A wallet-to-wallet transfer pays nothing and no UTXO chain can prevent that. It has been
+ * true everywhere since OpenSea made royalties optional; what matters is that a creator reads it in
+ * the form rather than discovering it later.
+ */
+const MAX_ROYALTY_BPS = 1000;
+
+/**
  * A social link, or nothing.
  *
  * Checked against a LIST OF HOSTS rather than accepted as text. The first collection that writes
@@ -119,6 +129,7 @@ const LIMITS = Object.freeze({
   descriptionMax: 500,
   taglineMax: 80,
   maxMintPriceUnits: MAX_MINT_PRICE_UNITS,
+  maxRoyaltyBps: MAX_ROYALTY_BPS,
   linkHosts: LINK_HOSTS,
 });
 const NAME_MAX = 60;
@@ -230,7 +241,7 @@ class Launchpad {
     return this.listSubmissions().filter((d) => d.address === address && d.status === 'draft').length;
   }
 
-  createDraft({ name, symbol, description, creator, address, mintPriceUnits, tagline, links, contact }) {
+  createDraft({ name, symbol, description, creator, address, mintPriceUnits, royaltyBps, tagline, links, contact }) {
     this.pruneDrafts();
     if (this.pendingCount() >= MAX_PENDING) throw new Error('the review queue is full, please try again later');
     // The caller proves the address before this is reached; here it is only counted.
@@ -249,11 +260,17 @@ class Launchpad {
     if (price > MAX_MINT_PRICE_UNITS) {
       throw new Error(`that mint price is over the ${MAX_MINT_PRICE_UNITS / 1000000} XVG ceiling`);
     }
+    const royalty = Math.round(Number(royaltyBps || 0));
+    if (!Number.isFinite(royalty) || royalty < 0) throw new Error('a royalty is zero or more');
+    if (royalty > MAX_ROYALTY_BPS) {
+      throw new Error(`a royalty cannot be over ${MAX_ROYALTY_BPS / 100}%`);
+    }
 
     const d = {
       id: crypto.randomBytes(8).toString('hex'),
       address: address || null,
       mintPriceUnits: price,
+      royaltyBps: royalty,
       tagline: clean(tagline, LIMITS.taglineMax),
       // Refused rather than stripped: somebody who pasted their Discord into the X field should be
       // told, not silently published without it.
@@ -405,8 +422,8 @@ class Launchpad {
   approve(id, slug, opts = {}) {
     const d = this._loadDraft(id);
     if (d.status !== 'pending') throw new Error(`submission is ${d.status}, not pending`);
-    if (d.mintPriceUnits > 0) {
-      if (!d.payoutAddress) throw new Error('this collection charges to mint and has no payout address');
+    if (d.mintPriceUnits > 0 || d.royaltyBps > 0) {
+      if (!d.payoutAddress) throw new Error('this collection is paid and has no payout address');
       if (opts.validAddress && !opts.validAddress(d.payoutAddress)) {
         throw new Error(`the payout address ${d.payoutAddress} is not usable on this network`);
       }
@@ -441,7 +458,8 @@ class Launchpad {
       launched_at: new Date().toISOString().slice(0, 10),
       // What a mint costs and who it pays. Read straight back by the mint route, never recomputed.
       mint_price_units: d.mintPriceUnits || 0,
-      payout_address: d.mintPriceUnits > 0 ? d.payoutAddress : null,
+      royalty_bps: d.royaltyBps || 0,
+      payout_address: (d.mintPriceUnits > 0 || d.royaltyBps > 0) ? d.payoutAddress : null,
       // Identity. The links were validated against a host list at submission; nothing here is free
       // text that reaches a visitor's browser as a destination.
       tagline: d.tagline || '',
@@ -490,6 +508,22 @@ class Launchpad {
     }
   }
 
+  /**
+   * The creator's cut of a resale for one collection, in the shape the order book asks for.
+   *
+   * Returns null when there is none, which is the common case and must not be a zero-fee object:
+   * the book falls back to whatever the marketplace itself charges, and a zero here would look
+   * like an answer.
+   */
+  royaltyFor(slug) {
+    const c = this.get(slug);
+    if (!c) return null;
+    const bps = Number(c.manifest.royalty_bps) || 0;
+    const address = c.manifest.payout_address || null;
+    if (!(bps > 0) || !address) return null;
+    return { bps, address };
+  }
+
   get(slug) {
     if (!/^[a-z0-9-]{3,32}$/.test(String(slug || ''))) return null;
     if (!this.live.has(slug)) this.refresh();
@@ -506,6 +540,7 @@ class Launchpad {
         creator: manifest.creator || '',
         mediaType: manifest.media_type,
         mintPriceUnits: manifest.mint_price_units || 0,
+        royaltyBps: manifest.royalty_bps || 0,
         links: manifest.links || { x: null, discord: null, website: null },
         avatar: manifest.avatar ? `/api/launchpad/${slug}/brand/avatar` : null,
         banner: manifest.banner ? `/api/launchpad/${slug}/brand/banner` : null,
@@ -567,6 +602,7 @@ module.exports = { Launchpad, sniffImage, cleanAttributes, cleanLink, ago, queue
 // Usage, from the app root on the server:
 //   node src/launchpad.js              what is waiting for review
 //   node src/launchpad.js all          every submission, whatever its state
+//   node src/launchpad.js review <id>  one page with everything a decision needs
 //   node src/launchpad.js show <id>
 //   node src/launchpad.js approve <id> <slug>
 //   node src/launchpad.js reject <id> [reason]
@@ -598,6 +634,14 @@ if (require.main === module) {
         console.log('mint price     free');
       }
       console.log(`review the images in: ${path.join(lp.subsDir, d.id, 'images')}`);
+    } else if (cmd === 'review' && a) {
+      // Written next to the submission, opened from disk. Curation stays off HTTP; this only
+      // replaces a JSON dump and a directory path with something a decision can be made from.
+      const { reviewPage } = require('./launchpadreview');
+      const d = lp._loadDraft(a);
+      const out = path.join(lp.subsDir, d.id, 'review.html');
+      fs.writeFileSync(out, reviewPage(d, path.join(lp.subsDir, d.id, 'images')));
+      console.log(out);
     } else if (cmd === 'approve' && a && b) {
       // The payout address is checked against THIS network before a mint page can point money at
       // it. bitcoinjs is already a dependency here, so this costs nothing and catches a testnet
@@ -613,7 +657,7 @@ if (require.main === module) {
     } else if (cmd === 'reject' && a) {
       console.log(JSON.stringify(lp.reject(a, b)));
     } else {
-      console.log('usage: node src/launchpad.js [list] | all | show <id> | approve <id> <slug> | reject <id> [reason]');
+      console.log('usage: node src/launchpad.js [list] | all | show <id> | review <id> | approve <id> <slug> | reject <id> [reason]');
       process.exitCode = 1;
     }
   } catch (e) {

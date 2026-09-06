@@ -1406,7 +1406,8 @@ async function handleLaunchpadSubmit(req, res) {
   try {
     sendJSON(res, 200, launchpad.createDraft({
       name: b.name, symbol: b.symbol, description: b.description, creator: b.creator, address,
-      mintPriceUnits: b.mintPriceUnits, tagline: b.tagline, links: b.links, contact: b.contact,
+      mintPriceUnits: b.mintPriceUnits, royaltyBps: b.royaltyBps,
+      tagline: b.tagline, links: b.links, contact: b.contact,
     }));
   } catch (e) {
     // The allowance and the open-draft cap are refusals, not faults: they say what to do next.
@@ -1472,7 +1473,13 @@ function initOrderBook() {
       return { address: rec.ownerAddress || null, location: rec.location };
     },
   };
-  orderbook = new OrderBook({ dataDir: DATA_DIR, network, chain, feeBps: MARKET_FEE_BPS, feeAddress: MARKET_FEE_ADDRESS }).load();
+  // The book asks the launchpad what a collection's creator is owed on a resale. Injected rather
+  // than required in there: the order book knows about listings and nothing about launchpads.
+  orderbook = new OrderBook({
+    dataDir: DATA_DIR, network, chain,
+    feeBps: MARKET_FEE_BPS, feeAddress: MARKET_FEE_ADDRESS,
+    royaltyFor: (slug) => (launchpad ? launchpad.royaltyFor(slug) : null),
+  }).load();
   pricelog = new PriceLog({ file: path.join(DATA_DIR, 'pricelog.json') }).load();
 
   // The rune book reads the same chain, plus what a carrier holds, which only the rune index knows.

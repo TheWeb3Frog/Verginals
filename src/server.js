@@ -1238,6 +1238,72 @@ function handleLaunchpadImage(res, slug, nStr) {
   fs.createReadStream(file).pipe(res);
 }
 
+/**
+ * GET /api/launchpad/<slug>/brand/<avatar|banner>: the collection's own identity images.
+ *
+ * The name on disk was chosen by the server at upload, never by the caller, and the two kinds are
+ * a closed set, so nothing here builds a path out of anything a request said.
+ */
+function handleLaunchpadBrand(res, slug, kind) {
+  const c = launchpad && launchpad.get(slug);
+  if (!c) return (writeHead(res, 404, { 'content-type': 'text/plain' }), res.end('no such collection'));
+  if (kind !== 'avatar' && kind !== 'banner') {
+    return (writeHead(res, 404, { 'content-type': 'text/plain' }), res.end('no such image'));
+  }
+  const name = c.manifest[kind];
+  if (!name) return (writeHead(res, 404, { 'content-type': 'text/plain' }), res.end('not set'));
+  const file = path.join(launchpad.collsDir, slug, 'images', path.basename(name));
+  if (!fs.existsSync(file)) return (writeHead(res, 404, { 'content-type': 'text/plain' }), res.end('not set'));
+  const ext = path.extname(file).slice(1).replace('jpg', 'jpeg');
+  writeHead(res, 200, {
+    'content-type': 'image/' + ext,
+    'x-content-type-options': 'nosniff',
+    'cache-control': 'public, max-age=31536000',
+  });
+  fs.createReadStream(file).pipe(res);
+}
+
+/** POST /api/launchpad/submit/<id>/brand: attach the avatar or the banner to a draft. */
+async function handleLaunchpadBrandPut(req, res, id) {
+  if (!allowUpload(req)) return sendJSON(res, 429, { error: 'too many requests, please wait a minute' });
+  if (!launchpad) return sendJSON(res, 404, { error: 'launchpad disabled' });
+  const raw = await readBody(req);
+  const b = JSON.parse(raw.toString('utf8') || '{}');
+  try {
+    sendJSON(res, 200, launchpad.setBrandImage(id, String(b.kind || ''), b.dataBase64));
+  } catch (e) {
+    sendJSON(res, 400, { error: e.message });
+  }
+}
+
+/**
+ * GET /api/launchpad/submit/<id>: what happened to a submission.
+ *
+ * The id is handed to the submitter and to nobody else, so this is the way back that the queue did
+ * not have. It says the decision AND the reason for it: a rejection reason has always been stored
+ * and there was no path by which anybody could ever read one.
+ *
+ * It answers about the submission, never about the submitter: no contact, no address, no images.
+ */
+function handleLaunchpadSubmitStatus(res, id) {
+  if (!launchpad) return sendJSON(res, 404, { error: 'launchpad disabled' });
+  let d;
+  try { d = launchpad._loadDraft(id); }
+  catch (_) { return sendJSON(res, 404, { error: 'no submission with that reference' }); }
+  sendJSON(res, 200, {
+    id: d.id,
+    name: d.name,
+    status: d.status,
+    items: (d.items || []).length,
+    createdAt: d.createdAt,
+    finalizedAt: d.finalizedAt || null,
+    reviewedAt: d.reviewedAt || null,
+    reason: d.reason || null,
+    slug: d.slug || null,
+    liveAt: d.slug ? '/launchpad/' + d.slug : null,
+  });
+}
+
 function handleLaunchpadRarity(res, slug) {
   const c = launchpad && launchpad.get(slug);
   if (!c) return sendJSON(res, 404, { error: 'no such collection' });
@@ -1340,6 +1406,7 @@ async function handleLaunchpadSubmit(req, res) {
   try {
     sendJSON(res, 200, launchpad.createDraft({
       name: b.name, symbol: b.symbol, description: b.description, creator: b.creator, address,
+      mintPriceUnits: b.mintPriceUnits, tagline: b.tagline, links: b.links, contact: b.contact,
     }));
   } catch (e) {
     // The allowance and the open-draft cap are refusals, not faults: they say what to do next.
@@ -4199,6 +4266,9 @@ const server = http.createServer(async (req, res) => {
       if ((m = p.match(/^\/api\/launchpad\/submit\/([a-f0-9]{16})\/finalize$/)) && req.method === 'POST') return await handleLaunchpadSubmitFinalize(res, m[1]);
       if ((m = p.match(/^\/api\/launchpad\/([a-z0-9-]{3,32})\/status$/)) && req.method === 'GET') return handleLaunchpadStatus(res, m[1]);
       if ((m = p.match(/^\/api\/launchpad\/([a-z0-9-]{3,32})\/image\/(\d{1,5})$/)) && req.method === 'GET') return handleLaunchpadImage(res, m[1], m[2]);
+      if ((m = p.match(/^\/api\/launchpad\/([a-z0-9-]{3,32})\/brand\/(avatar|banner)$/)) && req.method === 'GET') return handleLaunchpadBrand(res, m[1], m[2]);
+      if ((m = p.match(/^\/api\/launchpad\/submit\/([a-f0-9]{16})$/)) && req.method === 'GET') return handleLaunchpadSubmitStatus(res, m[1]);
+      if ((m = p.match(/^\/api\/launchpad\/submit\/([a-f0-9]{16})\/brand$/)) && req.method === 'POST') return await handleLaunchpadBrandPut(req, res, m[1]);
       if ((m = p.match(/^\/api\/launchpad\/([a-z0-9-]{3,32})\/rarity$/)) && req.method === 'GET') return handleLaunchpadRarity(res, m[1]);
       if ((m = p.match(/^\/api\/launchpad\/([a-z0-9-]{3,32})\/mint$/)) && req.method === 'POST') return await handleLaunchpadMint(req, res, m[1]);
     }

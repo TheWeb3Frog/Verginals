@@ -1422,3 +1422,21 @@ button.mkx-ctl[aria-expanded="true"] { border-color: var(--accent); color: var(-
 /* What a collection costs, on its card. "Free" is a feature and is said as one rather than left
    blank, because a blank price reads as a missing figure. */
 .lp-price { font: 500 12px/1.4 var(--mono); color: var(--accent); margin-top: 3px; }
+
+/* Looking up a submission. The reference id was handed over at submission and there was nowhere on
+   earth to type it: a decision, and the reason for it, could never reach the person who asked. */
+.lps-track { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.lps-track-row { display: flex; gap: 8px; }
+.lps-track-row input { flex: 1; min-width: 0; }
+.lps-track-row .btn { flex: none; }
+.lps-track-out:empty { display: none; }
+.lps-track-out {
+  margin-top: 12px; padding: 13px 15px; border-radius: var(--r-card, 12px);
+  background: var(--bg2); border: 1px solid var(--line); font-size: 13.5px;
+}
+.lps-track-out.is-in { border-color: var(--ok); }
+.lps-track-out.is-out { border-color: var(--danger); }
+.lps-track-out b { display: block; font-family: var(--display); font-size: 15px; margin-bottom: 3px; }
+.lps-track-out.is-in b { color: var(--ok); }
+.lps-track-out.is-out b { color: var(--danger); }
+.lps-track-out span { color: var(--muted); }

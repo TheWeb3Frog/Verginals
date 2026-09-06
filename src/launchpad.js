@@ -77,6 +77,35 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  */
 const MAX_MINT_PRICE_UNITS = 1000000 * 1000000; // one million XVG
 
+/**
+ * A social link, or nothing.
+ *
+ * Checked against a LIST OF HOSTS rather than accepted as text. The first collection that writes
+ * discord.gg/something-else in a free field publishes it from this site, wrapped in this site's
+ * name, and every visitor reads that as an endorsement. A host list is the cheapest way to make
+ * that impossible rather than merely against the rules.
+ */
+const LINK_HOSTS = {
+  x: ['x.com', 'www.x.com', 'twitter.com', 'www.twitter.com'],
+  discord: ['discord.gg', 'discord.com', 'www.discord.com'],
+  website: null, // any host, but still http(s) and still a real URL
+};
+
+function cleanLink(kind, value) {
+  const raw = clean(value, 200);
+  if (!raw) return null;
+  let u;
+  try { u = new URL(raw.includes('://') ? raw : 'https://' + raw); }
+  catch (_) { throw new Error(`that ${kind} link is not a web address`); }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new Error(`that ${kind} link is not a web address`);
+  const hosts = LINK_HOSTS[kind];
+  if (hosts && !hosts.includes(u.hostname.toLowerCase())) {
+    throw new Error(`an ${kind} link has to be on ${hosts[0]}`);
+  }
+  u.protocol = 'https:';
+  return u.toString();
+}
+
 /** Everything a page or a test needs to state the same rules the server enforces. */
 const LIMITS = Object.freeze({
   maxItems: MAX_ITEMS,
@@ -88,7 +117,9 @@ const LIMITS = Object.freeze({
   openDraftsPerAddress: OPEN_DRAFTS_PER_ADDRESS,
   nameMax: 60,
   descriptionMax: 500,
+  taglineMax: 80,
   maxMintPriceUnits: MAX_MINT_PRICE_UNITS,
+  linkHosts: LINK_HOSTS,
 });
 const NAME_MAX = 60;
 const DESC_MAX = 500;
@@ -108,6 +139,7 @@ function sniffImage(buf) {
 }
 
 const clean = (v, max) => String(v == null ? '' : v).trim().slice(0, max);
+
 
 /** Validate a caller-supplied attributes array into the canonical [{trait_type, value}] shape. */
 function cleanAttributes(attrs) {
@@ -198,7 +230,7 @@ class Launchpad {
     return this.listSubmissions().filter((d) => d.address === address && d.status === 'draft').length;
   }
 
-  createDraft({ name, symbol, description, creator, address, mintPriceUnits }) {
+  createDraft({ name, symbol, description, creator, address, mintPriceUnits, tagline, links, contact }) {
     this.pruneDrafts();
     if (this.pendingCount() >= MAX_PENDING) throw new Error('the review queue is full, please try again later');
     // The caller proves the address before this is reached; here it is only counted.
@@ -222,6 +254,17 @@ class Launchpad {
       id: crypto.randomBytes(8).toString('hex'),
       address: address || null,
       mintPriceUnits: price,
+      tagline: clean(tagline, LIMITS.taglineMax),
+      // Refused rather than stripped: somebody who pasted their Discord into the X field should be
+      // told, not silently published without it.
+      links: {
+        x: cleanLink('x', links && links.x),
+        discord: cleanLink('discord', links && links.discord),
+        website: cleanLink('website', links && links.website),
+      },
+      // Never published. This exists so a decision can reach the person who made the submission,
+      // which is the whole of why the queue felt like shouting into a well.
+      contact: clean(contact, 120),
       // Payouts go to the address that signed the submission and to no other. It is the one
       // address anybody has proved control of, and an unproven address on a mint page is somebody
       // else's money going somewhere nobody checked.
@@ -282,6 +325,38 @@ class Launchpad {
     });
     this._saveDraft(d);
     return { count: d.items.length };
+  }
+
+  /**
+   * Store the collection's avatar or banner.
+   *
+   * Same reader, same limits as an item: an avatar is an image somebody uploaded, and there is no
+   * reason for it to be checked more loosely than the art. Kept beside the draft under a
+   * server-chosen name, so nothing a caller sends reaches the filesystem.
+   */
+  setBrandImage(id, kind, dataBase64) {
+    if (kind !== 'avatar' && kind !== 'banner') throw new Error('an image is an avatar or a banner');
+    const d = this._loadDraft(id);
+    if (d.status !== 'draft') throw new Error('this submission is closed');
+    if (typeof dataBase64 !== 'string' || !dataBase64) throw new Error('dataBase64 is required');
+    const body = Buffer.from(dataBase64, 'base64');
+    if (!body.length) throw new Error('decoded image is empty');
+    if (body.length > MAX_IMAGE_BYTES) throw new Error(`image too large (max ${MAX_IMAGE_BYTES / 1024} KB)`);
+    const mediaType = sniffImage(body);
+    if (!mediaType) throw new Error('not a supported image (webp, png, jpeg or gif)');
+    const size = coinimage.dimensions(body, mediaType);
+    if (!size || !(size.w > 0) || !(size.h > 0)) throw new Error('that image has no readable size');
+    if (size.w > MAX_IMAGE_SIDE || size.h > MAX_IMAGE_SIDE) {
+      throw new Error(`that image is ${size.w} by ${size.h} and the limit is ${MAX_IMAGE_SIDE} on a side`);
+    }
+    const ext = mediaType.split('/')[1].replace('jpeg', 'jpg');
+    const file = `${kind}.${ext}`;
+    fs.mkdirSync(path.join(this._draftPath(id), 'images'), { recursive: true });
+    fs.writeFileSync(path.join(this._draftPath(id), 'images', file), body);
+    this._usage = this.usageBytes() + body.length;
+    d[kind] = file;
+    this._saveDraft(d);
+    return { kind, bytes: body.length, w: size.w, h: size.h };
   }
 
   finalize(id) {
@@ -350,6 +425,11 @@ class Launchpad {
         path.join(dir, 'images', it.filename),
       );
     }
+    for (const kind of ['avatar', 'banner']) {
+      if (!d[kind]) continue;
+      const from = path.join(this._draftPath(id), 'images', d[kind]);
+      if (fs.existsSync(from)) fs.copyFileSync(from, path.join(dir, 'images', d[kind]));
+    }
     const manifest = {
       name: d.name,
       symbol: d.symbol || null,
@@ -362,6 +442,12 @@ class Launchpad {
       // What a mint costs and who it pays. Read straight back by the mint route, never recomputed.
       mint_price_units: d.mintPriceUnits || 0,
       payout_address: d.mintPriceUnits > 0 ? d.payoutAddress : null,
+      // Identity. The links were validated against a host list at submission; nothing here is free
+      // text that reaches a visitor's browser as a destination.
+      tagline: d.tagline || '',
+      links: d.links || { x: null, discord: null, website: null },
+      avatar: d.avatar || null,
+      banner: d.banner || null,
     };
     const write = (file, obj) => fs.writeFileSync(path.join(dir, file), JSON.stringify(obj, null, 1));
     write('collection_manifest.json', manifest);
@@ -416,9 +502,13 @@ class Launchpad {
       {
         slug,
         description: manifest.description || '',
+        tagline: manifest.tagline || '',
         creator: manifest.creator || '',
         mediaType: manifest.media_type,
         mintPriceUnits: manifest.mint_price_units || 0,
+        links: manifest.links || { x: null, discord: null, website: null },
+        avatar: manifest.avatar ? `/api/launchpad/${slug}/brand/avatar` : null,
+        banner: manifest.banner ? `/api/launchpad/${slug}/brand/banner` : null,
       },
       ctl.status(),
     ));
@@ -471,7 +561,7 @@ function queueReport(subs, now = Date.now()) {
   return lines;
 }
 
-module.exports = { Launchpad, sniffImage, cleanAttributes, ago, queueReport, LIMITS };
+module.exports = { Launchpad, sniffImage, cleanAttributes, cleanLink, ago, queueReport, LIMITS };
 
 // --- operator CLI (curation happens here, over SSH, never over HTTP) -------------------------
 // Usage, from the app root on the server:
@@ -498,6 +588,15 @@ if (require.main === module) {
       const d = lp._loadDraft(a);
       console.log(JSON.stringify({ ...d, items: d.items.slice(0, 5) }, null, 2));
       if (d.items.length > 5) console.log(`(+ ${d.items.length - 5} more items)`);
+      console.log('');
+      // The two things a decision needs that JSON buries: how to reach them, and where to look.
+      console.log(`contact        ${d.contact || '(none given)'}`);
+      for (const [k, v] of Object.entries(d.links || {})) if (v) console.log(`${k.padEnd(14)} ${v}`);
+      if (d.mintPriceUnits > 0) {
+        console.log(`mint price     ${(d.mintPriceUnits / 1000000).toLocaleString()} XVG -> ${d.payoutAddress}`);
+      } else {
+        console.log('mint price     free');
+      }
       console.log(`review the images in: ${path.join(lp.subsDir, d.id, 'images')}`);
     } else if (cmd === 'approve' && a && b) {
       // The payout address is checked against THIS network before a mint page can point money at

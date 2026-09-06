@@ -2390,9 +2390,30 @@ $('#lps-submit').addEventListener('click', async () => {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         name, creator: $('#lps-creator').value.trim(), description: $('#lps-desc').value.trim(),
+        tagline: $('#lps-tagline').value.trim(),
+        contact: $('#lps-contact').value.trim(),
+        links: {
+          x: $('#lps-x').value.trim(),
+          discord: $('#lps-discord').value.trim(),
+          website: $('#lps-website').value.trim(),
+        },
         mintPriceUnits, address, nonce: ch.nonce, signature,
       }),
     });
+
+    // The identity images go up first, so a submission that fails on one of them fails before the
+    // creator has waited through three thousand item uploads.
+    for (const kind of ['avatar', 'banner']) {
+      const f = $('#lps-' + kind).files[0];
+      if (!f) continue;
+      ptext.textContent = 'sending the ' + kind + '...';
+      const fitted = await fitImage(f, lim);
+      if (fitted.error) throw new Error(fitted.error);
+      await api('/api/launchpad/submit/' + draft.id + '/brand', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ kind, dataBase64: await fileToBase64(fitted.blob) }),
+      });
+    }
 
     let sent = 0;
     let shrunk = 0;
@@ -2425,6 +2446,7 @@ $('#lps-submit').addEventListener('click', async () => {
     lpsSetFiles([]);
     $('#lps-name').value = ''; $('#lps-desc').value = ''; $('#lps-creator').value = '';
     $('#lps-manifest').value = ''; $('#lps-price').value = '';
+    for (const id of ['tagline', 'contact', 'x', 'discord', 'website', 'avatar', 'banner']) $('#lps-' + id).value = '';
   } catch (e) {
     err.textContent = '✗ ' + e.message;
   } finally {
@@ -2433,6 +2455,44 @@ $('#lps-submit').addEventListener('click', async () => {
     bar.style.width = '0%';
   }
 });
+
+// --- looking a submission up -------------------------------------------------------------
+//
+// The reference id was handed over at submission and there was nowhere to type it. A rejection
+// reason has always been stored and no path existed by which anybody could read one, so a decision
+// never reached the person who asked for it.
+if ($('#lps-track-go')) {
+  $('#lps-track-go').addEventListener('click', async () => {
+    const out = $('#lps-track-out');
+    const id = $('#lps-track-id').value.trim();
+    out.className = 'lps-track-out';
+    if (!/^[a-f0-9]{16}$/.test(id)) {
+      out.innerHTML = '<b>That is not a reference</b><span>It is the 16 character id you were given when you submitted.</span>';
+      out.classList.add('is-out');
+      return;
+    }
+    out.innerHTML = '<span>Looking&#8230;</span>';
+    let d;
+    try { d = await api('/api/launchpad/submit/' + id); }
+    catch (e) {
+      out.innerHTML = `<b>Not found</b><span>${esc(e.message)}</span>`;
+      out.classList.add('is-out');
+      return;
+    }
+    const said = {
+      draft: ['Still a draft', 'It was never finished, so it is not in the review queue.'],
+      pending: ['Waiting for review', 'It is in the queue. Collections are reviewed by hand.'],
+      approved: ['Approved', `"${d.name}" is live.`],
+      rejected: ['Not accepted', d.reason || 'No reason was recorded.'],
+    }[d.status] || ['Unknown', ''];
+    // Not classList.add(cond ? 'x' : ''): an empty token throws, and a pending submission is the
+    // common case, so the handler died on exactly the answer most people would get.
+    const tone = d.status === 'approved' ? 'is-in' : d.status === 'rejected' ? 'is-out' : null;
+    if (tone) out.classList.add(tone);
+    out.innerHTML = `<b>${esc(said[0])}</b><span>${esc(said[1])}</span>`
+      + (d.liveAt ? ` <a href="${esc(d.liveAt)}">Open it</a>` : '');
+  });
+}
 
 // --- copy buttons ------------------------------------------------------------------------
 wireCopy('#copy-amount', () => String($('#pay-amount').textContent).replace(/[^\d.]/g, ''));

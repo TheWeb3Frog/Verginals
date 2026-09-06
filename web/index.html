@@ -7,8 +7,8 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/vg.css?v=58" />
-  <link rel="stylesheet" href="/style.css?v=58" />
+  <link rel="stylesheet" href="/vg.css?v=60" />
+  <link rel="stylesheet" href="/style.css?v=60" />
 </head>
 <body class="vg vg-hosted">
 
@@ -829,6 +829,38 @@
             <div class="lps-payout" id="lps-payout">Connect your wallet</div>
           </div>
         </div>
+        <div class="grid2">
+          <div>
+            <label class="lbl">Tagline <span class="hint">one line, on the card</span></label>
+            <input type="text" id="lps-tagline" maxlength="80" placeholder="3,333 frogs on Verge" />
+          </div>
+          <div>
+            <label class="lbl">Contact <span class="hint">so a decision can reach you</span></label>
+            <input type="text" id="lps-contact" maxlength="120" placeholder="email, or @you on X" />
+          </div>
+        </div>
+        <div class="grid2">
+          <div>
+            <label class="lbl">X <span class="hint">optional</span></label>
+            <input type="text" id="lps-x" maxlength="200" placeholder="x.com/yourproject" />
+          </div>
+          <div>
+            <label class="lbl">Discord <span class="hint">optional</span></label>
+            <input type="text" id="lps-discord" maxlength="200" placeholder="discord.gg/yourinvite" />
+          </div>
+        </div>
+        <label class="lbl">Website <span class="hint">optional</span></label>
+        <input type="text" id="lps-website" maxlength="200" placeholder="yourproject.com" />
+        <div class="grid2">
+          <div>
+            <label class="lbl">Avatar <span class="hint">square, shown everywhere</span></label>
+            <input type="file" id="lps-avatar" accept=".png,.webp,.jpg,.jpeg,.gif" />
+          </div>
+          <div>
+            <label class="lbl">Banner <span class="hint">optional, wide</span></label>
+            <input type="file" id="lps-banner" accept=".png,.webp,.jpg,.jpeg,.gif" />
+          </div>
+        </div>
         <p class="hint" id="lps-price-say">Leave it at 0 for a free mint. Minters always pay the
           network cost of writing their inscription on top; that part goes to miners, not to us and
           not to you. <strong>We take nothing.</strong> Payouts go to the address that signs this
@@ -843,6 +875,14 @@
         <input type="file" id="lps-manifest" accept=".json,.csv" />
         <div class="hint">JSON: an array of <code>{"filename", "name", "attributes":[{"trait_type","value"}]}</code>. CSV: a header row <code>filename,name,TraitA,TraitB…</code> then one row per image. Without a manifest, items are numbered automatically with no traits.</div>
         <button class="btn primary" id="lps-submit">Submit for review →</button>
+        <div class="lps-track">
+          <label class="lbl">Already submitted? Look it up</label>
+          <div class="lps-track-row">
+            <input type="text" id="lps-track-id" maxlength="16" placeholder="your reference id" />
+            <button type="button" class="btn" id="lps-track-go">Check</button>
+          </div>
+          <div class="lps-track-out" id="lps-track-out"></div>
+        </div>
         <div class="lps-progress hidden" id="lps-progress"><div class="lps-bar" id="lps-bar"></div><span id="lps-progress-text"></span></div>
         <div class="error" id="lps-error"></div>
         <div class="success hidden" id="lps-success"></div>
@@ -1082,7 +1122,7 @@
 
   <script src="/vendor/qrcode.js"></script>
   <script type="module" src="/app-chrome.js"></script>
-<script src="/app.js?v=58"></script>
-  <script src="/wallet.js?v=58"></script>
+<script src="/app.js?v=60"></script>
+  <script src="/wallet.js?v=60"></script>
 </body>
 </html>

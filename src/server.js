@@ -1214,8 +1214,19 @@ function handleLaunchpadStatus(res, slug) {
   sendJSON(res, 200, Object.assign({
     slug,
     description: c.manifest.description || '',
+    tagline: c.manifest.tagline || '',
     creator: c.manifest.creator || '',
     mediaType: c.manifest.media_type,
+    mintPriceUnits: c.manifest.mint_price_units || 0,
+    royaltyBps: c.manifest.royalty_bps || 0,
+    links: c.manifest.links || { x: null, discord: null, website: null },
+    avatar: c.manifest.avatar ? `/api/launchpad/${slug}/brand/avatar` : null,
+    banner: c.manifest.banner ? `/api/launchpad/${slug}/brand/banner` : null,
+    // The schedule, so a page can say when rather than only whether.
+    opensAt: c.manifest.opens_at || null,
+    closesAt: c.manifest.closes_at || null,
+    allowlistUntil: c.manifest.allowlist_until || null,
+    maxPerWallet: c.manifest.max_per_wallet || 0,
   }, c.ctl.status()));
 }
 
@@ -1323,8 +1334,17 @@ async function handleLaunchpadMint(req, res, slug) {
   const { network } = pickNetwork(NETWORK);
   requireDestination(to, network);
 
+  // THE SCHEDULE, CHECKED BEFORE A NUMBER IS RESERVED. Reserving first and refusing after would
+  // take an item out of the pool on every attempt during a closed window, and a collection nobody
+  // could mint would quietly sell out.
+  const gate = launchpad.gate(slug, {
+    holdsAlpha: () => alphaHolders.has(to),
+    held: c.ctl.heldBy(to),
+  });
+  if (!gate.ok) return sendJSON(res, 200, Object.assign({ blocked: true }, gate, { status: c.ctl.status() }));
+
   const jobId = crypto.randomBytes(16).toString('hex');
-  const assignment = c.ctl.reserve(jobId);
+  const assignment = c.ctl.reserve(jobId, to);
   if (!assignment) return sendJSON(res, 200, Object.assign({ soldOut: true }, c.ctl.status()));
 
   try {
@@ -1408,6 +1428,8 @@ async function handleLaunchpadSubmit(req, res) {
       name: b.name, symbol: b.symbol, description: b.description, creator: b.creator, address,
       mintPriceUnits: b.mintPriceUnits, royaltyBps: b.royaltyBps,
       tagline: b.tagline, links: b.links, contact: b.contact,
+      opensAt: b.opensAt, closesAt: b.closesAt,
+      allowlistUntil: b.allowlistUntil, maxPerWallet: b.maxPerWallet,
     }));
   } catch (e) {
     // The allowance and the open-draft cap are refusals, not faults: they say what to do next.
@@ -3308,6 +3330,23 @@ async function sweepHolders() {
   }
 }
 
+// Addresses holding at least one Alpha Verginal. Refreshed on the sweep rather than asked per
+// mint: the answer changes on the timescale of blocks, and walking the whole inscription list
+// inside a mint request would put a full scan in front of somebody trying to pay.
+let alphaHolders = new Set();
+
+function sweepAlphaHolders() {
+  const held = new Set();
+  for (const rec of service.inscriptions.inscriptions.values()) {
+    if (rec && rec.ownerAddress && rec.collectionNumber != null && !rec.collectionSlug) {
+      held.add(rec.ownerAddress);
+    }
+  }
+  // Never replace a real answer with an empty one: during a rescan the index holds nothing, and an
+  // empty set would silently lock every Alpha holder out of an allowlist window.
+  if (held.size || !alphaHolders.size) alphaHolders = held;
+}
+
 async function snapshotPrices() {
   if (!pricelog) return;
   try {
@@ -3333,6 +3372,7 @@ async function snapshotPrices() {
       }
     }
     pricelog.save();
+    sweepAlphaHolders();
     await sweepHolders();
   } catch (e) {
     console.warn('price snapshot skipped: ' + e.message);

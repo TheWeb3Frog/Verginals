@@ -88,6 +88,21 @@ const MAX_MINT_PRICE_UNITS = 1000000 * 1000000; // one million XVG
 const MAX_ROYALTY_BPS = 1000;
 
 /**
+ * The launch schedule.
+ *
+ * IT IS A SERVER RULE, NOT A CHAIN RULE, and it is worth being exact about that. Nothing here is
+ * enforced by consensus: the server decides whether to hand out a mint, so the honest unit is
+ * wall-clock time rather than a block height converted from an assumed thirty second target that
+ * drifts by hours over a week.
+ *
+ * There is deliberately NO deferred reveal. On this architecture the art is inscribed at mint time,
+ * so anybody reading the chain sees it the moment it is minted. Hiding it on our own pages would
+ * not be a reveal, it would be a curtain in front of a window that is already open.
+ */
+const MAX_SCHEDULE_AHEAD_MS = 365 * 24 * 60 * 60 * 1000; // a year is already generous
+const MAX_PER_WALLET = 10000;
+
+/**
  * A social link, or nothing.
  *
  * Checked against a LIST OF HOSTS rather than accepted as text. The first collection that writes
@@ -130,6 +145,8 @@ const LIMITS = Object.freeze({
   taglineMax: 80,
   maxMintPriceUnits: MAX_MINT_PRICE_UNITS,
   maxRoyaltyBps: MAX_ROYALTY_BPS,
+  maxPerWallet: MAX_PER_WALLET,
+  scheduleAheadDays: MAX_SCHEDULE_AHEAD_MS / (24 * 60 * 60 * 1000),
   linkHosts: LINK_HOSTS,
 });
 const NAME_MAX = 60;
@@ -241,7 +258,8 @@ class Launchpad {
     return this.listSubmissions().filter((d) => d.address === address && d.status === 'draft').length;
   }
 
-  createDraft({ name, symbol, description, creator, address, mintPriceUnits, royaltyBps, tagline, links, contact }) {
+  createDraft({ name, symbol, description, creator, address, mintPriceUnits, royaltyBps, tagline,
+    links, contact, opensAt, closesAt, allowlistUntil, maxPerWallet }) {
     this.pruneDrafts();
     if (this.pendingCount() >= MAX_PENDING) throw new Error('the review queue is full, please try again later');
     // The caller proves the address before this is reached; here it is only counted.
@@ -266,11 +284,32 @@ class Launchpad {
       throw new Error(`a royalty cannot be over ${MAX_ROYALTY_BPS / 100}%`);
     }
 
+    const when = (v, label) => {
+      if (v == null || v === '') return null;
+      const t = Math.round(Number(v));
+      if (!Number.isFinite(t) || t <= 0) throw new Error(`that ${label} is not a time`);
+      if (t * 1000 > Date.now() + MAX_SCHEDULE_AHEAD_MS) throw new Error(`that ${label} is more than a year away`);
+      return t;
+    };
+    const opens = when(opensAt, 'opening time');
+    const closes = when(closesAt, 'closing time');
+    const allowUntil = when(allowlistUntil, 'allowlist end');
+    if (opens && closes && closes <= opens) throw new Error('the mint would close before it opened');
+    if (allowUntil && opens && allowUntil <= opens) throw new Error('the allowlist would end before the mint opened');
+    const perWallet = Math.round(Number(maxPerWallet || 0));
+    if (!Number.isFinite(perWallet) || perWallet < 0) throw new Error('a per wallet limit is zero or more');
+    if (perWallet > MAX_PER_WALLET) throw new Error(`a per wallet limit cannot be over ${MAX_PER_WALLET}`);
+
     const d = {
       id: crypto.randomBytes(8).toString('hex'),
       address: address || null,
       mintPriceUnits: price,
       royaltyBps: royalty,
+      opensAt: opens,
+      closesAt: closes,
+      // Alpha holders only until this moment, then anybody. Null means open from the start.
+      allowlistUntil: allowUntil,
+      maxPerWallet: perWallet,
       tagline: clean(tagline, LIMITS.taglineMax),
       // Refused rather than stripped: somebody who pasted their Discord into the X field should be
       // told, not silently published without it.
@@ -459,6 +498,11 @@ class Launchpad {
       // What a mint costs and who it pays. Read straight back by the mint route, never recomputed.
       mint_price_units: d.mintPriceUnits || 0,
       royalty_bps: d.royaltyBps || 0,
+      // Wall-clock, unix seconds. See the note on MAX_SCHEDULE_AHEAD_MS: this is a server rule.
+      opens_at: d.opensAt || null,
+      closes_at: d.closesAt || null,
+      allowlist_until: d.allowlistUntil || null,
+      max_per_wallet: d.maxPerWallet || 0,
       payout_address: (d.mintPriceUnits > 0 || d.royaltyBps > 0) ? d.payoutAddress : null,
       // Identity. The links were validated against a host list at submission; nothing here is free
       // text that reaches a visitor's browser as a destination.
@@ -515,6 +559,44 @@ class Launchpad {
    * the book falls back to whatever the marketplace itself charges, and a zero here would look
    * like an answer.
    */
+  /**
+   * Can this address mint from this collection right now, and if not, why.
+   *
+   * Returns { ok: true } or { ok: false, why, opensAt }. The reasons are separated on purpose: "not
+   * open yet" and "you are not on the allowlist" and "you already have three" are three different
+   * things to a person, and one generic refusal for all of them is how a mint page makes somebody
+   * think it is broken.
+   *
+   * @param {function} opts.holdsAlpha  () => boolean, only called when an allowlist is running
+   * @param {number} opts.held          how many of this collection the address already has
+   */
+  gate(slug, { holdsAlpha, held = 0, now = Date.now() } = {}) {
+    const c = this.get(slug);
+    if (!c) return { ok: false, why: 'no such collection' };
+    const m = c.manifest;
+    const t = Math.floor(now / 1000);
+
+    if (m.opens_at && t < m.opens_at) {
+      return { ok: false, why: 'this mint has not opened yet', opensAt: m.opens_at };
+    }
+    if (m.closes_at && t >= m.closes_at) {
+      return { ok: false, why: 'this mint has closed', closedAt: m.closes_at };
+    }
+    if (m.allowlist_until && t < m.allowlist_until) {
+      if (!holdsAlpha || !holdsAlpha()) {
+        return {
+          ok: false,
+          why: 'this is the Alpha holders window: hold an Alpha Verginal to mint before it opens to everyone',
+          opensAt: m.allowlist_until,
+        };
+      }
+    }
+    if (m.max_per_wallet > 0 && held >= m.max_per_wallet) {
+      return { ok: false, why: `one address may mint ${m.max_per_wallet} from this collection` };
+    }
+    return { ok: true };
+  }
+
   royaltyFor(slug) {
     const c = this.get(slug);
     if (!c) return null;
@@ -541,6 +623,10 @@ class Launchpad {
         mediaType: manifest.media_type,
         mintPriceUnits: manifest.mint_price_units || 0,
         royaltyBps: manifest.royalty_bps || 0,
+        opensAt: manifest.opens_at || null,
+        closesAt: manifest.closes_at || null,
+        allowlistUntil: manifest.allowlist_until || null,
+        maxPerWallet: manifest.max_per_wallet || 0,
         links: manifest.links || { x: null, discord: null, website: null },
         avatar: manifest.avatar ? `/api/launchpad/${slug}/brand/avatar` : null,
         banner: manifest.banner ? `/api/launchpad/${slug}/brand/banner` : null,

@@ -2524,6 +2524,27 @@ $('#lps-submit').addEventListener('click', async () => {
     return;
   }
 
+  // datetime-local gives a local wall-clock string with no zone; Date parses it in the browser's
+  // own zone, which is the one the creator was thinking in when they typed it.
+  const when = (id) => {
+    const v = $(id).value;
+    if (!v) return null;
+    const t = Math.floor(new Date(v).getTime() / 1000);
+    return Number.isFinite(t) && t > 0 ? t : null;
+  };
+  const opensAt = when('#lps-opens');
+  const closesAt = when('#lps-closes');
+  const allowlistUntil = when('#lps-allowlist');
+  const maxPerWallet = Math.max(0, Math.round(Number($('#lps-perwallet').value || 0)) || 0);
+  if (closesAt && opensAt && closesAt <= opensAt) {
+    err.textContent = '✗ The mint would close before it opened.';
+    return;
+  }
+  if (maxPerWallet > lim.maxPerWallet) {
+    err.textContent = `✗ A per wallet limit cannot be over ${fmt(lim.maxPerWallet)}.`;
+    return;
+  }
+
   const wallet = window.VerginalsArena;
   const address = wallet && wallet.address ? wallet.address() : null;
   if (!address || typeof wallet.signMessage !== 'function') {
@@ -2577,7 +2598,8 @@ $('#lps-submit').addEventListener('click', async () => {
           discord: $('#lps-discord').value.trim(),
           website: $('#lps-website').value.trim(),
         },
-        mintPriceUnits, royaltyBps, address, nonce: ch.nonce, signature,
+        mintPriceUnits, royaltyBps, opensAt, closesAt, allowlistUntil, maxPerWallet,
+        address, nonce: ch.nonce, signature,
       }),
     });
 
@@ -2626,6 +2648,7 @@ $('#lps-submit').addEventListener('click', async () => {
     lpsSetFiles([]);
     $('#lps-name').value = ''; $('#lps-desc').value = ''; $('#lps-creator').value = '';
     $('#lps-manifest').value = ''; $('#lps-price').value = ''; $('#lps-royalty').value = '';
+    for (const id of ['opens', 'closes', 'allowlist', 'perwallet']) $('#lps-' + id).value = '';
     for (const id of ['tagline', 'contact', 'x', 'discord', 'website', 'avatar', 'banner']) $('#lps-' + id).value = '';
   } catch (e) {
     err.textContent = '✗ ' + e.message;

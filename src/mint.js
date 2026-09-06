@@ -197,14 +197,31 @@ class MintController {
    * Atomically reserve the next number in the committed order that isn't minted or actively reserved.
    * Returns the assignment (number + metadata) or null if the drop is sold out / fully reserved.
    */
-  reserve(jobId) {
+  reserve(jobId, owner = null) {
     for (const number of this.order) {
       if (this.state.minted[number] || this.state.reserved[number]) continue;
-      this.state.reserved[number] = { jobId, at: Date.now() };
+      // The owner is recorded on the RESERVATION and not only on the mint, because a per-wallet cap
+      // counted at confirmation is a cap somebody walks past by opening fifty quotes at once and
+      // paying them all. Optional: the Alpha mint has no cap and passes nothing.
+      this.state.reserved[number] = { jobId, owner, at: Date.now() };
       this._save();
       return Object.assign({ commitment: this.commitment }, this.get(number));
     }
     return null;
+  }
+
+  /**
+   * How many of this collection one address already holds or has in flight.
+   *
+   * Counts reservations as well as mints, which is the whole point: the gap between reserving and
+   * paying is exactly where a cap gets walked past.
+   */
+  heldBy(owner) {
+    if (!owner) return 0;
+    let n = 0;
+    for (const m of Object.values(this.state.minted)) if (m && m.owner === owner) n++;
+    for (const r of Object.values(this.state.reserved)) if (r && r.owner === owner) n++;
+    return n;
   }
 
   /** Which number a job holds a reservation on (or null). */

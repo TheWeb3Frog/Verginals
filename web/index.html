@@ -7,8 +7,8 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/vg.css?v=64" />
-  <link rel="stylesheet" href="/style.css?v=64" />
+  <link rel="stylesheet" href="/vg.css?v=65" />
+  <link rel="stylesheet" href="/style.css?v=65" />
 </head>
 <body class="vg vg-hosted">
 
@@ -844,6 +844,33 @@
         </div>
         <label class="lbl">Paid to</label>
         <div class="lps-payout" id="lps-payout">Connect your wallet</div>
+
+        <label class="lbl lps-only-many">The launch <span class="hint">all optional</span></label>
+        <div class="grid2 lps-only-many">
+          <div>
+            <label class="lbl">Opens</label>
+            <input type="datetime-local" id="lps-opens" />
+          </div>
+          <div>
+            <label class="lbl">Closes</label>
+            <input type="datetime-local" id="lps-closes" />
+          </div>
+        </div>
+        <div class="grid2 lps-only-many">
+          <div>
+            <label class="lbl">Alpha holders first, until</label>
+            <input type="datetime-local" id="lps-allowlist" />
+          </div>
+          <div>
+            <label class="lbl">Max per wallet <span class="hint">0 for no limit</span></label>
+            <input type="text" id="lps-perwallet" inputmode="numeric" placeholder="0" />
+          </div>
+        </div>
+        <p class="hint lps-only-many">Leave the times empty and it opens the moment it is approved
+          and never closes. The window is kept by this server, so it is real to the minute and it is
+          not a rule of the chain. <strong>There is no hidden reveal:</strong> the art is written on
+          chain as each item is minted, so anybody reading the chain sees it immediately. Hiding it
+          on our own pages would be a curtain in front of an open window.</p>
         <div class="grid2">
           <div>
             <label class="lbl">Tagline <span class="hint">one line, on the card</span></label>
@@ -1193,7 +1220,7 @@ frog-02.png,Cosmic Frog #2,Swamp,Half Shut</code></pre>
 
   <script src="/vendor/qrcode.js"></script>
   <script type="module" src="/app-chrome.js"></script>
-<script src="/app.js?v=64"></script>
-  <script src="/wallet.js?v=64"></script>
+<script src="/app.js?v=65"></script>
+  <script src="/wallet.js?v=65"></script>
 </body>
 </html>

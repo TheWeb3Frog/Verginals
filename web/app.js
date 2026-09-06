@@ -2103,7 +2103,24 @@ async function openLaunchpadCollection(slug, push = true) {
     const pct = s.supply ? Math.min(100, (s.minted / s.supply) * 100) : 0;
     $('#lp-bar').style.width = pct.toFixed(1) + '%';
     $('#lp-count').textContent = `${fmt(s.minted)} / ${fmt(s.supply)} minted · ${fmt(s.remaining)} left`;
-    $('#lp-fair').innerHTML = `Provably fair · commitment <code>${esc(short(s.commitment))}</code> · images stay sealed until minted`;
+    // A draw with one possible outcome is not a draw, and a page saying "provably fair" about it
+    // reads as theatre. The supply is the fact that decides this, so nothing has to be declared at
+    // submission and no old collection needs a field it was never given.
+    $('#lp-fair').innerHTML = s.supply > 1
+      ? `Provably fair · commitment <code>${esc(short(s.commitment))}</code> · images stay sealed until minted`
+      : 'A single piece. There is nothing to draw and nothing sealed: what you see is what you mint.';
+
+    // The launch window, and what stands between somebody and minting right now.
+    const gateSay = [];
+    if (s.opensAt && Date.now() / 1000 < s.opensAt) gateSay.push('Opens ' + whenSay(s.opensAt));
+    else if (s.allowlistUntil && Date.now() / 1000 < s.allowlistUntil) {
+      gateSay.push('Alpha holders only until ' + whenSay(s.allowlistUntil));
+    }
+    if (s.closesAt) gateSay.push((Date.now() / 1000 >= s.closesAt ? 'Closed ' : 'Closes ') + whenSay(s.closesAt));
+    if (s.maxPerWallet > 0) gateSay.push(`${s.maxPerWallet} per wallet`);
+    if (s.mintPriceUnits > 0) gateSay.unshift(`${fmt(s.mintPriceUnits / MKT_COIN)} XVG to the creator`);
+    $('#lp-schedule').textContent = gateSay.join(' · ');
+    $('#lp-schedule').classList.toggle('hidden', !gateSay.length);
     $('#lp-form').classList.toggle('hidden', !!s.soldOut);
     $('#lp-soldout').classList.toggle('hidden', !s.soldOut);
     $('#lp-active').classList.add('hidden');
@@ -2658,6 +2675,15 @@ $('#lps-submit').addEventListener('click', async () => {
     bar.style.width = '0%';
   }
 });
+
+/** A moment, said the way somebody would read it off a poster. */
+function whenSay(unixSeconds) {
+  const d = new Date(unixSeconds * 1000);
+  const soon = Math.abs(d - Date.now()) < 7 * 86400 * 1000;
+  return soon
+    ? d.toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
 
 // --- looking a submission up -------------------------------------------------------------
 //

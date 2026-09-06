@@ -57,7 +57,12 @@ let asked = null;
 async function ask(address) {
   const url = address ? `/api/airdrop?address=${encodeURIComponent(address)}` : '/api/airdrop';
   const r = await fetch(url);
-  if (!r.ok) throw new Error(`the server answered ${r.status}`);
+  // The server says why in the body. "the server answered 400" was true and told somebody who had
+  // fat-fingered their address nothing they could act on.
+  if (!r.ok) {
+    const said = await r.json().catch(() => null);
+    throw new Error((said && said.error) || `the server answered ${r.status}`);
+  }
   return r.json();
 }
 

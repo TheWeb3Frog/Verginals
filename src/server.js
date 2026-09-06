@@ -2080,6 +2080,14 @@ async function handleAirdrop(req, res, url) {
 
   const address = (url.searchParams.get('address') || '').trim();
   if (address) {
+    // A TYPO IS NOT AN ANSWER. Anything non-empty used to come back with a verdict, so a mistyped
+    // address was told "you are not eligible" in the same words as a real one that genuinely is
+    // not. That is the sibling of the rule this endpoint already keeps about an unfinished scan: a
+    // confident answer to a question nobody asked reads exactly like the truth. Refused here rather
+    // than in a page, so every client gets the same answer, including a wallet.
+    if (!VALID_ADDR.test(address)) {
+      return sendJSON(res, 400, { error: 'that does not look like a Verge address' });
+    }
     const done = service.actions.at(address, asOf);
     const shares = sharesOf(done);
     body.you = {

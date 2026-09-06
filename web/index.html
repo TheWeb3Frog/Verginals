@@ -7,8 +7,8 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/vg.css?v=48" />
-  <link rel="stylesheet" href="/style.css?v=48" />
+  <link rel="stylesheet" href="/vg.css?v=57" />
+  <link rel="stylesheet" href="/style.css?v=57" />
 </head>
 <body class="vg vg-hosted">
 
@@ -119,6 +119,35 @@
       </section>
 
       <!-- The wallet. Everything above needs it, so it gets a band rather than a footnote. -->
+      <!-- The first community coin, and whether any of it is already yours. The checker is here
+           rather than only behind a link, because the answer is one field away and a link asking
+           somebody to go and find out is a link most people do not follow. -->
+      <section class="hm-drop">
+        <div class="hm-drop-say">
+          <h2 class="hm-drop-title">Community<br>Airdrop</h2>
+          <p class="hm-drop-sub">If you were here early, some of it is already yours.</p>
+          <p class="vg-say">
+            ALPHA<span class="hm-dot">&#8226;</span>BRRRR is the first community coin on Verginals,
+            and all of it goes to the wallets that built the first year. Nothing to buy and nothing
+            to pay. Four things count, and each one you have done is a share.
+          </p>
+          <ul class="hm-drop-acts" id="hm-drop-acts"></ul>
+        </div>
+        <div class="hm-drop-check">
+          <dl class="vg-strip" id="hm-drop-stats"></dl>
+          <form class="hm-drop-form" id="hm-drop-form" autocomplete="off">
+            <label class="vg-label" for="hm-drop-addr">Check an address</label>
+            <div class="hm-drop-row">
+              <input id="hm-drop-addr" class="vg-input" type="text" spellcheck="false"
+                placeholder="Your Verge address" aria-label="Verge address">
+              <button class="vg-btn primary" type="submit">Check</button>
+            </div>
+          </form>
+          <div class="hm-drop-out" id="hm-drop-out"></div>
+          <a class="hm-drop-more" href="/airdrop">See the full breakdown</a>
+        </div>
+      </section>
+
       <section class="hm-wallet">
         <div class="hm-wallet-say">
           <p class="vg-label">The Verginals Wallet</p>
@@ -168,20 +197,6 @@
           </div>
           <ul class="hm-coinlist" id="hm-coins"></ul>
         </div>
-      </section>
-
-      <!-- What is worth pointing at right now. -->
-      <section class="hm-pair hm-pair-one">
-        <a class="hm-panel hm-panel-drop" href="/airdrop">
-          <p class="vg-label">Community drop</p>
-          <h3 class="vg-d3">If you were here early,<br>some of it is yours.</h3>
-          <p class="vg-small">
-            The first community coin is being given away to the wallets that inscribed, minted and
-            etched during the chain's first year. Nothing to claim and nothing to pay: check an
-            address and see.
-          </p>
-          <span class="hm-panel-go">Check an address</span>
-        </a>
       </section>
 
       <section class="hm-claims">
@@ -1050,7 +1065,7 @@
 
   <script src="/vendor/qrcode.js"></script>
   <script type="module" src="/app-chrome.js"></script>
-<script src="/app.js?v=48"></script>
-  <script src="/wallet.js?v=48"></script>
+<script src="/app.js?v=57"></script>
+  <script src="/wallet.js?v=57"></script>
 </body>
 </html>

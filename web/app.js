@@ -2384,9 +2384,127 @@ function renderDonateQR() {
 let homeLoaded = false;
 let homeLoading = false;
 
+// --- the community drop, on the front page --------------------------------------------------
+//
+// Two rules carried over from the airdrop page itself, because a second surface that answers the
+// same question differently is worse than no second surface at all:
+//
+//   AN UNFINISHED SCAN IS NOT AN ANSWER. During a rescan the ledger is genuinely empty and every
+//   address on earth is genuinely ineligible. "You do not qualify" then is a lie that reads exactly
+//   like the truth, so no verdict is drawn at all until the index has caught up.
+//
+//   NO PER-WALLET AMOUNT IS QUOTED. The allocation is the supply divided by every share there is,
+//   and shares are still being earned, so any figure shown here would quietly shrink each time
+//   somebody else qualifies. Shares are a fact; a coin count is not one yet.
+let dropLoaded = false;
+
+async function loadDrop() {
+  const stats = $('#hm-drop-stats');
+  const acts = $('#hm-drop-acts');
+  if (!stats || !acts || dropLoaded) return;
+
+  const d = await api('/api/airdrop').catch(() => null);
+  // Its own retry, not the front page's: loadHome stops retrying as soon as the other three
+  // endpoints answer, and this one is slow for a different reason (it walks the whole action
+  // ledger). Without this, one timeout here left an empty box on the page for the whole visit.
+  if (!d) { setTimeout(loadDrop, 6000); return; }
+
+  // DRAW WHAT IS KNOWN, NOT ONLY WHAT IS COMPLETE. During a rescan the index has not found the coin
+  // yet and `coin` comes back null, but the four actions and the fact that none of it is ours are
+  // not facts about the index. Waiting for the coin to draw any of it left the whole section as an
+  // empty box for the twenty minutes after every restart.
+  const add = (label, value, sub, cls) => {
+    const box = document.createElement('div');
+    box.className = 'vg-strip-stat' + (cls ? ' ' + cls : '');
+    const dt = document.createElement('dt'); dt.textContent = label;
+    const dd = document.createElement('dd'); dd.textContent = value;
+    if (sub) { const x = document.createElement('span'); x.className = 'sub'; x.textContent = sub; dd.append(x); }
+    box.append(dt, dd);
+    stats.append(box);
+  };
+  stats.innerHTML = '';
+  if (d.coin) add('Supply', fmt(d.coin.whole), d.coin.display);
+  if (d.totals) add('Eligible', fmt(d.totals.wallets), 'wallets so far');
+  add('Team', '0%', 'none of it ours', 'is-free');
+
+  acts.innerHTML = '';
+  for (const a of d.actions || []) {
+    const li = document.createElement('li');
+    li.className = 'hm-drop-act';
+    li.dataset.act = a.key;
+    li.innerHTML = `${esc(a.label)} <b>${a.max === 1 ? '1 share' : a.max + ' shares'}</b>`;
+    acts.append(li);
+  }
+
+  // Settled only once the coin is really there. Until then this comes back and fills the gaps.
+  if (d.coin && d.totals) dropLoaded = true;
+  else setTimeout(loadDrop, 6000);
+}
+
+/** The checker. One field, the same verdict the airdrop page gives, in the same words. */
+function wireDropCheck() {
+  const form = $('#hm-drop-form');
+  const out = $('#hm-drop-out');
+  const input = $('#hm-drop-addr');
+  if (!form || !out || !input || form.dataset.wired) return;
+  form.dataset.wired = '1';
+
+  const show = (verdict, detail, cls, fill) => {
+    out.className = 'hm-drop-out' + (cls ? ' ' + cls : '');
+    out.innerHTML = `<p class="hm-drop-verdict">${esc(verdict)}</p>`
+      + (detail ? `<p class="hm-drop-detail">${esc(detail)}</p>` : '');
+    if (fill != null) {
+      const m = document.createElement('div');
+      m.className = 'hm-drop-meter';
+      const bar = document.createElement('span');
+      bar.style.width = Math.max(0, Math.min(100, fill * 100)).toFixed(0) + '%';
+      m.append(bar);
+      out.append(m);
+    }
+  };
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const address = input.value.trim();
+    if (!address) return;
+    show('Checking...', '', '');
+    let d;
+    try { d = await api('/api/airdrop?address=' + encodeURIComponent(address)); }
+    catch (err) { return show('Could not check that', err.message, 'is-bad'); }
+
+    if (d.error) return show('Could not check that', d.error, 'is-bad');
+    // Rule one. An empty ledger during a rescan makes every address look ineligible.
+    if (d.scanning) {
+      return show('Still reading the chain', 'The ledger is not complete yet, so no answer here '
+        + 'would be trustworthy. This page fills in on its own.', '');
+    }
+    const you = d.you;
+    if (!you) return show('Could not check that', 'That does not look like a Verge address.', 'is-bad');
+
+    const done = Object.entries(you.done || {}).filter(([, v]) => v.count > 0).map(([k]) => k);
+    $$('#hm-drop-acts .hm-drop-act').forEach((li) => {
+      li.classList.toggle('is-done', done.includes(li.dataset.act));
+    });
+
+    if (!you.eligible) {
+      return show('Not on the list yet',
+        'Nothing on this address counts yet. Any one of the four above puts it on.', '', 0);
+    }
+    const full = you.shares >= d.maxShares;
+    const short = d.maxShares - you.shares;
+    show(full ? 'Eligible, and maxed out.' : 'Eligible.',
+      full
+        ? `You hold all ${d.maxShares} shares.`
+        : `You hold ${you.shares} of ${d.maxShares} shares. ${short} more ${short === 1 ? 'is' : 'are'} still on the table.`,
+      'is-in', you.fill);
+  });
+}
+
 async function loadHome() {
   if (homeLoaded || homeLoading) return;
   homeLoading = true;
+  wireDropCheck();
+  loadDrop();
 
   const figures = $('#hm-figures');
   const rail = $('#hm-rail');

@@ -154,4 +154,34 @@ test('a price under a hundredth of a cent is said in words, not in scientific no
   assert.ok(!/e-/.test(usd(0.000000001)), 'no exponent may ever reach the page');
 });
 
+// --- a typo is not a verdict ----------------------------------------------------------------------
+
+test('THE AIRDROP ENDPOINT REFUSES A MALFORMED ADDRESS INSTEAD OF JUDGING IT', () => {
+  // Anything non-empty used to come back with a verdict, so a mistyped address was told "you are
+  // not eligible" in exactly the words a real one that genuinely is not would get. It is the
+  // sibling of the rule this endpoint already keeps about an unfinished scan.
+  const fn = /async function handleAirdrop\([\s\S]*?\n\}\n/.exec(server);
+  assert.ok(fn, 'handleAirdrop should exist');
+  const guard = fn[0].indexOf('VALID_ADDR.test(address)');
+  const verdict = fn[0].indexOf('service.actions.at(address');
+  assert.ok(guard > 0, 'the address shape must be checked');
+  assert.ok(verdict > guard, 'and checked BEFORE any verdict is computed');
+  assert.match(fn[0], /sendJSON\(res, 400, \{ error: 'that does not look like a Verge address' \}\)/);
+});
+
+test('and both pages relay what the server said rather than a status code', () => {
+  const ad = fs.readFileSync(path.join(WEB, 'airdrop.js'), 'utf8');
+  assert.match(ad, /said && said\.error/, 'the airdrop page reads the reason out of the body');
+  const drop = /form\.addEventListener\('submit'[\s\S]*?\n  \}\);/.exec(app);
+  assert.ok(drop, 'the front page checker should exist');
+  assert.match(drop[0], /show\('Could not check that', err\.message/);
+});
+
+test('CONTROL: the shape check really does separate the two', () => {
+  const VALID = /^[a-km-zA-HJ-NP-Z1-9]{25,40}$/;
+  assert.ok(VALID.test('DQd5bGpNkFc3wrdwhAhS6MkeWY5Vqb3opM'), 'a real Verge address passes');
+  assert.ok(!VALID.test('pas-une-adresse'), 'a typo does not');
+  assert.ok(!VALID.test(''), 'and neither does nothing');
+});
+
 console.log('\n' + passed + ' market change tests passed');

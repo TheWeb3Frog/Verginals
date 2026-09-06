@@ -1042,7 +1042,6 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 .hm-panel-go::after { content: ' \2192'; }
 /* A wash of the section's own colour, so the two read as different offers at a glance. */
 .hm-panel-wallet { background: radial-gradient(120% 90% at 100% 0%, rgba(76,194,241,.10), transparent 60%), var(--card); }
-.hm-panel-drop { background: radial-gradient(120% 90% at 100% 0%, rgba(56,211,159,.10), transparent 60%), var(--card); }
 
 /* --- the claims ---------------------------------------------------------------------------------------- */
 
@@ -1112,7 +1111,6 @@ footer .hint { max-width: 980px; margin: 0 auto; }
 .hm-wallet-chip span { display: block; margin-top: 3px; font: 400 11px/1 var(--mono); color: var(--ok); }
 
 /* With the wallet promoted out of it, the pair is a single panel and should not stretch to half. */
-.hm-pair-one { grid-template-columns: minmax(0, 1fr); }
 
 @media (max-width: 1000px) {
   .hm-wallet { grid-template-columns: 1fr; gap: 28px; padding: 28px; }
@@ -1335,4 +1333,73 @@ button.mkx-ctl[aria-expanded="true"] { border-color: var(--accent); color: var(-
   .mkx-search { flex: 1 1 100%; max-width: none; }  /* its own row, so the placeholder is not cut */
   .mkx-act { grid-template-columns: 44px 1fr auto; gap: 10px; }
   .mkx-act .mkx-kind, .mkx-act .mkx-act-who { display: none; }
+}
+
+/* --- the community drop, on the front page ------------------------------------------------------
+ *
+ * It used to be a small card near the foot of the page, under everything else, and it is the single
+ * strongest reason somebody has to do anything here: they may already own some of it. So it sits
+ * directly under the six cards that say what this site does, because "and if you already did any of
+ * that, some of it is yours" only means something once you know what "that" is.
+ *
+ * The checker is here rather than only behind a link. The answer is one field away, and a link
+ * asking somebody to go and find out is a link most people do not follow.
+ */
+.hm-drop {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, .85fr);
+  gap: 40px; align-items: start;
+  padding: 34px 32px; margin: 0 0 28px;
+  border: 1px solid var(--line); border-radius: var(--r-card);
+  background:
+    radial-gradient(120% 150% at 6% 0%, #133a2e 0%, transparent 58%),
+    var(--card);
+}
+/* The two words that have to carry the section. Bigger than any other heading on the page below
+   the hero, because this is the one thing on the front page that is free and already earned. */
+.hm-drop-title {
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(38px, 5vw, 62px); line-height: .92; letter-spacing: -.035em;
+  margin: 0 0 12px; text-wrap: balance;
+}
+.hm-drop-sub {
+  font-family: var(--display); font-weight: 700; font-size: 19px; line-height: 1.25;
+  letter-spacing: -.015em; color: var(--ok); margin: 0 0 14px; max-width: 24ch;
+}
+.hm-drop .vg-say { max-width: 54ch; margin: 0; }
+.hm-dot { color: var(--ok); }
+
+/* The four things that count, filled in from the same list the airdrop page reads, so the two can
+   never disagree about what earns a share. */
+.hm-drop-acts { list-style: none; margin: 18px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.hm-drop-act {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-pill, 999px);
+  padding: 6px 13px; font: 400 12.5px/1.3 var(--sans); color: var(--muted);
+}
+.hm-drop-act b { font: 600 11px/1 var(--mono); color: var(--dim); }
+.hm-drop-act.is-done { border-color: var(--ok); color: var(--txt); }
+.hm-drop-act.is-done b { color: var(--ok); }
+
+.hm-drop-check { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.hm-drop-form { display: flex; flex-direction: column; gap: 7px; }
+.hm-drop-row { display: flex; gap: 8px; }
+.hm-drop-row .vg-input { flex: 1; min-width: 0; }
+.hm-drop-row .vg-btn { flex: none; }
+.hm-drop-out:empty { display: none; }
+.hm-drop-out {
+  padding: 14px 16px; border-radius: var(--r-card);
+  background: var(--bg2); border: 1px solid var(--line);
+}
+.hm-drop-out.is-in { border-color: var(--ok); }
+.hm-drop-out.is-bad { border-color: var(--danger); }
+.hm-drop-verdict { margin: 0 0 4px; font: 700 16px/1.2 var(--display); letter-spacing: -.01em; }
+.hm-drop-out.is-in .hm-drop-verdict { color: var(--ok); }
+.hm-drop-detail { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+.hm-drop-meter { height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 10px; }
+.hm-drop-meter span { display: block; height: 100%; background: var(--ok); border-radius: 3px; }
+.hm-drop-more { font-size: 13px; color: var(--accent); text-decoration: none; }
+.hm-drop-more:hover { text-decoration: underline; }
+
+@media (max-width: 860px) {
+  .hm-drop { grid-template-columns: 1fr; gap: 26px; padding: 24px 20px; }
 }

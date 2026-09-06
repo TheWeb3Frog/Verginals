@@ -56,6 +56,7 @@ const { comboBonus } = require('./combos');
 const { Launchpad } = require('./launchpad');
 const { OrderBook } = require('./orderbook');
 const { PriceLog, collectionKey, coinKey, DAY } = require('./pricelog');
+const { pickAbandoned } = require('./jobsweep');
 const { RuneBook } = require('./runes/book');
 const { GameAuth } = require('./gameauth');
 const { verifyMessage } = require('./message');
@@ -3184,6 +3185,69 @@ async function snapshotPrices() {
   }
 }
 
+/**
+ * Finish inscriptions that were paid for and then abandoned.
+ *
+ * A quote is driven by the buyer's own browser: GET /api/job/:id looks for the payment and builds
+ * the commit and the reveal when it finds it. So somebody who pays and closes the tab is never
+ * finished by anybody, their money sits at a deposit address nothing will ever spend, and thirty
+ * days later cleanupJobs removes the file and the only record of it goes with it.
+ *
+ * Collection mints already had a way out of this, because they hold a reservation and the reaper
+ * below walks those. A plain inscription reserves nothing, so nothing looked at it a second time.
+ *
+ * One listunspent for every candidate rather than one per job: the deposit addresses are all
+ * watched by this wallet, and there were 281 unfinished jobs on disk the day this was written.
+ */
+async function driveAbandonedJobs() {
+  let files;
+  try { files = fs.readdirSync(JOB_DIR); } catch (_) { return; }
+
+  const jobs = [];
+  for (const f of files) {
+    if (!f.endsWith('.json')) continue;
+    try { jobs.push(JSON.parse(fs.readFileSync(path.join(JOB_DIR, f), 'utf8'))); } catch (_) { /* skip */ }
+  }
+  // Ask about the ones that could conceivably be paid, which is every job the selector would
+  // consider before it knows the money. Cheaper than asking about all of them, and no rule is
+  // duplicated here: pickAbandoned decides, this only narrows what has to be looked up.
+  const maybe = jobs.filter((j) => j && j.depositAddress && !j.mint
+    && j.status !== 'done' && j.status !== 'error' && !j.splitTxid && !j.revealTxid
+    && !processing.has(j.id) && (j.driveAttempts || 0) < MAX_DRIVE_ATTEMPTS);
+  if (!maybe.length) return;
+
+  const paid = new Map();
+  try {
+    const addrs = [...new Set(maybe.map((j) => j.depositAddress))];
+    for (let i = 0; i < addrs.length; i += 100) {
+      const utxos = await client.call('listunspent', [0, 9999999, addrs.slice(i, i + 100)]);
+      for (const u of utxos) {
+        paid.set(u.address, (paid.get(u.address) || 0) + toUnits(u.amount));
+      }
+    }
+  } catch (e) {
+    console.warn('abandoned sweep: could not read deposits: ' + e.message);
+    return;
+  }
+
+  for (const job of pickAbandoned(jobs, { paid, processing, maxAttempts: MAX_DRIVE_ATTEMPTS, limit: 3 })) {
+    job.driveAttempts = (job.driveAttempts || 0) + 1;
+    saveJob(job); // written BEFORE the attempt, so a crash mid-drive still counts as a try
+    processing.add(job.id);
+    try {
+      await drivePayout(job, await client.call('listunspent', [0, 9999999, [job.depositAddress]]));
+      console.log(`Jobs: finished abandoned inscription ${job.id} -> ${job.revealTxid}`);
+    } catch (e) {
+      // NOT marked as an error. A request marks a job dead on the first failure because somebody is
+      // watching and can start again; here nobody is, and a node that was busy for one minute would
+      // otherwise bury a paid job for good. It retries until MAX_DRIVE_ATTEMPTS and then stops.
+      console.warn(`Jobs: could not finish ${job.id} (attempt ${job.driveAttempts}): ${e.message}`);
+    } finally {
+      processing.delete(job.id);
+    }
+  }
+}
+
 async function reapMintReservations() {
   // Alpha plus every live launchpad collection: each controller reaps its own reservations.
   const ctls = [];
@@ -4224,6 +4288,8 @@ server.listen(PORT, HOST, () => {
   setInterval(snapshotPrices, 5 * 60 * 1000).unref();
   reapMintReservations();
   setInterval(reapMintReservations, 5 * 60 * 1000).unref();
+  driveAbandonedJobs();
+  setInterval(driveAbandonedJobs, 5 * 60 * 1000).unref();
   // Keep the index moving on its own. It used to advance only when a request happened to call
   // syncIndex(), so after a restart /api/info reported a height 100k blocks stale until someone
   // asked for something that triggered a scan, and whoever asked first paid the whole cold scan.

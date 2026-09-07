@@ -1391,7 +1391,7 @@ const submitAuth = new GameAuth({ prefix: 'verginals-launchpad-submit' });
 function handleLaunchpadChallenge(req, res, body) {
   const address = String((body && body.address) || '').trim();
   if (!VALID_ADDR.test(address)) return sendJSON(res, 400, { error: 'that does not look like a Verge address' });
-  return sendJSON(res, 200, submitAuth.newChallenge(address));
+  return sendJSON(res, 200, submitAuth.issueChallenge(address));
 }
 
 /**
@@ -2093,7 +2093,7 @@ function coinImageIndex() {
 function handleCoinImageChallenge(req, res, body) {
   const address = String((body && body.address) || '').trim();
   if (!/^[a-zA-Z0-9]{26,48}$/.test(address)) return sendJSON(res, 400, { error: 'bad address' });
-  return sendJSON(res, 200, imageAuth.newChallenge(address));
+  return sendJSON(res, 200, imageAuth.issueChallenge(address));
 }
 
 /**

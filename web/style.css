@@ -1495,3 +1495,14 @@ button.mkx-ctl[aria-expanded="true"] { border-color: var(--accent); color: var(-
 .lps-dist-row span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lps-dist-row b { font: 500 11.5px/1.4 var(--mono); color: var(--txt); white-space: nowrap; }
 .lps-dist-row.rare b { color: var(--accent); }
+
+/* The launchpad rules, said as facts at the top of the form rather than as one grey line inside it.
+   The strip is the same component the markets use, so a number reads the same wherever it appears. */
+.lps-specs { margin: 16px 0 20px; flex-wrap: wrap; }
+.lps-specs .vg-strip-stat { flex: 1 1 150px; }
+.lps-specs .vg-strip-stat dd .sub { display: block; margin-left: 0; margin-top: 3px; }
+.lps-specs-say {
+  flex: 1 1 100%; margin: 0; padding: 10px 16px;
+  border-top: 1px solid var(--line); background: var(--bg2);
+  font-size: 12.5px; color: var(--muted); line-height: 1.5;
+}

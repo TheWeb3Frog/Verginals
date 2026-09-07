@@ -7,8 +7,8 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/vg.css?v=67" />
-  <link rel="stylesheet" href="/style.css?v=67" />
+  <link rel="stylesheet" href="/vg.css?v=68" />
+  <link rel="stylesheet" href="/style.css?v=68" />
 </head>
 <body class="vg vg-hosted">
 
@@ -805,7 +805,11 @@
       <div class="card" id="lp-submit-card">
         <h2>Launch your collection</h2>
         <p class="hint">Anyone can submit. Submissions are <strong>reviewed before going live</strong> (that keeps the launchpad clean and lawful; see the Terms). Once approved, it gets its own mint page here.</p>
-        <p class="hint" id="lps-limits">Reading the current limits&#8230;</p>
+        <!-- The rules, where somebody deciding whether to submit will meet them, and as facts
+             rather than a sentence. They were correct and buried two thousand pixels down in grey
+             fine print, which is the same as not saying them. Every number is written by the
+             server: see paintLaunchpadLimits. -->
+        <dl class="vg-strip lps-specs" id="lps-limits"></dl>
         <div class="grid2">
           <div>
             <label class="lbl">Collection name</label>
@@ -1206,7 +1210,7 @@ frog-02.png,Cosmic Frog #2,Swamp,Half Shut</code></pre>
 
   <script src="/vendor/qrcode.js"></script>
   <script type="module" src="/app-chrome.js"></script>
-<script src="/app.js?v=67"></script>
-  <script src="/wallet.js?v=67"></script>
+<script src="/app.js?v=68"></script>
+  <script src="/wallet.js?v=68"></script>
 </body>
 </html>

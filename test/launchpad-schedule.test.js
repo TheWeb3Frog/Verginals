@@ -208,10 +208,28 @@ test('AND APPROVE REFUSES IT TOO, for anything already in the queue', () => {
   assert.throws(() => l.approve(id, 'lonely'), /at least 2 items/);
 });
 
-test('the form states the floor and checks against it', () => {
+test('THE RULES ARE STATED AS FACTS, ABOVE THE FORM, NOT INSIDE IT', () => {
+  // They were correct and two thousand pixels down the page in grey fine print, which is the same
+  // as not saying them: somebody deciding whether their collection fits met the answer only after
+  // scrolling into the form.
   const app = fs.readFileSync(path.join(__dirname, '..', 'web', 'app.js'), 'utf8');
-  assert.match(app, /From \$\{lpLimits\.minItems\} to/);
+  const fn = /function paintLaunchpadLimits\(\) \{[\s\S]*?\n\}/.exec(app);
+  assert.ok(fn, 'the limits painter should exist');
+  for (const must of ['Formats', 'Max size', 'Resolution', 'Items']) {
+    assert.ok(fn[0].includes(`'${must}'`), 'the strip should name: ' + must);
+  }
+  assert.match(fn[0], /lpLimits\.maxImageBytes/, 'the size comes from the server');
+  assert.match(fn[0], /lpLimits\.maxImageSide/, 'and so does the resolution');
+  assert.match(fn[0], /lpLimits\.minItems.*lpLimits\.maxItems|lpLimits\.maxItems/, 'and the counts');
+  assert.match(html, /<dl class="vg-strip lps-specs" id="lps-limits">/,
+    'and it is the same strip component the markets use, not a paragraph');
+});
+
+test('and the form still checks against the server number, not a copy', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'web', 'app.js'), 'utf8');
   assert.match(app, /A collection is at least \$\{lim\.minItems\} items/);
+  const submit = app.slice(app.indexOf("$('#lps-submit').addEventListener"));
+  assert.ok(!/16 \* 1024|1024 pixels|10,000 items/.test(submit), 'no literal rule may come back');
 });
 
 test('and nothing is left of the single piece door', () => {

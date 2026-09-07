@@ -2048,15 +2048,40 @@ function paintPayoutAddress() {
 // On document, not window: wallet.js dispatches without bubbles, so a window listener never fires.
 document.addEventListener('vg:wallet', paintPayoutAddress);
 
-/** Say the limits in the form, in the server's own numbers. */
+/**
+ * The rules, in the server's own numbers, as facts rather than a sentence.
+ *
+ * They used to be one long grey line inside the form, correct and two thousand pixels down the
+ * page, which is the same as not saying them: somebody deciding whether their collection fits met
+ * the answer only after scrolling into the fine print.
+ */
 function paintLaunchpadLimits() {
   const box = $('#lps-limits');
   if (!box || !lpLimits) return;
   const kb = Math.round(lpLimits.maxImageBytes / 1024);
-  const names = lpLimits.formats.map((f) => f.split('/')[1].toUpperCase()).join(', ');
-  box.textContent = `${names}, one format for the whole collection, up to ${kb} KB and `
-    + `${lpLimits.maxImageSide} pixels a side. From ${lpLimits.minItems} to ${fmt(lpLimits.maxItems)} items. `
-    + `Your browser shrinks anything larger before it is sent.`;
+  const specs = [
+    ['Formats', lpLimits.formats.map((f) => f.split('/')[1].toUpperCase()).join(' · '),
+      'one format for the whole collection'],
+    ['Max size', kb + ' KB', 'per image'],
+    ['Resolution', `${lpLimits.maxImageSide} × ${lpLimits.maxImageSide}`, 'at most, per side'],
+    ['Items', `${lpLimits.minItems} to ${fmt(lpLimits.maxItems)}`, 'per collection'],
+  ];
+  box.innerHTML = '';
+  for (const [label, value, sub] of specs) {
+    const d = document.createElement('div');
+    d.className = 'vg-strip-stat';
+    const dt = document.createElement('dt'); dt.textContent = label;
+    const dd = document.createElement('dd'); dd.textContent = value;
+    const x = document.createElement('span'); x.className = 'sub'; x.textContent = sub;
+    dd.append(x);
+    d.append(dt, dd);
+    box.append(d);
+  }
+  const say = document.createElement('p');
+  say.className = 'lps-specs-say';
+  say.textContent = 'Anything bigger is reduced in your browser before it is sent, so a file over '
+    + 'the limit is not a refusal.';
+  box.append(say);
 }
 
 async function loadLaunchpad() {

@@ -406,6 +406,14 @@ async function handleInfo(res) {
   const tip = await chain.getBlockCount();
   sendJSON(res, 200, {
     network: NETWORK, tip, indexFrom: INDEX_FROM, indexedThrough: service.scannedThrough, arena: ARENA_ENABLED,
+    // The picture rules, so the etch form can state and check them rather than keep a copy that
+    // drifts. It already reads this endpoint at boot.
+    coinImage: {
+      maxBytes: coinimage.MAX_BYTES,
+      maxSide: coinimage.MAX_SIDE,
+      maxSourceBytes: coinimage.MAX_SOURCE_BYTES,
+      formats: coinimage.TYPES.map((t) => t.mime),
+    },
     adventure: ADVENTURE_ENABLED && !!adventure,
     // Whether this server indexes fungible runes (RUNES-SPEC-v0). The wallet needs this, and the
     // reason is not cosmetic: it treats a coin whose rune status it cannot determine as untouchable,
@@ -2044,6 +2052,8 @@ function handleRuneCoin(req, res, url) {
     etcher,
     image: coinImageIndex()(ref),
     imageMaxBytes: coinimage.MAX_BYTES,
+    imageMaxSide: coinimage.MAX_SIDE,
+    imageMaxSourceBytes: coinimage.MAX_SOURCE_BYTES,
   }));
 }
 
@@ -4150,7 +4160,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && (/^\/v\/[A-Za-z0-9]{1,64}$/.test(p) || /^\/gallery\/[a-km-zA-HJ-NP-Z1-9]{25,40}$/.test(p) || /^\/launchpad(\/[a-z0-9-]{3,32})?$/.test(p) || (ARENA_ENABLED && /^\/arena(\/replay\/[A-Za-z0-9_-]{1,4096})?$/.test(p)))) {
       return serveStatic(res, 'index.html');
     }
-    if (req.method === 'GET' && (p === '/app.js' || p === '/wallet.js' || p === '/style.css' || p === '/sitenav.css')) return serveStatic(res, p.slice(1));
+    if (req.method === 'GET' && (p === '/app.js' || p === '/wallet.js' || p === '/imagefit.js' || p === '/style.css' || p === '/sitenav.css')) return serveStatic(res, p.slice(1));
     // The design system, and the one definition of the site bar. Every page pulls both.
     if (req.method === 'GET' && (p === '/vg.css' || p === '/vgnav.js' || p === '/app-chrome.js')) return serveStatic(res, p.slice(1));
     // Self-hosted faces. The CSP is default-src 'self', and a page that promises nothing about you

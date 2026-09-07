@@ -45,12 +45,20 @@ const answers = (p) => exact.has(p) || prefixes.some((s) => p.startsWith(s))
 const served = [...new Set([...server.matchAll(/serveStatic\(res, '([^']+\.html)'\)/g)].map((m) => m[1]))]
   .filter((f) => fs.existsSync(path.join(WEB, f)));
 
-/** Local hrefs and srcs a page asks for. External URLs and anchors are not ours to serve. */
+/**
+ * Local hrefs and srcs a page asks for. External URLs and anchors are not ours to serve.
+ *
+ * THE CACHE KEY IS STRIPPED, NOT EXCLUDED. The first version stopped the path at `?`, so a src of
+ * "/app.js?v=69" matched nothing at all: every versioned asset on the site was invisible to this
+ * check, which is to say almost all of them. It passed for months while checking the handful of
+ * files nobody had ever bumped.
+ */
 function assetsOf(file) {
   const html = fs.readFileSync(path.join(WEB, file), 'utf8');
   const found = new Set();
-  for (const m of html.matchAll(/(?:href|src)="(\/[^"#?]+)"/g)) {
-    if (/\.(js|css|svg|png|jpg|webp|ico|woff2?)$/.test(m[1])) found.add(m[1]);
+  for (const m of html.matchAll(/(?:href|src)="(\/[^"#]+)"/g)) {
+    const p = m[1].split('?')[0];
+    if (/\.(js|css|svg|png|jpg|webp|ico|woff2?)$/.test(p)) found.add(p);
   }
   return found;
 }
@@ -62,6 +70,11 @@ test('the harness found the routing table and the pages', () => {
   assert.ok(served.length > 4, `only ${served.length} served pages found`);
   assert.ok(answers('/style.css'), 'the most-linked stylesheet on the site read as unrouted');
   assert.ok(answers('/verge-runes.css'), 'an optional group in a route pattern was misread');
+  // The control for the hole this check had: a versioned asset must be seen at all.
+  const home = assetsOf('index.html');
+  assert.ok(home.has('/app.js'),
+    'a src with a cache key read as no asset, which is how every bumped file went unchecked');
+  assert.ok(home.size > 5, `only ${home.size} assets found on the home page`);
 });
 
 test('EVERY ASSET EVERY SERVED PAGE ASKS FOR IS ONE THE SERVER ANSWERS', () => {

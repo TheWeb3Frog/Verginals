@@ -103,19 +103,24 @@ test('THE ETCHING PAYLOAD DOES NOT CARRY THE PICTURE', () => {
 
 // --- the two caps have to be the same number ---------------------------------------------------------------
 
-test('THE CLIENT CAP IS THE SERVER CAP, or somebody is refused after paying', () => {
-  // A client that allows more than the server accepts means the refusal lands after the coin has
-  // been etched, which is the worst possible moment to learn about a size limit.
-  const m = /const MAX_IMAGE_BYTES = (\d+) \* 1024;/.exec(js);
-  assert.ok(m, 'the client should state its own cap');
-  assert.strictEqual(Number(m[1]) * 1024, coinimage.MAX_BYTES,
-    'web/etch.js and src/coinimage.js disagree about the maximum size');
-  assert.match(html, new RegExp('up to ' + (coinimage.MAX_BYTES / 1024) + ' KB'),
-    'and the sentence under the field quotes the same number');
+test('THE CLIENT KEEPS NO CAP OF ITS OWN', () => {
+  // It used to hold a literal, and the literal drifted the day the stored ceiling moved: the page
+  // went on refusing files the server would have kept. Now it reads /api/info and the numbers can
+  // only ever be the server's.
+  assert.ok(!/const MAX_IMAGE_BYTES = \d+/.test(js), 'a literal cap is back in the page');
+  assert.match(js, /imageLimits = info\.coinImage;/, 'the limits arrive from the server');
+  assert.ok(!/up to 100 KB/.test(html), 'and no sentence quotes a number of its own');
+  assert.match(html, /id="et-pic-note"/, 'there is a slot the server fills');
 });
 
-test('CONTROL: a cap that drifted would fail the check above', () => {
-  assert.notStrictEqual(90 * 1024, coinimage.MAX_BYTES);
+test('and it reduces the picture instead of refusing it', () => {
+  assert.match(js, /window\.vgFitImage\(file, \{/);
+  assert.match(html, /src="\/imagefit\.js/, 'the page has to load the shared fitter');
+});
+
+test('CONTROL: the drift check really fires on a literal', () => {
+  assert.ok(/const MAX_IMAGE_BYTES = \d+/.test('const MAX_IMAGE_BYTES = 102400;'),
+    'the pattern that shipped must be detectable');
 });
 
 test('the formats offered are the formats the server accepts, SVG excluded', () => {

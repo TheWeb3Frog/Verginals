@@ -76,11 +76,34 @@ test('a bad link is REFUSED, not silently dropped', () => {
 
 // --- the images -------------------------------------------------------------------------------------
 
-test('the avatar is checked exactly as hard as the art is', () => {
+test('AN AVATAR AND A BANNER ARE NOT ITEMS, AND NOT EACH OTHER', () => {
+  // 16 KB is right for one of ten thousand tiles and wrong for the picture a collection is known
+  // by. And a banner is not a big avatar: it runs across the top of a page, so a 1024 pixel ceiling
+  // would be narrower than the space it has to fill.
+  assert.ok(LIMITS.brand.avatar.bytes > LIMITS.maxImageBytes * 4, 'an avatar has room an item does not');
+  assert.ok(LIMITS.brand.banner.bytes > LIMITS.brand.avatar.bytes, 'and a banner has more again');
+  assert.strictEqual(LIMITS.brand.banner.bytes, 1024 * 1024);
+  assert.ok(LIMITS.brand.banner.side > LIMITS.brand.avatar.side, 'and it is allowed to be wide');
+});
+
+test('each is held to its own ceiling, and says which one it failed', () => {
   const l = fresh();
   const { id } = l.createDraft({ name: 'Frogs', address: ADDR });
-  assert.throws(() => l.setBrandImage(id, 'avatar', png(4000, 4000).toString('base64')),
-    new RegExp(`4000 by 4000 and the limit is ${LIMITS.maxImageSide}`));
+  // Too wide for an avatar, fine for a banner: the same file, two answers.
+  const wide = png(2000, 600).toString('base64');
+  assert.throws(() => l.setBrandImage(id, 'avatar', wide),
+    new RegExp(`avatar is 2000 by 600 and the limit is ${LIMITS.brand.avatar.side}`));
+  const ok = l.setBrandImage(id, 'banner', wide);
+  assert.deepStrictEqual([ok.kind, ok.w, ok.h], ['banner', 2000, 600]);
+
+  // And nothing may exceed its own side limit.
+  assert.throws(() => l.setBrandImage(id, 'banner', png(4000, 4000).toString('base64')),
+    new RegExp(`banner is 4000 by 4000 and the limit is ${LIMITS.brand.banner.side}`));
+});
+
+test('an ordinary avatar still goes in', () => {
+  const l = fresh();
+  const { id } = l.createDraft({ name: 'Frogs', address: ADDR });
   const r = l.setBrandImage(id, 'avatar', b64);
   assert.deepStrictEqual([r.kind, r.w, r.h], ['avatar', 64, 64]);
 });
@@ -219,6 +242,25 @@ test('the form no longer quotes the daily allowance at people filling it in', ()
   // It is a guard, not a feature, and reading it while uploading art suggests a suspicion of you.
   assert.ok(!/submissions per address per day/.test(app),
     'the limits sentence should not carry it');
+});
+
+test('ONE FITTER, LOADED BY BOTH PAGES, so there is no copy to drift', () => {
+  const coin = fs.readFileSync(path.join(__dirname, '..', 'web', 'runes-coin.html'), 'utf8');
+  for (const [name, page] of [['index.html', html], ['runes-coin.html', coin]]) {
+    assert.match(page, /src="\/imagefit\.js/, name + ' should load the shared fitter');
+  }
+  const fit = fs.readFileSync(path.join(__dirname, '..', 'web', 'imagefit.js'), 'utf8');
+  assert.match(fit, /window\.vgFitImage = vgFitImage;/, 'and it has to be reachable from both');
+  assert.ok(!/^import |export /m.test(fit),
+    'a classic script: app.js cannot import, and the coin page module can still read the global');
+  assert.ok(!/function fitImage\(file, lim\) \{[\s\S]*createImageBitmap/.test(app),
+    'app.js must delegate rather than keep its own copy');
+});
+
+test('a file over the source ceiling is named and measured, not just refused', () => {
+  const fit = fs.readFileSync(path.join(__dirname, '..', 'web', 'imagefit.js'), 'utf8');
+  assert.match(fit, /the most that can be read is \$\{mb\} MB/);
+  assert.match(fit, /toFixed\(1\)\} MB/, 'and it says how big theirs actually is');
 });
 
 console.log('\n' + passed + ' launchpad identity tests passed');

@@ -586,6 +586,16 @@ $('#et-compose').addEventListener('click', async () => {
   const box = $('#et-status');
   try {
     const info = await (await fetch('/api/info', { headers: { accept: 'application/json' } })).json();
+    if (info.coinImage) {
+      imageLimits = info.coinImage;
+      const note = $('#et-pic-note');
+      if (note) {
+        const mb = (info.coinImage.maxSourceBytes / 1024 / 1024).toFixed(0);
+        note.textContent = `PNG, JPEG, WEBP or GIF, up to ${mb} MB. Your browser reduces it to WEBP `
+          + 'before it is sent. It is attached once your coin is on the chain, and you can change it '
+          + "any time from the coin's page.";
+      }
+    }
     if (info.runes) {
       box.textContent = 'Verge Runes is live on this server';
       box.className = 'et-status live';
@@ -615,7 +625,9 @@ refresh();
 // one the chain says etched it, and until a miner has placed the etching there is no such fact.
 // So the file is held here and attached at the end, which is also why nothing about the etching
 // itself depends on it.
-const MAX_IMAGE_BYTES = 100 * 1024;
+// Written by the server, never here. A copy of this number in a page is a copy that drifts, and it
+// did: the stored ceiling moved and this file went on refusing files the server would have kept.
+let imageLimits = null;
 let picked = null; // { dataBase64, name, url }
 
 function wirePicture() {
@@ -645,12 +657,6 @@ function wirePicture() {
     note.classList.remove('et-pic-bad', 'et-pic-ok');
     // Checked here as a courtesy so somebody learns in the moment rather than after paying. The
     // real enforcement reads the bytes on the server and believes nothing it is told.
-    if (file.size > MAX_IMAGE_BYTES) {
-      note.textContent = `That is ${Math.round(file.size / 1024)} KB, and the limit is 100 KB.`;
-      note.classList.add('et-pic-bad');
-      input.value = '';
-      return;
-    }
     if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type)) {
       note.textContent = 'PNG, JPEG, WEBP or GIF only.';
       note.classList.add('et-pic-bad');
@@ -658,10 +664,23 @@ function wirePicture() {
       return;
     }
     try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
+      // Reduced rather than refused, against the server's own numbers. See web/imagefit.js.
+      const lim = imageLimits || { maxBytes: 262144, maxSide: 1024, maxSourceBytes: 2097152 };
+      note.textContent = 'Reading...';
+      const fitted = await window.vgFitImage(file, {
+        maxBytes: lim.maxBytes, maxSide: lim.maxSide,
+        formats: lim.formats, maxSourceBytes: lim.maxSourceBytes,
+      });
+      if (fitted.error) {
+        note.textContent = fitted.error;
+        note.classList.add('et-pic-bad');
+        input.value = '';
+        return;
+      }
+      const bytes = new Uint8Array(await fitted.blob.arrayBuffer());
       let bin = '';
       for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-      const url = URL.createObjectURL(file);
+      const url = URL.createObjectURL(fitted.blob);
       picked = { dataBase64: btoa(bin), name: file.name, url };
       slot.textContent = '';
       const img = document.createElement('img');
@@ -670,7 +689,8 @@ function wirePicture() {
       slot.append(img);
       slot.classList.add('has-img');
       drop.hidden = false;
-      note.textContent = `${file.name}, ${Math.max(1, Math.round(file.size / 1024))} KB. Attached once your coin is on the chain.`;
+      note.textContent = `${file.name}, ${Math.max(1, Math.round(fitted.blob.size / 1024))} KB`
+        + `${fitted.changed ? ' after reducing' : ''}. Attached once your coin is on the chain.`;
     } catch (e) {
       note.textContent = 'That file could not be read.';
       note.classList.add('et-pic-bad');

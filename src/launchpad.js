@@ -43,6 +43,18 @@ const MIN_ITEMS = 2;                           // a collection, not a piece
 const MAX_ITEMS = 10000;                       // the classic 10k collection standard
 const MAX_IMAGE_BYTES = 16 * 1024;             // above every image on the chain, with room
 const MAX_IMAGE_SIDE = coinimage.MAX_SIDE;     // one definition of "too big to draw"
+/**
+ * An avatar and a banner are not items, and they are not each other.
+ *
+ * Squeezing them into an item's byte budget was a rule written for the wrong thing: 16 KB is right
+ * for one of ten thousand tiles and wrong for the picture a collection is known by. And a banner is
+ * not a big avatar: it is drawn across the top of a page, so 1024 pixels on its longest side would
+ * be narrower than the space it has to fill. It needs both room and width; an avatar needs neither.
+ */
+const BRAND = Object.freeze({
+  avatar: { bytes: coinimage.MAX_BYTES, side: MAX_IMAGE_SIDE },  // 256 KB, 1024 square
+  banner: { bytes: 1024 * 1024, side: 2560 },                    // 1 MB, wide enough for a header
+});
 const MAX_DRAFT_BYTES = MAX_ITEMS * MAX_IMAGE_BYTES; // never typed: 10,000 x 16 KB = 156 MB
 // Everything under launchpad/, both the waiting room and the approved collections. At the worst
 // case above that is a dozen collections, and at the sizes people really make (25 MB for 10,000)
@@ -137,6 +149,8 @@ const LIMITS = Object.freeze({
   minItems: MIN_ITEMS,
   maxItems: MAX_ITEMS,
   maxImageBytes: MAX_IMAGE_BYTES,
+  brand: BRAND,
+  maxSourceBytes: coinimage.MAX_SOURCE_BYTES,
   maxImageSide: MAX_IMAGE_SIDE,
   maxDraftBytes: MAX_DRAFT_BYTES,
   formats: ['image/webp', 'image/png', 'image/jpeg', 'image/gif'],
@@ -393,19 +407,20 @@ class Launchpad {
    * server-chosen name, so nothing a caller sends reaches the filesystem.
    */
   setBrandImage(id, kind, dataBase64) {
-    if (kind !== 'avatar' && kind !== 'banner') throw new Error('an image is an avatar or a banner');
+    const lim = BRAND[kind];
+    if (!lim) throw new Error('an image is an avatar or a banner');
     const d = this._loadDraft(id);
     if (d.status !== 'draft') throw new Error('this submission is closed');
     if (typeof dataBase64 !== 'string' || !dataBase64) throw new Error('dataBase64 is required');
     const body = Buffer.from(dataBase64, 'base64');
     if (!body.length) throw new Error('decoded image is empty');
-    if (body.length > MAX_IMAGE_BYTES) throw new Error(`image too large (max ${MAX_IMAGE_BYTES / 1024} KB)`);
+    if (body.length > lim.bytes) throw new Error(`that ${kind} is too large (max ${lim.bytes / 1024} KB)`);
     const mediaType = sniffImage(body);
     if (!mediaType) throw new Error('not a supported image (webp, png, jpeg or gif)');
     const size = coinimage.dimensions(body, mediaType);
     if (!size || !(size.w > 0) || !(size.h > 0)) throw new Error('that image has no readable size');
-    if (size.w > MAX_IMAGE_SIDE || size.h > MAX_IMAGE_SIDE) {
-      throw new Error(`that image is ${size.w} by ${size.h} and the limit is ${MAX_IMAGE_SIDE} on a side`);
+    if (size.w > lim.side || size.h > lim.side) {
+      throw new Error(`that ${kind} is ${size.w} by ${size.h} and the limit is ${lim.side} on a side`);
     }
     const ext = mediaType.split('/')[1].replace('jpeg', 'jpg');
     const file = `${kind}.${ext}`;

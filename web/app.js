@@ -2062,9 +2062,11 @@ function paintLaunchpadLimits() {
   const specs = [
     ['Formats', lpLimits.formats.map((f) => f.split('/')[1].toUpperCase()).join(' · '),
       'one format for the whole collection'],
-    ['Max size', kb + ' KB', 'per image'],
+    ['Max size', kb + ' KB', 'per item'],
     ['Resolution', `${lpLimits.maxImageSide} × ${lpLimits.maxImageSide}`, 'at most, per side'],
     ['Items', `${lpLimits.minItems} to ${fmt(lpLimits.maxItems)}`, 'per collection'],
+    ['Avatar & banner', `${Math.round(lpLimits.brand.avatar.bytes / 1024)} KB · ${Math.round(lpLimits.brand.banner.bytes / 1024)} KB`,
+      `${lpLimits.brand.avatar.side} square · up to ${lpLimits.brand.banner.side} wide`],
   ];
   box.innerHTML = '';
   for (const [label, value, sub] of specs) {
@@ -2079,8 +2081,9 @@ function paintLaunchpadLimits() {
   }
   const say = document.createElement('p');
   say.className = 'lps-specs-say';
-  say.textContent = 'Anything bigger is reduced in your browser before it is sent, so a file over '
-    + 'the limit is not a refusal.';
+  const mb = (lpLimits.maxSourceBytes / 1024 / 1024).toFixed(0);
+  say.textContent = `Drop anything up to ${mb} MB: your browser reduces it to WEBP before it is `
+    + 'sent, so a file over the limit is not a refusal.';
   box.append(say);
 }
 
@@ -2460,45 +2463,24 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
   rd.readAsDataURL(file);
 });
 
+/** The shared fitter, given this form's rules. See web/imagefit.js. */
+const fitImage = (file, lim) => window.vgFitImage(file, {
+  maxBytes: lim.maxImageBytes,
+  maxSide: lim.maxImageSide,
+  formats: lim.formats,
+  maxSourceBytes: lim.maxSourceBytes,
+});
+
 /**
- * Make one image fit the rules, rather than refusing it.
- *
- * The measured reality of this chain is that every image on it is a small WEBP, because that is
- * what our own pipeline produces. Somebody arriving with 400 by 400 JPEGs out of a design tool has
- * done nothing wrong and would have been told their file was too big with no way forward. The
- * canvas re-encodes it here, in their browser, and the server still receives only bytes it checks
- * itself.
- *
- * A file that already passes is sent untouched: re-encoding something that fits only loses quality.
+ * An avatar or a banner is not one of ten thousand tiles, and they are not each other: a banner is
+ * drawn across the top of a page, so it gets both more room and more width.
  */
-async function fitImage(file, lim) {
-  let bmp;
-  try { bmp = await createImageBitmap(file); }
-  catch (_) { return { error: `${file.name} is not an image this browser can read` }; }
-
-  const oversized = bmp.width > lim.maxImageSide || bmp.height > lim.maxImageSide;
-  if (!oversized && file.size <= lim.maxImageBytes && lim.formats.includes(file.type)) {
-    bmp.close && bmp.close();
-    return { blob: file, changed: false };
-  }
-
-  const scale = Math.min(1, lim.maxImageSide / Math.max(bmp.width, bmp.height));
-  const w = Math.max(1, Math.round(bmp.width * scale));
-  const h = Math.max(1, Math.round(bmp.height * scale));
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  ctx.imageSmoothingEnabled = scale < 1; // downscaling wants smoothing, pixel art at 1:1 does not
-  ctx.drawImage(bmp, 0, 0, w, h);
-  bmp.close && bmp.close();
-
-  for (const q of [0.92, 0.85, 0.75, 0.65, 0.5]) {
-    const blob = await new Promise((r) => canvas.toBlob(r, 'image/webp', q));
-    if (blob && blob.size <= lim.maxImageBytes) return { blob, changed: true, w, h };
-  }
-  return { error: `${file.name} will not fit in ${Math.round(lim.maxImageBytes / 1024)} KB even reduced` };
-}
+const fitBrand = (file, kind, lim) => window.vgFitImage(file, {
+  maxBytes: lim.brand[kind].bytes,
+  maxSide: lim.brand[kind].side,
+  formats: lim.formats,
+  maxSourceBytes: lim.maxSourceBytes,
+});
 
 $('#lps-submit').addEventListener('click', async () => {
   const err = $('#lps-error');
@@ -2628,7 +2610,7 @@ $('#lps-submit').addEventListener('click', async () => {
       const f = $('#lps-' + kind).files[0];
       if (!f) continue;
       ptext.textContent = 'sending the ' + kind + '...';
-      const fitted = await fitImage(f, lim);
+      const fitted = await fitBrand(f, kind, lim);
       if (fitted.error) throw new Error(fitted.error);
       await api('/api/launchpad/submit/' + draft.id + '/brand', {
         method: 'POST', headers: { 'content-type': 'application/json' },

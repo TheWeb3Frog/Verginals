@@ -156,7 +156,9 @@ function mountImageUpload(c) {
 
     const say = document.createElement('span');
     say.className = 'rc-image-say';
-    say.textContent = `PNG, JPEG, WEBP or GIF, up to ${Math.round((c.imageMaxBytes || 102400) / 1024)} KB.`;
+    const mb = ((c.imageMaxSourceBytes || 2097152) / 1024 / 1024).toFixed(0);
+    say.textContent = `PNG, JPEG, WEBP or GIF, up to ${mb} MB. Anything bigger than the stored size `
+      + 'is reduced to WEBP in your browser first.';
 
     host.append(label, say);
 
@@ -165,7 +167,19 @@ function mountImageUpload(c) {
       if (!file) return;
       say.textContent = 'Reading...';
       try {
-        const bytes = new Uint8Array(await file.arrayBuffer());
+        // Reduced here rather than refused. A picture off a phone is megabytes and telling somebody
+        // to go and shrink it themselves is telling them to go away. The server still checks the
+        // bytes it receives, exactly as before. See web/imagefit.js.
+        const fitted = await window.vgFitImage(file, {
+          maxBytes: c.imageMaxBytes || 262144,
+          maxSide: c.imageMaxSide || 1024,
+          formats: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
+          maxSourceBytes: c.imageMaxSourceBytes || 2097152,
+        });
+        if (fitted.error) throw new Error(fitted.error);
+        if (fitted.changed) say.textContent = 'Reduced, uploading...';
+
+        const bytes = new Uint8Array(await fitted.blob.arrayBuffer());
         let bin = '';
         for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
         const dataBase64 = btoa(bin);

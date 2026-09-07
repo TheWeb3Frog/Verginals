@@ -7,7 +7,7 @@
 // Run: node test/coinimage.test.js
 const assert = require('assert');
 const path = require('path');
-const { check, sniff, fileFor, urlFor, MAX_BYTES, MAX_SIDE } = require('../src/coinimage');
+const { check, sniff, fileFor, urlFor, MAX_BYTES, MAX_SOURCE_BYTES, MAX_SIDE } = require('../src/coinimage');
 
 let passed = 0;
 const test = (name, fn) => { fn(); passed++; console.log('  ok - ' + name); };
@@ -139,6 +139,39 @@ test('the public url is derived the same way and carries nothing from the caller
 test('CONTROL: the sniffer really can tell these apart', () => {
   assert.strictEqual(sniff(png()).mime, 'image/png');
   assert.strictEqual(sniff(Buffer.from('not an image at all')), null);
+});
+
+// --- what may be chosen, and what is kept -------------------------------------------------------
+//
+// Two numbers that were being answered with one. A picture off a phone is megabytes, and telling
+// somebody to go and shrink it themselves is telling them to go away, so the browser reduces it to
+// WEBP first. What is enforced HERE is only ever what gets stored: the server believes nothing about
+// what happened before the bytes arrived.
+
+test('THE SOURCE CEILING IS FAR ABOVE THE STORED ONE', () => {
+  assert.ok(MAX_SOURCE_BYTES > MAX_BYTES * 4,
+    'if they were close, the browser would have nothing to reduce and people would still be refused');
+  assert.strictEqual(MAX_SOURCE_BYTES, 2 * 1024 * 1024);
+});
+
+test('and the server still enforces the STORED one, whatever a page did first', () => {
+  // The reduction is a courtesy in somebody's browser. It is not a promise the server may rely on.
+  const big = Buffer.concat([png(8, 8, 8), Buffer.alloc(MAX_BYTES + 1)]);
+  const r = check(big);
+  assert.strictEqual(r.ok, false);
+  assert.match(r.why, new RegExp('limit is ' + (MAX_BYTES / 1024) + ' KB'));
+});
+
+test('a picture that a phone would produce fits once reduced', () => {
+  // 1024 square is the ceiling, and a WEBP of a photograph at that size lands well inside 256 KB.
+  assert.ok(MAX_BYTES >= 200 * 1024, 'a 1024 pixel photograph needs room to look like one');
+  assert.strictEqual(MAX_SIDE, 1024);
+});
+
+test('CONTROL: the old ceiling would have refused that same picture', () => {
+  const OLD = 100 * 1024;
+  assert.ok(OLD < 150 * 1024, 'the cap this replaces was too small for a photograph at 1024 square');
+  assert.ok(MAX_BYTES > OLD);
 });
 
 console.log('\n' + passed + ' coin image tests passed');

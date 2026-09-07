@@ -36,7 +36,20 @@ const codec = require('./runes/codec');
  * The cap is still a cap. It bounds what one request can spend of the disk and of the time spent
  * reading it, and the dimension check below is what actually guards against a bomb.
  */
-const MAX_BYTES = 100 * 1024;
+/**
+ * TWO NUMBERS, NOT ONE.
+ *
+ * MAX_SOURCE_BYTES is what somebody may CHOOSE: a picture off a phone or out of a design tool is
+ * megabytes and there is no reason to make them go and shrink it themselves. The browser reduces it
+ * to WEBP before anything is sent, so what a person hands over and what the server keeps are
+ * different questions and were being answered with one number.
+ *
+ * MAX_BYTES is what is STORED, and it is the one that is enforced here. A 1024 pixel WEBP of a
+ * photograph lands around 100 to 200 KB, so the ceiling has room for one without inviting a file
+ * nobody needs behind a 40 pixel logo.
+ */
+const MAX_SOURCE_BYTES = 2 * 1024 * 1024;
+const MAX_BYTES = 256 * 1024;
 /** Nothing sane needs more, and past it something is being attempted rather than uploaded. */
 const MAX_SIDE = 1024;
 
@@ -105,7 +118,7 @@ function dimensions(bytes, mime) {
 function check(bytes) {
   if (!Buffer.isBuffer(bytes) || bytes.length === 0) return { ok: false, why: 'no file was sent' };
   if (bytes.length > MAX_BYTES) {
-    return { ok: false, why: `that file is ${(bytes.length / 1024).toFixed(0)} KB and the limit is ${MAX_BYTES / 1024} KB. Try a smaller PNG, or the same one at 512 by 512.` };
+    return { ok: false, why: `that file is ${(bytes.length / 1024).toFixed(0)} KB and the limit is ${MAX_BYTES / 1024} KB once reduced` };
   }
   const type = sniff(bytes);
   if (!type) {
@@ -140,4 +153,4 @@ function urlFor(runeRef) {
   return ref ? `/api/runes/image/${ref.height}-${ref.txIndex}` : null;
 }
 
-module.exports = { MAX_BYTES, MAX_SIDE, TYPES, sniff, dimensions, check, fileFor, urlFor };
+module.exports = { MAX_BYTES, MAX_SOURCE_BYTES, MAX_SIDE, TYPES, sniff, dimensions, check, fileFor, urlFor };

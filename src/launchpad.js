@@ -41,7 +41,7 @@ const coinimage = require('./coinimage');
  */
 const MIN_ITEMS = 2;                           // a collection, not a piece
 const MAX_ITEMS = 10000;                       // the classic 10k collection standard
-const MAX_IMAGE_BYTES = 16 * 1024;             // above every image on the chain, with room
+const MAX_IMAGE_BYTES = 20 * 1024;             // above every image on the chain, with room
 const MAX_IMAGE_SIDE = coinimage.MAX_SIDE;     // one definition of "too big to draw"
 /**
  * An avatar and a banner are not items, and they are not each other.
@@ -55,7 +55,7 @@ const BRAND = Object.freeze({
   avatar: { bytes: coinimage.MAX_BYTES, side: MAX_IMAGE_SIDE },  // 256 KB, 1024 square
   banner: { bytes: 1024 * 1024, side: 2560 },                    // 1 MB, wide enough for a header
 });
-const MAX_DRAFT_BYTES = MAX_ITEMS * MAX_IMAGE_BYTES; // never typed: 10,000 x 16 KB = 156 MB
+const MAX_DRAFT_BYTES = MAX_ITEMS * MAX_IMAGE_BYTES; // never typed: the product, whatever the two are
 // Everything under launchpad/, both the waiting room and the approved collections. At the worst
 // case above that is a dozen collections, and at the sizes people really make (25 MB for 10,000)
 // it is closer to eighty. VERGINALS_LAUNCHPAD_BUDGET_MB overrides it.
@@ -77,7 +77,7 @@ const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // unfinalized drafts older than t
  * time somebody presses backspace.
  */
 const PER_ADDRESS_PER_DAY = 3;
-const OPEN_DRAFTS_PER_ADDRESS = 2;
+const OPEN_DRAFTS_PER_ADDRESS = 3;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -261,11 +261,40 @@ class Launchpad {
     return this.listSubmissions().filter((d) => d.status === 'pending').length;
   }
 
-  /** Finalized submissions this address made inside the window. Its daily allowance. */
+  /**
+   * Finalized submissions this address made inside the window. Its daily allowance.
+   *
+   * A REJECTED SUBMISSION DOES NOT COUNT. The allowance exists to protect review attention, and a
+   * rejection means that attention has already been spent and the reviewer chose to invite a
+   * retry. Counting it locks out the one person doing exactly what they were asked to do, for a
+   * day, with no way to tell. It cannot be gamed either: only the operator can reject.
+   */
   recentFor(address, windowMs = DAY_MS, now = Date.now()) {
     if (!address) return 0;
-    return this.listSubmissions()
-      .filter((d) => d.address === address && d.finalizedAt && now - d.finalizedAt < windowMs).length;
+    return this.listSubmissions().filter((d) => d.address === address
+      && d.status !== 'rejected'
+      && d.finalizedAt && now - d.finalizedAt < windowMs).length;
+  }
+
+  /**
+   * Throw away this address's drafts that were opened and never used.
+   *
+   * A draft with no items is a start that failed: the form opened one, something went wrong before
+   * a single image was sent, and nothing is left but a slot against its owner's cap. Two of those
+   * on a live site locked somebody out of their own launchpad for a week, which is how long an
+   * unfinished draft lives. They cost no disk, they hold no work, and they belong to the address
+   * asking, so nothing here is anybody else's to lose.
+   */
+  dropEmptyDraftsFor(address) {
+    if (!address) return 0;
+    let gone = 0;
+    for (const d of this.listSubmissions()) {
+      if (d.address !== address || d.status !== 'draft' || (d.items || []).length) continue;
+      fs.rmSync(this._draftPath(d.id), { recursive: true, force: true });
+      gone++;
+    }
+    if (gone) this._usage = null; // recount on the next write
+    return gone;
   }
 
   /** Drafts this address has open and unfinished. The cap that protects disk rather than attention. */
@@ -280,11 +309,13 @@ class Launchpad {
     if (this.pendingCount() >= MAX_PENDING) throw new Error('the review queue is full, please try again later');
     // The caller proves the address before this is reached; here it is only counted.
     if (address) {
+      // A failed start must never stand between somebody and trying again.
+      this.dropEmptyDraftsFor(address);
       if (this.recentFor(address) >= PER_ADDRESS_PER_DAY) {
         throw new Error(`that address has submitted ${PER_ADDRESS_PER_DAY} collections today, which is the limit`);
       }
       if (this.openDraftsFor(address) >= OPEN_DRAFTS_PER_ADDRESS) {
-        throw new Error(`that address already has ${OPEN_DRAFTS_PER_ADDRESS} submissions in progress; finish or abandon one first`);
+        throw new Error(`that address has ${OPEN_DRAFTS_PER_ADDRESS} submissions part way through with images already sent; finish one or wait for it to expire`);
       }
     }
     // The price is fixed at submission and reviewed with everything else. A number that could be

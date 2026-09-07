@@ -263,4 +263,22 @@ test('a file over the source ceiling is named and measured, not just refused', (
   assert.match(fit, /toFixed\(1\)\} MB/, 'and it says how big theirs actually is');
 });
 
+test('A JPEG THAT ALREADY FITS IS STILL OFFERED A LIGHTER WEBP', () => {
+  // It used to be sent exactly as it arrived, so collections of JPEGs went onto the chain heavier
+  // than they had to be, and a folder of mixed formats failed the one-format rule for no reason.
+  // Measured on the deployed page: an 8.5 KB JPEG under the ceiling comes back a 5.1 KB WEBP.
+  const fit = fs.readFileSync(path.join(__dirname, '..', 'web', 'imagefit.js'), 'utf8');
+  assert.match(fit, /if \(file\.type === 'image\/webp'\)/, 'a WEBP is left alone, there is nothing to gain');
+  assert.match(fit, /lighter\.size < file\.size \* 0\.9/,
+    'and the re-encode is only taken when it is meaningfully smaller');
+});
+
+test('because a round trip is a loss, and paying it for two per cent is a bad trade', () => {
+  const fit = fs.readFileSync(path.join(__dirname, '..', 'web', 'imagefit.js'), 'utf8');
+  assert.match(fit, /reEncode\(bmp, bmp\.width, bmp\.height, 0\.94\)/,
+    'a file that already fits is re-encoded at its own size and high quality');
+  assert.match(fit, /ctx\.imageSmoothingEnabled = w !== bmp\.width \|\| h !== bmp\.height;/,
+    'and art redrawn at its own size is not blurred for nothing');
+});
+
 console.log('\n' + passed + ' launchpad identity tests passed');

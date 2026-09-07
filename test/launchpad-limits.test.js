@@ -153,11 +153,16 @@ test('the allowance is counted on FINALIZED work, not on false starts', () => {
   assert.strictEqual(l.recentFor(A), 0, 'an unfinished draft costs no allowance');
 });
 
-test('but open drafts have their own cap, because those cost disk', () => {
+test('but drafts WITH IMAGES have their own cap, because those cost disk', () => {
+  // Only drafts holding something count: an empty one is a failed start and is cleared away rather
+  // than held against its owner. See the failed-start test below.
   const l = fresh();
   const A = 'D' + 'd'.repeat(33);
-  for (let i = 0; i < LIMITS.openDraftsPerAddress; i++) l.createDraft({ name: 'D' + i, address: A });
-  assert.throws(() => l.createDraft({ name: 'Third', address: A }), /in progress/);
+  for (let i = 0; i < LIMITS.openDraftsPerAddress; i++) {
+    const { id } = l.createDraft({ name: 'D' + i, address: A });
+    l.addItem(id, { dataBase64: b64(png()) });
+  }
+  assert.throws(() => l.createDraft({ name: 'One too many', address: A }), /part way through/);
 });
 
 test('a day later the allowance is back', () => {
@@ -183,6 +188,91 @@ test('THE ADDRESS IS PROVEN BEFORE IT IS COUNTED', () => {
   assert.match(server, /new GameAuth\(\{ prefix: 'verginals-launchpad-submit' \}\)/,
     'and its own prefix, so a coin-picture challenge is not spendable here');
   assert.match(fn[0], /allowQuote\(req\)/, 'the per-IP limit stays as the free first line');
+});
+
+// --- nothing may lock somebody out of their own launchpad ----------------------------------------
+//
+// Both of these happened to a real person on the live site. He opened the form twice, something
+// failed before a single image was sent both times, and two empty drafts then stood between him and
+// trying again for the seven days an unfinished draft lives. And a rejection, which is the operator
+// asking somebody to come back, spent a day of their allowance on the way out.
+
+test('A FAILED START CANNOT EVEN ACCUMULATE, let alone lock anybody out', () => {
+  // Each new start clears this address's empty ones first, so however many times somebody's form
+  // fails before an image is sent, exactly one open draft exists afterwards. Two of these on the
+  // live site had stood between a real person and their own launchpad for a week.
+  const l = fresh();
+  const A = 'D' + 'f'.repeat(33);
+  for (let i = 0; i < 6; i++) {
+    assert.ok(l.createDraft({ name: 'Try ' + i, address: A }).id, 'start ' + i + ' should be allowed');
+    assert.strictEqual(l.openDraftsFor(A), 1, 'and never more than the live one is left');
+  }
+});
+
+test('but a draft with images in it is somebody work and is kept', () => {
+  const l = fresh();
+  const A = 'D' + 'g'.repeat(33);
+  const { id } = l.createDraft({ name: 'Real', address: A });
+  l.addItem(id, { dataBase64: b64(png()) });
+  l.createDraft({ name: 'Second', address: A });
+  assert.strictEqual(l.openDraftsFor(A), 2, 'the one with an image survives the next start');
+  assert.ok(l._loadDraft(id), 'and is still readable');
+});
+
+test('and it only ever touches the asking address', () => {
+  const l = fresh();
+  const A = 'D' + 'h'.repeat(33);
+  const B = 'D' + 'i'.repeat(33);
+  l.createDraft({ name: 'Theirs', address: B });
+  l.createDraft({ name: 'Mine', address: A });
+  assert.strictEqual(l.dropEmptyDraftsFor(A), 1, 'one of mine');
+  assert.strictEqual(l.openDraftsFor(B), 1, 'and none of theirs');
+});
+
+test('A REJECTION DOES NOT SPEND THE DAILY ALLOWANCE', () => {
+  // The allowance protects review attention. A rejection means that attention was already spent
+  // and the reviewer chose to invite a retry; charging for it locks out the one person doing
+  // exactly what they were asked.
+  const l = fresh();
+  const A = 'D' + 'j'.repeat(33);
+  const ids = [];
+  for (let i = 0; i < LIMITS.perAddressPerDay; i++) {
+    const { id } = l.createDraft({ name: 'C' + i, address: A });
+    l.addItem(id, { dataBase64: b64(png()) });
+    l.addItem(id, { dataBase64: b64(png()) });
+    l.finalize(id);
+    ids.push(id);
+  }
+  assert.strictEqual(l.recentFor(A), LIMITS.perAddressPerDay, 'the allowance is spent');
+  assert.throws(() => l.createDraft({ name: 'Blocked', address: A }), /which is the limit/);
+
+  l.reject(ids[0], 'come back with more items');
+  assert.strictEqual(l.recentFor(A), LIMITS.perAddressPerDay - 1, 'and the rejection gives it back');
+  assert.ok(l.createDraft({ name: 'Retry', address: A }), 'so the retry they were asked for works');
+});
+
+test('an approval still counts, because that attention was spent and kept', () => {
+  const l = fresh();
+  const A = 'D' + 'k'.repeat(33);
+  const { id } = l.createDraft({ name: 'Good', address: A });
+  l.addItem(id, { dataBase64: b64(png()) });
+  l.addItem(id, { dataBase64: b64(png()) });
+  l.finalize(id);
+  l.approve(id, 'good-one');
+  assert.strictEqual(l.recentFor(A), 1);
+});
+
+test('CONTROL: counting every finalized submission would still block the retry', () => {
+  const l = fresh();
+  const A = 'D' + 'm'.repeat(33);
+  const { id } = l.createDraft({ name: 'One', address: A });
+  l.addItem(id, { dataBase64: b64(png()) });
+  l.addItem(id, { dataBase64: b64(png()) });
+  l.finalize(id);
+  l.reject(id, 'no');
+  const naive = l.listSubmissions().filter((d) => d.address === A && d.finalizedAt).length;
+  assert.strictEqual(naive, 1, 'the old rule saw one');
+  assert.strictEqual(l.recentFor(A), 0, 'and the real one sees none');
 });
 
 console.log('\n' + passed + ' launchpad limit tests passed');

@@ -33,30 +33,54 @@
 
     const oversized = bmp.width > lim.maxSide || bmp.height > lim.maxSide;
     const known = !lim.formats || lim.formats.includes(file.type);
-    // A file that already passes is sent untouched: re-encoding something that fits only loses
-    // quality, and a WEBP round trip through a canvas is never free.
+
+    // ALREADY SMALL ENOUGH, BUT NOT ALREADY WEBP.
+    //
+    // A JPEG under the ceiling used to be sent exactly as it arrived, which left collections of
+    // JPEGs going onto the chain heavier than they had to be, and made a folder of mixed formats
+    // fail the one-format rule for no reason. So it is offered a WEBP of itself at native size and
+    // high quality, and that is taken only if it is MEANINGFULLY smaller: a re-encode is a
+    // generation loss, and paying it for two per cent is a bad trade.
     if (!oversized && file.size <= lim.maxBytes && known) {
+      if (file.type === 'image/webp') {
+        if (bmp.close) bmp.close();
+        return { blob: file, changed: false, w: bmp.width, h: bmp.height };
+      }
+      const lighter = await reEncode(bmp, bmp.width, bmp.height, 0.94);
+      const worthIt = lighter && lighter.size <= lim.maxBytes && lighter.size < file.size * 0.9;
+      const out = worthIt
+        ? { blob: lighter, changed: true, w: bmp.width, h: bmp.height, recoded: true }
+        : { blob: file, changed: false, w: bmp.width, h: bmp.height };
       if (bmp.close) bmp.close();
-      return { blob: file, changed: false, w: bmp.width, h: bmp.height };
+      return out;
     }
 
     const scale = Math.min(1, lim.maxSide / Math.max(bmp.width, bmp.height));
     const w = Math.max(1, Math.round(bmp.width * scale));
     const h = Math.max(1, Math.round(bmp.height * scale));
+
+    for (const q of [0.92, 0.85, 0.75, 0.65, 0.5]) {
+      const blob = await reEncode(bmp, w, h, q);
+      if (blob && blob.size <= lim.maxBytes) {
+        if (bmp.close) bmp.close();
+        return { blob, changed: true, w, h, recoded: true };
+      }
+    }
+    if (bmp.close) bmp.close();
+    return { error: `${file.name} will not fit in ${Math.round(lim.maxBytes / 1024)} KB even reduced` };
+  }
+
+  /** One WEBP of a bitmap at a chosen size and quality. */
+  function reEncode(bmp, w, h, quality) {
     const canvas = document.createElement('canvas');
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext('2d');
-    // Downscaling wants smoothing; pixel art redrawn at its own size does not.
-    ctx.imageSmoothingEnabled = scale < 1;
+    // Downscaling wants smoothing; art redrawn at its own size does not, and smoothing it there
+    // would blur a pixel grid for nothing.
+    ctx.imageSmoothingEnabled = w !== bmp.width || h !== bmp.height;
     ctx.drawImage(bmp, 0, 0, w, h);
-    if (bmp.close) bmp.close();
-
-    for (const q of [0.92, 0.85, 0.75, 0.65, 0.5]) {
-      const blob = await new Promise((r) => canvas.toBlob(r, 'image/webp', q));
-      if (blob && blob.size <= lim.maxBytes) return { blob, changed: true, w, h };
-    }
-    return { error: `${file.name} will not fit in ${Math.round(lim.maxBytes / 1024)} KB even reduced` };
+    return new Promise((r) => canvas.toBlob(r, 'image/webp', quality));
   }
 
   window.vgFitImage = vgFitImage;

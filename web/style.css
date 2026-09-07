@@ -1506,3 +1506,13 @@ button.mkx-ctl[aria-expanded="true"] { border-color: var(--accent); color: var(-
   border-top: 1px solid var(--line); background: var(--bg2);
   font-size: 12.5px; color: var(--muted); line-height: 1.5;
 }
+
+/* An interrupted upload. The draft survives on the server for a week and the person does not know
+   it: without this, closing a tab at image 1,500 of 3,000 meant starting from zero. */
+.lps-resume {
+  margin: 16px 0; padding: 14px 16px;
+  background: var(--bg2); border: 1px solid var(--accent); border-radius: var(--r-card, 12px);
+}
+.lps-resume-say { margin: 0 0 11px; font-size: 13.5px; color: var(--txt); line-height: 1.5; }
+.lps-resume-say b { color: var(--accent); font-family: var(--mono); font-size: 13px; }
+.lps-resume-acts { display: flex; gap: 8px; flex-wrap: wrap; }

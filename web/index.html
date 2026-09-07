@@ -7,8 +7,8 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/vg.css?v=70" />
-  <link rel="stylesheet" href="/style.css?v=70" />
+  <link rel="stylesheet" href="/vg.css?v=71" />
+  <link rel="stylesheet" href="/style.css?v=71" />
 </head>
 <body class="vg vg-hosted">
 
@@ -962,6 +962,16 @@ frog-02.png,Cosmic Frog #2,Swamp,Half Shut</code></pre>
               and that item simply has no such trait.</p>
           </div>
         </div>
+        <!-- An upload that was interrupted. The draft lives on the server for a week; what the
+             browser cannot keep is the files themselves, so resuming means picking the same folder
+             again and carrying on from where the server actually got to. -->
+        <div class="lps-resume hidden" id="lps-resume">
+          <p class="lps-resume-say" id="lps-resume-say"></p>
+          <div class="lps-resume-acts">
+            <button type="button" class="btn primary" id="lps-resume-go">Pick the folder again and carry on</button>
+            <button type="button" class="btn" id="lps-resume-drop">Start over</button>
+          </div>
+        </div>
         <button class="btn primary" id="lps-submit">Submit for review →</button>
         <div class="lps-track">
           <label class="lbl">Already submitted? Look it up</label>
@@ -1210,8 +1220,8 @@ frog-02.png,Cosmic Frog #2,Swamp,Half Shut</code></pre>
 
   <script src="/vendor/qrcode.js"></script>
   <script type="module" src="/app-chrome.js"></script>
-<script src="/imagefit.js?v=70"></script>
-<script src="/app.js?v=70"></script>
-  <script src="/wallet.js?v=70"></script>
+<script src="/imagefit.js?v=71"></script>
+<script src="/app.js?v=71"></script>
+  <script src="/wallet.js?v=71"></script>
 </body>
 </html>

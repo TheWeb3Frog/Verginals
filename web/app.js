@@ -2093,6 +2093,7 @@ async function loadLaunchpad() {
     const data = await api('/api/launchpad');
     if (data.limits) { lpLimits = data.limits; paintLaunchpadLimits(); }
     paintPayoutAddress();
+    lpsCheckResume();
     if (!data.collections.length) {
       g.innerHTML = '<div class="empty">No community collections live yet. Yours could be the first: submit it below. 🚀</div>';
       return;
@@ -2350,6 +2351,52 @@ function lpsPaintDistribution() {
   }
 }
 
+// --- an upload that was interrupted -----------------------------------------------------------
+//
+// A draft lives on the server for a week and the person who started it had no way to know. Closing a
+// tab at image 1,500 of 3,000 meant beginning again from zero, and a failed start left an empty
+// draft that then blocked the next attempt.
+//
+// What the browser cannot keep is the files: a File handle does not survive a reload, and no page
+// may reach back into a folder on its own. So resuming means picking the same folder again, and the
+// server says how far it actually got. The file order sets the item numbers, so carrying on from
+// its count is the same collection, not a different one.
+const LPS_STORE = 'vg:lp-draft';
+let lpsResumeId = null;
+
+const lpsRemember = (d) => {
+  try { localStorage.setItem(LPS_STORE, JSON.stringify(d)); } catch (_) { /* private window */ }
+};
+const lpsForget = () => {
+  try { localStorage.removeItem(LPS_STORE); } catch (_) { /* nothing to clear */ }
+  lpsResumeId = null;
+};
+const lpsRecall = () => {
+  try { return JSON.parse(localStorage.getItem(LPS_STORE) || 'null'); } catch (_) { return null; }
+};
+
+/** Ask the server what happened to a remembered draft, and offer to carry on. */
+async function lpsCheckResume() {
+  const box = $('#lps-resume');
+  if (!box) return;
+  const saved = lpsRecall();
+  if (!saved || !saved.id) return;
+
+  let d;
+  try { d = await api('/api/launchpad/submit/' + saved.id); }
+  catch (_) { return lpsForget(); } // pruned, or never existed: nothing to come back to
+  if (d.status !== 'draft') return lpsForget(); // already submitted, or decided
+
+  lpsResumeId = d.id;
+  const done = d.items;
+  const total = saved.total || 0;
+  $('#lps-resume-say').innerHTML = `You have an upload in progress for <b>${esc(saved.name || d.name)}</b>. `
+    + `The server has <b>${fmt(done)}</b>${total ? ' of ' + fmt(total) : ''} `
+    + `image${done === 1 ? '' : 's'}. Pick the same folder again and it carries on from there.`;
+  box.classList.remove('hidden');
+  $('#lps-name').value = saved.name || d.name || '';
+}
+
 /** The rows as the manifest the uploader already knows how to read. */
 function lpsManifestFromTable() {
   const out = new Map();
@@ -2386,6 +2433,17 @@ function lpsSetFiles(files) {
   filled.innerHTML = `<strong>${lpsFileList.length} image${lpsFileList.length > 1 ? 's' : ''}</strong> · ${fmt(totalKB)} KB total<br>
     <span class="hint">${lpsFileList.slice(0, 3).map((f) => esc(f.name)).join(', ')}${lpsFileList.length > 3 ? '…' : ''} · <u>click to change</u></span>`;
   lpsSyncRows();
+}
+
+if ($('#lps-resume-go')) {
+  // The file picker cannot be opened without a click of somebody's own, so this hands them the one
+  // they already have: it opens the folder chooser, and the submit flow does the rest.
+  $('#lps-resume-go').addEventListener('click', () => $('#lps-files').click());
+  $('#lps-resume-drop').addEventListener('click', () => {
+    lpsForget();
+    $('#lps-resume').classList.add('hidden');
+    lpsSetFiles([]);
+  });
 }
 
 if ($('#lps-add-trait')) {
@@ -2581,46 +2639,76 @@ $('#lps-submit').addEventListener('click', async () => {
     }
     const manifest = lpsManifestFromTable();
 
-    ptext.textContent = 'signing...';
-    const ch = await api('/api/launchpad/submit/challenge', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ address }),
-    });
-    const signature = await wallet.signMessage(ch.challenge);
-
-    const draft = await api('/api/launchpad/submit', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        name, creator: $('#lps-creator').value.trim(), description: $('#lps-desc').value.trim(),
-        tagline: $('#lps-tagline').value.trim(),
-        contact: $('#lps-contact').value.trim(),
-        links: {
-          x: $('#lps-x').value.trim(),
-          discord: $('#lps-discord').value.trim(),
-          website: $('#lps-website').value.trim(),
-        },
-        mintPriceUnits, royaltyBps, opensAt, closesAt, allowlistUntil, maxPerWallet,
-        address, nonce: ch.nonce, signature,
-      }),
-    });
-
-    // The identity images go up first, so a submission that fails on one of them fails before the
-    // creator has waited through three thousand item uploads.
-    for (const kind of ['avatar', 'banner']) {
-      const f = $('#lps-' + kind).files[0];
-      if (!f) continue;
-      ptext.textContent = 'sending the ' + kind + '...';
-      const fitted = await fitBrand(f, kind, lim);
-      if (fitted.error) throw new Error(fitted.error);
-      await api('/api/launchpad/submit/' + draft.id + '/brand', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ kind, dataBase64: await fileToBase64(fitted.blob) }),
-      });
+    // CARRYING ON, RATHER THAN STARTING AGAIN. The server is asked how far it got; everything
+    // before that point is already there and is not sent twice.
+    let draft = null;
+    let from = 0;
+    if (lpsResumeId) {
+      const d = await api('/api/launchpad/submit/' + lpsResumeId).catch(() => null);
+      if (d && d.status === 'draft') {
+        draft = { id: d.id };
+        from = d.items;
+        if (from >= lpsFileList.length) {
+          err.textContent = `✗ The server already has ${fmt(from)} images and you picked ${fmt(lpsFileList.length)}. `
+            + 'Pick the same folder you started with, or press Start over.';
+          btn.disabled = false;
+          prog.classList.add('hidden');
+          return;
+        }
+      } else {
+        lpsForget(); // it went away while the page was open
+      }
     }
 
-    let sent = 0;
+    if (!draft) {
+      ptext.textContent = 'signing...';
+      const ch = await api('/api/launchpad/submit/challenge', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ address }),
+      });
+      const signature = await wallet.signMessage(ch.challenge);
+
+      draft = await api('/api/launchpad/submit', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name, creator: $('#lps-creator').value.trim(), description: $('#lps-desc').value.trim(),
+          tagline: $('#lps-tagline').value.trim(),
+          contact: $('#lps-contact').value.trim(),
+          links: {
+            x: $('#lps-x').value.trim(),
+            discord: $('#lps-discord').value.trim(),
+            website: $('#lps-website').value.trim(),
+          },
+          mintPriceUnits, royaltyBps, opensAt, closesAt, allowlistUntil, maxPerWallet,
+          address, nonce: ch.nonce, signature,
+        }),
+      });
+      // Remembered the moment it exists, and BEFORE a single image goes up: the whole point is to
+      // survive the tab closing during the upload, so nothing may be written after it.
+      lpsRemember({ id: draft.id, name, total: lpsFileList.length, at: Date.now() });
+
+      // The identity images go up first, so a submission that fails on one of them fails before the
+      // creator has waited through three thousand item uploads. Only on the first attempt: a resume
+      // already has them.
+      for (const kind of ['avatar', 'banner']) {
+        const f = $('#lps-' + kind).files[0];
+        if (!f) continue;
+        ptext.textContent = 'sending the ' + kind + '...';
+        const fitted = await fitBrand(f, kind, lim);
+        if (fitted.error) throw new Error(fitted.error);
+        await api('/api/launchpad/submit/' + draft.id + '/brand', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ kind, dataBase64: await fileToBase64(fitted.blob) }),
+        });
+      }
+    }
+
+    // Everything before `from` is already on the server. Skipped, not resent: the file order sets
+    // the item numbers, so sending them twice would not repeat the collection, it would make a
+    // different and longer one.
+    let sent = from;
     let shrunk = 0;
-    for (let i = 0; i < lpsFileList.length; i += 50) {
+    for (let i = from; i < lpsFileList.length; i += 50) {
       const batch = lpsFileList.slice(i, i + 50);
       const items = [];
       for (const f of batch) {
@@ -2640,8 +2728,13 @@ $('#lps-submit').addEventListener('click', async () => {
       sent += batch.length;
       bar.style.width = ((sent / lpsFileList.length) * 100).toFixed(1) + '%';
       ptext.textContent = `uploading ${fmt(sent)} / ${fmt(lpsFileList.length)}`;
+      // Kept current as it goes, so a tab closed halfway resumes from the right place rather than
+      // from wherever it happened to be when the draft was created.
+      lpsRemember({ id: draft.id, name, total: lpsFileList.length, at: Date.now() });
     }
     await api('/api/launchpad/submit/' + draft.id + '/finalize', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    lpsForget(); // it is in the queue now: there is nothing left to come back to
+    $('#lps-resume').classList.add('hidden');
     ok.innerHTML = `✅ <strong>Submitted for review.</strong> Your collection "${esc(name)}" (${fmt(lpsFileList.length)} items) is in the queue.
       ${shrunk ? `${fmt(shrunk)} image${shrunk === 1 ? ' was' : 's were'} reduced to fit. ` : ''}
       Reference id: <code>${esc(draft.id)}</code>. It goes live on this page once approved.`;
